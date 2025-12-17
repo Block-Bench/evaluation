@@ -11,6 +11,7 @@ from .registry import ModelRegistry
 from .vertex_deepseek import VertexDeepSeekClient
 from .vertex_anthropic import VertexAnthropicClient
 from .vertex_google import VertexGoogleClient
+from .openrouter import OpenRouterClient
 
 __all__ = [
     "BaseModelClient",
@@ -20,4 +21,5 @@ __all__ = [
     "VertexDeepSeekClient",
     "VertexAnthropicClient",
     "VertexGoogleClient",
+    "OpenRouterClient",
 ]
