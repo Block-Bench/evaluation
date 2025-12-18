@@ -26,7 +26,7 @@ contract TokenExchange{
     }
 
 
-    function buy(uint new_price) payable
+    function buy(uint amount) payable
         public
     {
         require(msg.value >= price);
@@ -34,7 +34,7 @@ contract TokenExchange{
 
         token.transferFrom(msg.sender, owner, price);
 
-        price = new_price;
+        price = amount;
         owner = msg.sender;
     }
 
