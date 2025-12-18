@@ -46,6 +46,7 @@ class JudgeRunner:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         (self.output_dir / "judge_outputs").mkdir(exist_ok=True)
         (self.output_dir / "sample_metrics").mkdir(exist_ok=True)
+        (self.output_dir / "metrics_history").mkdir(exist_ok=True)
 
     def _create_judge_client(self, config: JudgeModelConfig) -> BaseJudgeClient:
         """Factory method to create appropriate judge client"""
@@ -233,10 +234,34 @@ class JudgeRunner:
             json.dump(metrics.model_dump(mode="json"), f, indent=2)
 
     def _save_aggregated_metrics(self, metrics: AggregatedMetrics):
-        """Save aggregated metrics"""
+        """Save aggregated metrics (current + historical snapshot)"""
+        # Save current/latest
         file_path = self.output_dir / "aggregated_metrics.json"
         with open(file_path, "w") as f:
             json.dump(metrics.model_dump(mode="json"), f, indent=2)
+
+        # Save historical snapshot
+        self._save_metrics_history(metrics)
+
+    def _save_metrics_history(self, metrics: AggregatedMetrics):
+        """Save timestamped snapshot of metrics for historical tracking"""
+        timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+        n_samples = metrics.total_samples
+
+        # Create snapshot with metadata
+        snapshot = {
+            "snapshot_timestamp": datetime.now().isoformat(),
+            "sample_count": n_samples,
+            "metrics": metrics.model_dump(mode="json")
+        }
+
+        # Save with descriptive filename
+        filename = f"{timestamp}_n{n_samples}.json"
+        file_path = self.output_dir / "metrics_history" / filename
+        with open(file_path, "w") as f:
+            json.dump(snapshot, f, indent=2)
+
+        print(f"  Saved metrics snapshot: {filename}")
 
     def _save_summary_report(
         self,
@@ -358,3 +383,161 @@ Samples with reasoning scores: {rq['n_samples_with_reasoning']}
         report_path = self.output_dir / "summary_report.md"
         with open(report_path, "w") as f:
             f.write(report)
+
+    def generate_trend_report(self) -> Optional[str]:
+        """Generate a trend report from metrics history"""
+        history_dir = self.output_dir / "metrics_history"
+        if not history_dir.exists():
+            return None
+
+        # Load all historical snapshots
+        snapshots = []
+        for file in sorted(history_dir.glob("*.json")):
+            try:
+                with open(file) as f:
+                    snapshots.append(json.load(f))
+            except Exception as e:
+                print(f"Warning: Failed to load {file}: {e}")
+
+        if len(snapshots) < 2:
+            return None  # Need at least 2 points for trend
+
+        # Extract key metrics over time
+        report = f"""# Metrics Trend Report
+
+Generated: {datetime.now().isoformat()}
+Total Snapshots: {len(snapshots)}
+
+## Sample Count Progression
+
+| Timestamp | Samples | SUI | Target Det. | Finding Prec. | Halluc. Rate |
+|-----------|---------|-----|-------------|---------------|--------------|
+"""
+        for snap in snapshots:
+            ts = snap["snapshot_timestamp"][:19]  # Truncate to readable
+            n = snap["sample_count"]
+            m = snap["metrics"]
+            sui = m["composite"]["sui"]
+            tdr = m["target_finding"]["target_detection_rate"]
+            fp = m["finding_quality"]["finding_precision"]
+            hr = m["finding_quality"]["hallucination_rate"]
+            report += f"| {ts} | {n} | {sui:.3f} | {tdr:.3f} | {fp:.3f} | {hr:.3f} |\n"
+
+        # Compare first vs last
+        first = snapshots[0]["metrics"]
+        last = snapshots[-1]["metrics"]
+
+        report += f"""
+## Change Analysis (First → Latest)
+
+| Metric | First (n={snapshots[0]['sample_count']}) | Latest (n={snapshots[-1]['sample_count']}) | Delta |
+|--------|-------|--------|-------|
+| SUI | {first['composite']['sui']:.3f} | {last['composite']['sui']:.3f} | {last['composite']['sui'] - first['composite']['sui']:+.3f} |
+| Target Detection | {first['target_finding']['target_detection_rate']:.3f} | {last['target_finding']['target_detection_rate']:.3f} | {last['target_finding']['target_detection_rate'] - first['target_finding']['target_detection_rate']:+.3f} |
+| Lucky Guess Rate | {first['target_finding']['lucky_guess_rate']:.3f} | {last['target_finding']['lucky_guess_rate']:.3f} | {last['target_finding']['lucky_guess_rate'] - first['target_finding']['lucky_guess_rate']:+.3f} |
+| Finding Precision | {first['finding_quality']['finding_precision']:.3f} | {last['finding_quality']['finding_precision']:.3f} | {last['finding_quality']['finding_precision'] - first['finding_quality']['finding_precision']:+.3f} |
+| Hallucination Rate | {first['finding_quality']['hallucination_rate']:.3f} | {last['finding_quality']['hallucination_rate']:.3f} | {last['finding_quality']['hallucination_rate'] - first['finding_quality']['hallucination_rate']:+.3f} |
+| Accuracy | {first['detection']['accuracy']:.3f} | {last['detection']['accuracy']:.3f} | {last['detection']['accuracy'] - first['detection']['accuracy']:+.3f} |
+
+## Interpretation
+
+"""
+        # Add interpretation
+        sui_delta = last['composite']['sui'] - first['composite']['sui']
+        if abs(sui_delta) < 0.02:
+            report += "- **SUI Stable**: Metrics are consistent as sample size grows (good sign)\n"
+        elif sui_delta > 0:
+            report += f"- **SUI Improving**: +{sui_delta:.3f} improvement as more samples added\n"
+        else:
+            report += f"- **SUI Declining**: {sui_delta:.3f} drop - earlier samples may have been easier\n"
+
+        tdr_delta = last['target_finding']['target_detection_rate'] - first['target_finding']['target_detection_rate']
+        if abs(tdr_delta) < 0.05:
+            report += "- **Target Detection Stable**: Consistent vulnerability identification\n"
+        elif tdr_delta < 0:
+            report += f"- **Target Detection Declining**: Model struggles with newer/harder samples\n"
+
+        hr_delta = last['finding_quality']['hallucination_rate'] - first['finding_quality']['hallucination_rate']
+        if hr_delta > 0.05:
+            report += f"- **Hallucination Increasing**: More false findings as samples grow (concerning)\n"
+        elif hr_delta < -0.05:
+            report += f"- **Hallucination Decreasing**: False findings becoming rarer\n"
+
+        # Save trend report
+        report_path = self.output_dir / "trend_report.md"
+        with open(report_path, "w") as f:
+            f.write(report)
+
+        print(f"Trend report saved to: {report_path}")
+        return report
+
+
+def generate_trend_report_for_model(output_dir: Path) -> Optional[str]:
+    """
+    Standalone function to generate trend report for a model's output directory.
+
+    Usage:
+        from src.judge.runner import generate_trend_report_for_model
+        report = generate_trend_report_for_model(Path("judge_output/grok_4"))
+    """
+    history_dir = output_dir / "metrics_history"
+    if not history_dir.exists():
+        print(f"No metrics history found in {output_dir}")
+        return None
+
+    # Load all historical snapshots
+    snapshots = []
+    for file in sorted(history_dir.glob("*.json")):
+        try:
+            with open(file) as f:
+                snapshots.append(json.load(f))
+        except Exception as e:
+            print(f"Warning: Failed to load {file}: {e}")
+
+    if len(snapshots) < 2:
+        print(f"Need at least 2 snapshots for trend analysis, found {len(snapshots)}")
+        return None
+
+    # Generate report (same logic as class method)
+    report = f"""# Metrics Trend Report
+
+Generated: {datetime.now().isoformat()}
+Model Output: {output_dir}
+Total Snapshots: {len(snapshots)}
+
+## Sample Count Progression
+
+| Timestamp | Samples | SUI | Target Det. | Finding Prec. | Halluc. Rate |
+|-----------|---------|-----|-------------|---------------|--------------|
+"""
+    for snap in snapshots:
+        ts = snap["snapshot_timestamp"][:19]
+        n = snap["sample_count"]
+        m = snap["metrics"]
+        sui = m["composite"]["sui"]
+        tdr = m["target_finding"]["target_detection_rate"]
+        fp = m["finding_quality"]["finding_precision"]
+        hr = m["finding_quality"]["hallucination_rate"]
+        report += f"| {ts} | {n} | {sui:.3f} | {tdr:.3f} | {fp:.3f} | {hr:.3f} |\n"
+
+    first = snapshots[0]["metrics"]
+    last = snapshots[-1]["metrics"]
+
+    report += f"""
+## Change Analysis (First → Latest)
+
+| Metric | First (n={snapshots[0]['sample_count']}) | Latest (n={snapshots[-1]['sample_count']}) | Delta |
+|--------|-------|--------|-------|
+| SUI | {first['composite']['sui']:.3f} | {last['composite']['sui']:.3f} | {last['composite']['sui'] - first['composite']['sui']:+.3f} |
+| Target Detection | {first['target_finding']['target_detection_rate']:.3f} | {last['target_finding']['target_detection_rate']:.3f} | {last['target_finding']['target_detection_rate'] - first['target_finding']['target_detection_rate']:+.3f} |
+| Finding Precision | {first['finding_quality']['finding_precision']:.3f} | {last['finding_quality']['finding_precision']:.3f} | {last['finding_quality']['finding_precision'] - first['finding_quality']['finding_precision']:+.3f} |
+| Hallucination Rate | {first['finding_quality']['hallucination_rate']:.3f} | {last['finding_quality']['hallucination_rate']:.3f} | {last['finding_quality']['hallucination_rate'] - first['finding_quality']['hallucination_rate']:+.3f} |
+"""
+
+    # Save
+    report_path = output_dir / "trend_report.md"
+    with open(report_path, "w") as f:
+        f.write(report)
+
+    print(f"Trend report saved to: {report_path}")
+    return report
