@@ -377,7 +377,9 @@ class EvaluationPipeline:
         # Build list of (sample, prompt_type) pairs to evaluate
         eval_pairs = []
         for sample in samples:
-            for prompt_type in prompt_types:
+            # Use per-sample prompt types if specified, otherwise use global
+            sample_prompt_types = sample.prompt_types if sample.prompt_types else prompt_types
+            for prompt_type in sample_prompt_types:
                 if resume and self._result_exists(
                     model_name, prompt_type, sample.transformed_id
                 ):
