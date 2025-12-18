@@ -1,49 +1,49 @@
 # Judge Evaluation Report
 
-Generated: 2025-12-18T15:14:14.048612
+Generated: 2025-12-18T15:37:34.120199
 Judge Model: Mistral Medium 3
-Total Cost: $0.1313
+Total Cost: $0.1920
 
 ## Summary
 
-- Total Samples Evaluated: 37
-- Vulnerable Samples: 37
+- Total Samples Evaluated: 53
+- Vulnerable Samples: 53
 - Safe Samples: 0
 
 ## Tier 1: Detection Performance
 
 | Metric | Value |
 |--------|-------|
-| Accuracy | 0.973 |
+| Accuracy | 0.925 |
 | Precision | 1.000 |
-| Recall | 0.973 |
-| F1 Score | 0.986 |
-| F2 Score | 0.978 |
+| Recall | 0.925 |
+| F1 Score | 0.961 |
+| F2 Score | 0.939 |
 | False Positive Rate | 0.000 |
-| False Negative Rate | 0.027 |
+| False Negative Rate | 0.075 |
 
-Confusion Matrix: TP=36, TN=0, FP=0, FN=1
+Confusion Matrix: TP=49, TN=0, FP=0, FN=4
 
 ## Tier 2: Target Finding
 
 | Metric | Value |
 |--------|-------|
-| Target Detection Rate | 0.459 |
-| Lucky Guess Rate | 0.528 |
-| Bonus Discovery Rate | 0.703 |
+| Target Detection Rate | 0.415 |
+| Lucky Guess Rate | 0.551 |
+| Bonus Discovery Rate | 0.660 |
 
-Target Found: 17, Lucky Guesses: 19
+Target Found: 22, Lucky Guesses: 27
 
 ## Tier 3: Finding Quality
 
 | Metric | Value |
 |--------|-------|
-| Finding Precision | 0.645 |
-| Hallucination Rate | 0.032 |
-| Over-Flagging Score | 0.89 |
-| Avg Findings per Sample | 2.51 |
+| Finding Precision | 0.620 |
+| Hallucination Rate | 0.039 |
+| Over-Flagging Score | 0.92 |
+| Avg Findings per Sample | 2.43 |
 
-Total: 93, Valid: 60, Hallucinated: 3
+Total: 129, Valid: 80, Hallucinated: 5
 
 ## Tier 4: Reasoning Quality
 
@@ -51,17 +51,17 @@ Total: 93, Valid: 60, Hallucinated: 3
 
 | Metric | Mean | Std |
 |--------|------|-----|
-| Root Cause (RCIR) | 0.912 | 0.119 |
-| Attack Vector (AVA) | 0.926 | 0.143 |
-| Fix Validity (FSV) | 0.868 | 0.174 |
+| Root Cause (RCIR) | 0.932 | 0.111 |
+| Attack Vector (AVA) | 0.943 | 0.129 |
+| Fix Validity (FSV) | 0.898 | 0.163 |
 
-Samples with reasoning scores: 17
+Samples with reasoning scores: 22
 
 ## Tier 5: Type Accuracy
 
 | Metric | Value |
 |--------|-------|
-| Exact Match Rate | 0.588 |
+| Exact Match Rate | 0.636 |
 | Semantic Match Rate | 1.000 |
 | Partial Match Rate | 0.000 |
 
@@ -69,33 +69,33 @@ Samples with reasoning scores: 17
 
 | Metric | Value |
 |--------|-------|
-| ECE | 0.050 |
+| ECE | 0.093 |
 | MCE | 0.100 |
-| Overconfidence Rate | 0.027 |
-| Brier Score | 0.030 |
+| Overconfidence Rate | 0.075 |
+| Brier Score | 0.074 |
 
 ## Tier 7: Composite Scores
 
 | Metric | Value |
 |--------|-------|
-| **Security Understanding Index (SUI)** | **0.777** |
-| True Understanding Score | 0.267 |
-| Lucky Guess Indicator | 0.514 |
+| **Security Understanding Index (SUI)** | **0.753** |
+| True Understanding Score | 0.238 |
+| Lucky Guess Indicator | 0.509 |
 
 ### SUI Components
 
-- f2: 0.978
-- target_detection: 0.459
-- finding_precision: 0.645
-- avg_reasoning: 0.902
-- calibration: 0.950
+- f2: 0.939
+- target_detection: 0.415
+- finding_precision: 0.620
+- avg_reasoning: 0.924
+- calibration: 0.907
 
 ## Per-Prompt-Type Breakdown
 
 ### DIRECT
 
-- Accuracy: 0.973
-- Target Detection: 0.459
-- Finding Precision: 0.645
-- SUI: 0.777
+- Accuracy: 0.925
+- Target Detection: 0.415
+- Finding Precision: 0.620
+- SUI: 0.753
 
