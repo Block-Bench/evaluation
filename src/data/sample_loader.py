@@ -70,7 +70,30 @@ class SampleLoader:
         with open(gt_path) as f:
             data = json.load(f)
 
-        return GroundTruth(**data)
+        # Handle nested ground_truth structure from raw metadata files
+        if "ground_truth" in data:
+            gt_raw = data["ground_truth"]
+            # Map raw metadata structure to GroundTruth schema
+            vulnerable_location = gt_raw.get("vulnerable_location", {})
+            gt_data = {
+                "id": data.get("id", sample_id),
+                "is_vulnerable": gt_raw.get("is_vulnerable", False),
+                "vulnerability_type": gt_raw.get("vulnerability_type"),
+                "severity": gt_raw.get("severity"),
+                "vulnerable_contract": vulnerable_location.get("contract_name"),
+                "vulnerable_function": vulnerable_location.get("function_name"),
+                "vulnerable_lines": vulnerable_location.get("line_numbers", []),
+                "root_cause": gt_raw.get("root_cause"),
+                "attack_scenario": gt_raw.get("attack_vector"),
+                "fix_description": gt_raw.get("correct_fix"),
+                "difficulty_tier": data.get("difficulty_fields", {}).get("difficulty_tier"),
+                "original_subset": data.get("original_subset"),
+                "tags": data.get("tags", []),
+            }
+        else:
+            gt_data = data
+
+        return GroundTruth(**gt_data)
 
     def load_samples(
         self,

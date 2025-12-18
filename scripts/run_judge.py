@@ -14,6 +14,10 @@ from typing import Optional
 
 import click
 import yaml
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
