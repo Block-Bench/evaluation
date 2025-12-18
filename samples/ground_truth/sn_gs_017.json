@@ -1,0 +1,81 @@
+{
+  "id": "sn_gs_017",
+  "contract_file": "contracts/sn_gs_017.sol",
+  "subset": "sanitized",
+  "ground_truth": {
+    "is_vulnerable": true,
+    "vulnerability_type": "logic_error",
+    "severity": "medium",
+    "vulnerable_location": {
+      "contract_name": "MinVotingPowerCondition",
+      "function_name": "isGranted",
+      "line_numbers": [
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48
+      ]
+    },
+    "root_cause": "In MinVotingPowerCondition.isGranted() at line 45, the function checks 'token.balanceOf(_who) + lockManager.getLockedBalance(_who)'. If an address holds tokens but can't spend them due to being frozen or blacklisted (like USDC/USDT blacklist), they are still granted access to create proposals. The intended behavior should be to not allow calling createProposal as the tokens are not actually transferable.",
+    "attack_vector": "1. User holds 1000 USDC but is blacklisted by Circle.\n2. User cannot actually transfer or lock their tokens.\n3. User calls createProposal().\n4. isGranted() at line 45 checks token.balanceOf(user) which returns 1000.\n5. User passes the minProposerVotingPower check despite having unusable tokens.\n6. User can spam create proposals without genuine stake in governance.",
+    "impact": "Severity: medium",
+    "correct_fix": "Do not use token.balanceOf(_who), rather actually require the tokens to be locked in LockManager by making a transfer. Only check lockManager.getLockedBalance(_who) for voting power, removing the token.balanceOf() portion."
+  },
+  "provenance": {
+    "source": "spearbit",
+    "original_id": "gs_spearbit_aragon-lock-to-vote_M05",
+    "url": "https://github.com/spearbit/portfolio/blob/master/pdfs/Aragon-Spearbit-Security-Review-July-2025.pdf",
+    "date_discovered": "2025-09-11",
+    "date_added": "2025-12-16",
+    "added_by": "benchmark_team"
+  },
+  "code_metadata": {
+    "solidity_version": "^0.8.0",
+    "num_lines": 50,
+    "num_contracts": 1,
+    "contract_names": [],
+    "num_functions": 0,
+    "has_imports": false,
+    "imports": [],
+    "has_inheritance": false,
+    "inherits_from": [],
+    "has_modifiers": false,
+    "has_events": false,
+    "has_assembly": false,
+    "compilation_verified": false,
+    "compiler_version_used": null
+  },
+  "tags": [
+    "logic_error",
+    "spearbit",
+    "gold_standard",
+    "audit_finding"
+  ],
+  "notes": "The isGranted() function at line 45 adds token.balanceOf(_who) to the voting power calculation. For tokens with freeze/blacklist functionality (USDC, USDT, Morpho vault tokens), a user's balance might be frozen but still counted. This allows blacklisted users to participate in governance without transferable stake.",
+  "gold_standard_fields": {
+    "source_report": "Aragon DAO Gov Plugin Security Review",
+    "source_finding_id": "M-05",
+    "finding_title": "Using idle balance in computing isGranted doesn't account for frozen & blacklisted tokens",
+    "difficulty_tier": 2,
+    "context_level": "single_file",
+    "has_context": false,
+    "call_flow": "BlacklistedUser.createProposal() -> PermissionManager.isGranted() -> MinVotingPowerCondition.isGranted() -> line 45: checks token.balanceOf(_who) (high but frozen) + lockManager.getLockedBalance(_who) -> returns true -> proposal created despite no real transferable stake"
+  },
+  "evaluation_support": {
+    "annotated_contract": "labelled_data/gold_standard/contracts/gs_017.sol",
+    "detailed_metadata": "labelled_data/gold_standard/metadata/gs_017.json",
+    "original_finding_title": "Using idle balance in computing isGranted doesn't account for frozen & blacklisted tokens"
+  },
+  "original_subset": "gold_standard",
+  "original_contract_file": "base/contracts/gs_017.sol",
+  "sanitized_from": "gs_017"
+}
