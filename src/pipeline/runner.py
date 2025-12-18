@@ -401,8 +401,13 @@ class EvaluationPipeline:
             return {"samples": 0, "completed": 0}
 
         # Load model client (only after dry_run check to avoid auth errors)
-        # Import here to trigger registration
-        from ..models import vertex_deepseek  # noqa: F401
+        # Import here to trigger registration of all model providers
+        from ..models import (  # noqa: F401
+            vertex_deepseek,
+            vertex_anthropic,
+            vertex_google,
+            openrouter,
+        )
 
         model = ModelRegistry.create(model_config)
         self.model = model
