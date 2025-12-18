@@ -121,6 +121,10 @@ class SampleLoader:
                 contract_file=str(self.contracts_dir / f"{entry['transformed_id']}.sol"),
             )
 
+            # Store per-sample prompt types if specified
+            if "prompt_types" in entry:
+                sample.prompt_types = entry["prompt_types"]
+
             if load_code:
                 sample.contract_code = self.load_contract(entry["transformed_id"])
 

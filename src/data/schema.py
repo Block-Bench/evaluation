@@ -104,6 +104,9 @@ class Sample(BaseModel):
     # Ground truth (loaded from annotated)
     ground_truth: Optional[GroundTruth] = None
 
+    # Per-sample prompt types (if specified, overrides global)
+    prompt_types: Optional[list[str]] = None
+
 
 # --------------------------------------------------------------------------
 # Model Response Schema

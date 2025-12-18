@@ -78,7 +78,9 @@ def run(
     ground_truths = {}
     
     for sample in samples:
-        for prompt_type in prompt_types:
+        # Use per-sample prompt types if specified, otherwise use global
+        sample_prompt_types = sample.prompt_types if sample.prompt_types else prompt_types
+        for prompt_type in sample_prompt_types:
             # Load the model's response for this sample+prompt
             result_file = model_output_dir / prompt_type / f"r_{sample.transformed_id}.json"
             
