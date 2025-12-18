@@ -1,13 +1,13 @@
 # Judge Evaluation Report
 
-Generated: 2025-12-18T15:34:56.610354
+Generated: 2025-12-18T16:36:50.885987
 Judge Model: Mistral Medium 3
-Total Cost: $0.1860
+Total Cost: $0.1952
 
 ## Summary
 
-- Total Samples Evaluated: 49
-- Vulnerable Samples: 49
+- Total Samples Evaluated: 51
+- Vulnerable Samples: 51
 - Safe Samples: 0
 
 ## Tier 1: Detection Performance
@@ -22,28 +22,28 @@ Total Cost: $0.1860
 | False Positive Rate | 0.000 |
 | False Negative Rate | 0.020 |
 
-Confusion Matrix: TP=48, TN=0, FP=0, FN=1
+Confusion Matrix: TP=50, TN=0, FP=0, FN=1
 
 ## Tier 2: Target Finding
 
 | Metric | Value |
 |--------|-------|
-| Target Detection Rate | 0.612 |
-| Lucky Guess Rate | 0.375 |
-| Bonus Discovery Rate | 0.653 |
+| Target Detection Rate | 0.608 |
+| Lucky Guess Rate | 0.380 |
+| Bonus Discovery Rate | 0.667 |
 
-Target Found: 30, Lucky Guesses: 18
+Target Found: 31, Lucky Guesses: 19
 
 ## Tier 3: Finding Quality
 
 | Metric | Value |
 |--------|-------|
-| Finding Precision | 0.750 |
+| Finding Precision | 0.757 |
 | Hallucination Rate | 0.009 |
-| Over-Flagging Score | 0.55 |
-| Avg Findings per Sample | 2.20 |
+| Over-Flagging Score | 0.53 |
+| Avg Findings per Sample | 2.18 |
 
-Total: 108, Valid: 81, Hallucinated: 1
+Total: 111, Valid: 84, Hallucinated: 1
 
 ## Tier 4: Reasoning Quality
 
@@ -51,17 +51,17 @@ Total: 108, Valid: 81, Hallucinated: 1
 
 | Metric | Mean | Std |
 |--------|------|-----|
-| Root Cause (RCIR) | 0.975 | 0.099 |
-| Attack Vector (AVA) | 0.975 | 0.135 |
-| Fix Validity (FSV) | 0.942 | 0.190 |
+| Root Cause (RCIR) | 0.976 | 0.097 |
+| Attack Vector (AVA) | 0.976 | 0.133 |
+| Fix Validity (FSV) | 0.944 | 0.187 |
 
-Samples with reasoning scores: 30
+Samples with reasoning scores: 31
 
 ## Tier 5: Type Accuracy
 
 | Metric | Value |
 |--------|-------|
-| Exact Match Rate | 0.733 |
+| Exact Match Rate | 0.710 |
 | Semantic Match Rate | 1.000 |
 | Partial Match Rate | 0.000 |
 
@@ -78,16 +78,16 @@ Samples with reasoning scores: 30
 
 | Metric | Value |
 |--------|-------|
-| **Security Understanding Index (SUI)** | **0.851** |
-| True Understanding Score | 0.443 |
-| Lucky Guess Indicator | 0.367 |
+| **Security Understanding Index (SUI)** | **0.852** |
+| True Understanding Score | 0.444 |
+| Lucky Guess Indicator | 0.373 |
 
 ### SUI Components
 
 - f2: 0.984
-- target_detection: 0.612
-- finding_precision: 0.750
-- avg_reasoning: 0.964
+- target_detection: 0.608
+- finding_precision: 0.757
+- avg_reasoning: 0.965
 - calibration: 0.989
 
 ## Per-Prompt-Type Breakdown
@@ -95,7 +95,7 @@ Samples with reasoning scores: 30
 ### DIRECT
 
 - Accuracy: 0.980
-- Target Detection: 0.612
-- Finding Precision: 0.750
-- SUI: 0.851
+- Target Detection: 0.608
+- Finding Precision: 0.757
+- SUI: 0.852
 
