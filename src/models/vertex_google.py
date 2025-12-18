@@ -97,8 +97,8 @@ class VertexGoogleClient(BaseModelClient):
         input_tokens = 0
         output_tokens = 0
         if hasattr(response, 'usage_metadata') and response.usage_metadata:
-            input_tokens = getattr(response.usage_metadata, 'prompt_token_count', 0)
-            output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0)
+            input_tokens = getattr(response.usage_metadata, 'prompt_token_count', 0) or 0
+            output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0) or 0
 
         # Determine finish reason
         finish_reason = "unknown"
