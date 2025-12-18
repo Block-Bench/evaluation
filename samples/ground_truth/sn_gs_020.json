@@ -1,0 +1,73 @@
+{
+  "id": "sn_gs_020",
+  "contract_file": "contracts/sn_gs_020.sol",
+  "subset": "sanitized",
+  "ground_truth": {
+    "is_vulnerable": true,
+    "vulnerability_type": "input_validation",
+    "severity": "medium",
+    "vulnerable_location": {
+      "contract_name": "MidasRedemptionVaultAdapter",
+      "function_name": "withdrawPhantomToken",
+      "line_numbers": [
+        140,
+        141,
+        142,
+        143,
+        144
+      ]
+    },
+    "root_cause": "MidasRedemptionVaultAdapter.withdrawPhantomToken(token, amount) only checks that a phantom token is registered for the given token address (phantomTokenToOutputToken[token] != address(0)) and does not verify that the pending redemption's tokenOut matches the expected underlying. This means the integration may receive a different token than expected if the redemption request was made for a different output token than what the phantom token tracks.",
+    "attack_vector": "1. Configurator sets up phantom token A tracking output token USDC via setTokenAllowedStatusBatch()\n2. phantomTokenToOutputToken[phantomA] = USDC\n3. User makes a redemption request for output token USDT (different from USDC)\n4. pendingRedemptions records the request with tokenOut = USDT\n5. User calls withdrawPhantomToken(phantomA, amount)\n6. Function checks: phantomTokenToOutputToken[phantomA] != address(0) -> passes (it's USDC)\n7. Function calls _withdraw(amount) which executes Gateway.withdraw()\n8. Gateway.withdraw() transfers USDT (the actual redemption output) not USDC\n9. The phantom token (tracking USDC) and actual withdrawal (USDT) are mismatched\n10. Integration receives unexpected token, potentially causing accounting errors or failed operations",
+    "impact": "Severity: medium",
+    "correct_fix": "Add validation in setTokenAllowedStatusBatch() to ensure that the phantom token's tokenOut matches the output token it was added alongside with. This prevents mismatched phantom token configurations."
+  },
+  "provenance": {
+    "source": "mixbytes",
+    "original_id": "gs_mixbytes_gearbox-midas_M01",
+    "url": "https://github.com/mixbytes/audits_public/tree/master/Gearbox/Midas%20Integration",
+    "date_discovered": "2025-10-23",
+    "date_added": "2025-12-16",
+    "added_by": "benchmark_team"
+  },
+  "code_metadata": {
+    "solidity_version": "^0.8.0",
+    "num_lines": 214,
+    "num_contracts": 1,
+    "contract_names": [],
+    "num_functions": 0,
+    "has_imports": false,
+    "imports": [],
+    "has_inheritance": false,
+    "inherits_from": [],
+    "has_modifiers": false,
+    "has_events": false,
+    "has_assembly": false,
+    "compilation_verified": false,
+    "compiler_version_used": null
+  },
+  "tags": [
+    "input_validation",
+    "mixbytes",
+    "gold_standard",
+    "audit_finding"
+  ],
+  "notes": "The withdrawPhantomToken function accepts a phantom token address and checks that it's registered in phantomTokenToOutputToken mapping. However, it doesn't verify that the pending redemption in the Gateway was actually made for the same output token that the phantom token tracks. The Gateway's withdraw() function will transfer whatever tokenOut was specified in the original redeemRequest(), which may differ from phantomTokenToOutputToken[token].",
+  "gold_standard_fields": {
+    "source_report": "Gearbox Midas Integration Security Audit Report",
+    "source_finding_id": "M-01",
+    "finding_title": "withdrawPhantomToken May Withdraw an Unexpected Underlying",
+    "difficulty_tier": 2,
+    "context_level": "single_file",
+    "has_context": false,
+    "call_flow": "User -> MidasRedemptionVaultAdapter.withdrawPhantomToken(phantomToken, amount) -> checks phantomTokenToOutputToken[token] != 0 (only checks registration, not tokenOut match) -> _withdraw(amount) -> Gateway.withdraw() -> transfers actual redemption tokenOut (may differ from phantom's tracked token)"
+  },
+  "evaluation_support": {
+    "annotated_contract": "labelled_data/gold_standard/contracts/gs_020.sol",
+    "detailed_metadata": "labelled_data/gold_standard/metadata/gs_020.json",
+    "original_finding_title": "withdrawPhantomToken May Withdraw an Unexpected Underlying"
+  },
+  "original_subset": "gold_standard",
+  "original_contract_file": "base/contracts/gs_020.sol",
+  "sanitized_from": "gs_020"
+}

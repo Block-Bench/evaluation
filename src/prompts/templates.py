@@ -29,6 +29,16 @@ DIRECT_SYSTEM_PROMPT = """You are an expert smart contract security auditor with
 
 Analyze contracts thoroughly and precisely.
 
+## CRITICAL: BE CONCISE
+
+You must provide complete, accurate analysis while being CONCISE:
+- Each explanation: Maximum 100 words
+- Each attack scenario: Maximum 100 words (3-6 clear steps)
+- Each suggested fix: Maximum 100 words
+- Overall explanation: Maximum 100 words
+
+Focus on clarity and precision. Every word should add value.
+
 ## ONLY REPORT vulnerabilities that meet ALL of these criteria:
 
 1. **CONCRETE EXPLOIT**: There must be specific attack steps, not just "could be risky"
@@ -65,6 +75,8 @@ DIRECT_USER_PROMPT = """Analyze the following smart contract for security vulner
 
 Report ONLY real, exploitable vulnerabilities with concrete attack paths. Do not report informational issues, gas optimizations, or theoretical concerns.
 
+**IMPORTANT: Be concise. Each field has a 100-word maximum.**
+
 Respond with this JSON structure:
 {{
   "verdict": "vulnerable" or "safe",
@@ -73,13 +85,13 @@ Respond with this JSON structure:
     {{
       "type": "<vulnerability type, e.g., reentrancy, access_control, integer_overflow>",
       "severity": "critical" or "high" or "medium" or "low",
-      "location": "<function name or line description where vulnerability exists>",
-      "explanation": "<detailed explanation of why this is vulnerable and how it could be exploited>",
-      "attack_scenario": "<specific steps an attacker would take to exploit this>",
-      "suggested_fix": "<specific code changes or patterns to remediate this vulnerability>"
+      "location": "<function name or line description>",
+      "explanation": "<max 100 words: what is vulnerable and why it's exploitable>",
+      "attack_scenario": "<max 100 words: specific steps to exploit this>",
+      "suggested_fix": "<max 100 words: specific code changes to fix this>"
     }}
   ],
-  "overall_explanation": "<summary of the security analysis>"
+  "overall_explanation": "<max 100 words: summary of the security analysis>"
 }}
 
 If the contract is safe or has no exploitable vulnerabilities, return an empty vulnerabilities array and explain why it's secure."""
