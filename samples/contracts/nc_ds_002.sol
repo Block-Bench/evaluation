@@ -11,7 +11,7 @@ contract TokenVault {
         userBalance[msg.sender] += msg.value;
     }
 
-    function withdrawBalance(){
+    function withdrawBalance(){ 
 
 
         if( ! (msg.sender.call.value(userBalance[msg.sender])() ) ){
