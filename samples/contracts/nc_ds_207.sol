@@ -44,7 +44,7 @@ contract TokenExchange {
 
         token.transferFrom(msg.sender, owner, price);
 
-        price = new_price;
+        price = amount;
         owner = msg.sender;
     }
 
