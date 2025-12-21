@@ -12,23 +12,23 @@
 
 **Ground Truth:**
 - File: `samples/ground_truth/ch_medical_nc_ds_207.json`
-- [View Ground Truth JSON](samples/ground_truth/ch_medical_nc_ds_207.json)
+- [View Ground Truth JSON](../../samples/ground_truth/ch_medical_nc_ds_207.json)
 
 **Contract Code:**
 - File: `samples/contracts/ch_medical_nc_ds_207.sol`
-- [View Contract](samples/contracts/ch_medical_nc_ds_207.sol)
+- [View Contract](../../samples/contracts/ch_medical_nc_ds_207.sol)
 
 **Model Response:**
 - File: `output/llama_3.1_405b/direct/r_ch_medical_nc_ds_207.json`
-- [View Model Output](output/llama_3.1_405b/direct/r_ch_medical_nc_ds_207.json)
+- [View Model Output](../../output/llama_3.1_405b/direct/r_ch_medical_nc_ds_207.json)
 
 **Expert Review:**
 - File: `Expert-Reviews/Llama/r_ch_medical_nc_ds_207.json`
-- [View Expert Review](Expert-Reviews/Llama/r_ch_medical_nc_ds_207.json)
+- [View Expert Review](../../Expert-Reviews/Llama/r_ch_medical_nc_ds_207.json)
 
 **Mistral Judge Output:**
 - File: `judge_output/llama_3.1_405b/judge_outputs/j_ch_medical_nc_ds_207_direct.json`
-- [View Judge Output](judge_output/llama_3.1_405b/judge_outputs/j_ch_medical_nc_ds_207_direct.json)
+- [View Judge Output](../../judge_output/llama_3.1_405b/judge_outputs/j_ch_medical_nc_ds_207_direct.json)
 
 ---
 

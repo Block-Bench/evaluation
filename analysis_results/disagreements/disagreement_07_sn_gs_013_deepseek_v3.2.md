@@ -12,23 +12,23 @@
 
 **Ground Truth:**
 - File: `samples/ground_truth/sn_gs_013.json`
-- [View Ground Truth JSON](samples/ground_truth/sn_gs_013.json)
+- [View Ground Truth JSON](../../samples/ground_truth/sn_gs_013.json)
 
 **Contract Code:**
 - File: `samples/contracts/sn_gs_013.sol`
-- [View Contract](samples/contracts/sn_gs_013.sol)
+- [View Contract](../../samples/contracts/sn_gs_013.sol)
 
 **Model Response:**
 - File: `output/deepseek_v3.2/direct/r_sn_gs_013.json`
-- [View Model Output](output/deepseek_v3.2/direct/r_sn_gs_013.json)
+- [View Model Output](../../output/deepseek_v3.2/direct/r_sn_gs_013.json)
 
 **Expert Review:**
 - File: `D4n13l_ExpertReviews/deepseek_v3.2/r_sn_gs_013.json`
-- [View Expert Review](D4n13l_ExpertReviews/deepseek_v3.2/r_sn_gs_013.json)
+- [View Expert Review](../../D4n13l_ExpertReviews/deepseek_v3.2/r_sn_gs_013.json)
 
 **Mistral Judge Output:**
 - File: `judge_output/deepseek_v3.2/judge_outputs/j_sn_gs_013_direct.json`
-- [View Judge Output](judge_output/deepseek_v3.2/judge_outputs/j_sn_gs_013_direct.json)
+- [View Judge Output](../../judge_output/deepseek_v3.2/judge_outputs/j_sn_gs_013_direct.json)
 
 ---
 

@@ -12,23 +12,23 @@
 
 **Ground Truth:**
 - File: `samples/ground_truth/sn_gs_001.json`
-- [View Ground Truth JSON](samples/ground_truth/sn_gs_001.json)
+- [View Ground Truth JSON](../../samples/ground_truth/sn_gs_001.json)
 
 **Contract Code:**
 - File: `samples/contracts/sn_gs_001.sol`
-- [View Contract](samples/contracts/sn_gs_001.sol)
+- [View Contract](../../samples/contracts/sn_gs_001.sol)
 
 **Model Response:**
 - File: `output/claude_opus_4.5/direct/r_sn_gs_001.json`
-- [View Model Output](output/claude_opus_4.5/direct/r_sn_gs_001.json)
+- [View Model Output](../../output/claude_opus_4.5/direct/r_sn_gs_001.json)
 
 **Expert Review:**
 - File: `D4n13l_ExpertReviews/claude_opus_4.5/r_sn_gs_001.json`
-- [View Expert Review](D4n13l_ExpertReviews/claude_opus_4.5/r_sn_gs_001.json)
+- [View Expert Review](../../D4n13l_ExpertReviews/claude_opus_4.5/r_sn_gs_001.json)
 
 **Mistral Judge Output:**
 - File: `judge_output/claude_opus_4.5/judge_outputs/j_sn_gs_001_direct.json`
-- [View Judge Output](judge_output/claude_opus_4.5/judge_outputs/j_sn_gs_001_direct.json)
+- [View Judge Output](../../judge_output/claude_opus_4.5/judge_outputs/j_sn_gs_001_direct.json)
 
 ---
 

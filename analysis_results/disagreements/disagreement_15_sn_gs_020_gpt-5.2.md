@@ -12,23 +12,23 @@
 
 **Ground Truth:**
 - File: `samples/ground_truth/sn_gs_020.json`
-- [View Ground Truth JSON](samples/ground_truth/sn_gs_020.json)
+- [View Ground Truth JSON](../../samples/ground_truth/sn_gs_020.json)
 
 **Contract Code:**
 - File: `samples/contracts/sn_gs_020.sol`
-- [View Contract](samples/contracts/sn_gs_020.sol)
+- [View Contract](../../samples/contracts/sn_gs_020.sol)
 
 **Model Response:**
 - File: `output/gpt-5.2/direct/r_sn_gs_020.json`
-- [View Model Output](output/gpt-5.2/direct/r_sn_gs_020.json)
+- [View Model Output](../../output/gpt-5.2/direct/r_sn_gs_020.json)
 
 **Expert Review:**
 - File: `Expert-Reviews/gpt-5.2/r_sn_gs_020.json`
-- [View Expert Review](Expert-Reviews/gpt-5.2/r_sn_gs_020.json)
+- [View Expert Review](../../Expert-Reviews/gpt-5.2/r_sn_gs_020.json)
 
 **Mistral Judge Output:**
 - File: `judge_output/gpt-5.2/judge_outputs/j_sn_gs_020_direct.json`
-- [View Judge Output](judge_output/gpt-5.2/judge_outputs/j_sn_gs_020_direct.json)
+- [View Judge Output](../../judge_output/gpt-5.2/judge_outputs/j_sn_gs_020_direct.json)
 
 ---
 

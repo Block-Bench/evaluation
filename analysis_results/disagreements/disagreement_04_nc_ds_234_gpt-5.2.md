@@ -12,23 +12,23 @@
 
 **Ground Truth:**
 - File: `samples/ground_truth/nc_ds_234.json`
-- [View Ground Truth JSON](samples/ground_truth/nc_ds_234.json)
+- [View Ground Truth JSON](../../samples/ground_truth/nc_ds_234.json)
 
 **Contract Code:**
 - File: `samples/contracts/nc_ds_234.sol`
-- [View Contract](samples/contracts/nc_ds_234.sol)
+- [View Contract](../../samples/contracts/nc_ds_234.sol)
 
 **Model Response:**
 - File: `output/gpt-5.2/direct/r_nc_ds_234.json`
-- [View Model Output](output/gpt-5.2/direct/r_nc_ds_234.json)
+- [View Model Output](../../output/gpt-5.2/direct/r_nc_ds_234.json)
 
 **Expert Review:**
 - File: `Expert-Reviews/gpt-5.2/r_nc_ds_234.json`
-- [View Expert Review](Expert-Reviews/gpt-5.2/r_nc_ds_234.json)
+- [View Expert Review](../../Expert-Reviews/gpt-5.2/r_nc_ds_234.json)
 
 **Mistral Judge Output:**
 - File: `judge_output/gpt-5.2/judge_outputs/j_nc_ds_234_direct.json`
-- [View Judge Output](judge_output/gpt-5.2/judge_outputs/j_nc_ds_234_direct.json)
+- [View Judge Output](../../judge_output/gpt-5.2/judge_outputs/j_nc_ds_234_direct.json)
 
 ---
 

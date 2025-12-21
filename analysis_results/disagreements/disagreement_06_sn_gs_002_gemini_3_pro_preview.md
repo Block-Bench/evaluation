@@ -12,23 +12,23 @@
 
 **Ground Truth:**
 - File: `samples/ground_truth/sn_gs_002.json`
-- [View Ground Truth JSON](samples/ground_truth/sn_gs_002.json)
+- [View Ground Truth JSON](../../samples/ground_truth/sn_gs_002.json)
 
 **Contract Code:**
 - File: `samples/contracts/sn_gs_002.sol`
-- [View Contract](samples/contracts/sn_gs_002.sol)
+- [View Contract](../../samples/contracts/sn_gs_002.sol)
 
 **Model Response:**
 - File: `output/gemini_3_pro_preview/direct/r_sn_gs_002.json`
-- [View Model Output](output/gemini_3_pro_preview/direct/r_sn_gs_002.json)
+- [View Model Output](../../output/gemini_3_pro_preview/direct/r_sn_gs_002.json)
 
 **Expert Review:**
 - File: `D4n13l_ExpertReviews/gemini_3_pro_preview/r_sn_gs_002.json`
-- [View Expert Review](D4n13l_ExpertReviews/gemini_3_pro_preview/r_sn_gs_002.json)
+- [View Expert Review](../../D4n13l_ExpertReviews/gemini_3_pro_preview/r_sn_gs_002.json)
 
 **Mistral Judge Output:**
 - File: `judge_output/gemini_3_pro_preview/judge_outputs/j_sn_gs_002_direct.json`
-- [View Judge Output](judge_output/gemini_3_pro_preview/judge_outputs/j_sn_gs_002_direct.json)
+- [View Judge Output](../../judge_output/gemini_3_pro_preview/judge_outputs/j_sn_gs_002_direct.json)
 
 ---
 

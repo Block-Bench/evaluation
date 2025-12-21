@@ -12,23 +12,23 @@
 
 **Ground Truth:**
 - File: `samples/ground_truth/sn_gs_013.json`
-- [View Ground Truth JSON](samples/ground_truth/sn_gs_013.json)
+- [View Ground Truth JSON](../../samples/ground_truth/sn_gs_013.json)
 
 **Contract Code:**
 - File: `samples/contracts/sn_gs_013.sol`
-- [View Contract](samples/contracts/sn_gs_013.sol)
+- [View Contract](../../samples/contracts/sn_gs_013.sol)
 
 **Model Response:**
 - File: `output/llama_3.1_405b/direct/r_sn_gs_013.json`
-- [View Model Output](output/llama_3.1_405b/direct/r_sn_gs_013.json)
+- [View Model Output](../../output/llama_3.1_405b/direct/r_sn_gs_013.json)
 
 **Expert Review:**
 - File: `Expert-Reviews/Llama/r_sn_gs_013.json`
-- [View Expert Review](Expert-Reviews/Llama/r_sn_gs_013.json)
+- [View Expert Review](../../Expert-Reviews/Llama/r_sn_gs_013.json)
 
 **Mistral Judge Output:**
 - File: `judge_output/llama_3.1_405b/judge_outputs/j_sn_gs_013_direct.json`
-- [View Judge Output](judge_output/llama_3.1_405b/judge_outputs/j_sn_gs_013_direct.json)
+- [View Judge Output](../../judge_output/llama_3.1_405b/judge_outputs/j_sn_gs_013_direct.json)
 
 ---
 

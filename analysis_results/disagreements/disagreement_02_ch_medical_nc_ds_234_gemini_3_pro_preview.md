@@ -12,23 +12,23 @@
 
 **Ground Truth:**
 - File: `samples/ground_truth/ch_medical_nc_ds_234.json`
-- [View Ground Truth JSON](samples/ground_truth/ch_medical_nc_ds_234.json)
+- [View Ground Truth JSON](../../samples/ground_truth/ch_medical_nc_ds_234.json)
 
 **Contract Code:**
 - File: `samples/contracts/ch_medical_nc_ds_234.sol`
-- [View Contract](samples/contracts/ch_medical_nc_ds_234.sol)
+- [View Contract](../../samples/contracts/ch_medical_nc_ds_234.sol)
 
 **Model Response:**
 - File: `output/gemini_3_pro_preview/direct/r_ch_medical_nc_ds_234.json`
-- [View Model Output](output/gemini_3_pro_preview/direct/r_ch_medical_nc_ds_234.json)
+- [View Model Output](../../output/gemini_3_pro_preview/direct/r_ch_medical_nc_ds_234.json)
 
 **Expert Review:**
 - File: `D4n13l_ExpertReviews/gemini_3_pro_preview/r_ch_medical_nc_ds_234.json`
-- [View Expert Review](D4n13l_ExpertReviews/gemini_3_pro_preview/r_ch_medical_nc_ds_234.json)
+- [View Expert Review](../../D4n13l_ExpertReviews/gemini_3_pro_preview/r_ch_medical_nc_ds_234.json)
 
 **Mistral Judge Output:**
 - File: `judge_output/gemini_3_pro_preview/judge_outputs/j_ch_medical_nc_ds_234_direct.json`
-- [View Judge Output](judge_output/gemini_3_pro_preview/judge_outputs/j_ch_medical_nc_ds_234_direct.json)
+- [View Judge Output](../../judge_output/gemini_3_pro_preview/judge_outputs/j_ch_medical_nc_ds_234_direct.json)
 
 ---
 

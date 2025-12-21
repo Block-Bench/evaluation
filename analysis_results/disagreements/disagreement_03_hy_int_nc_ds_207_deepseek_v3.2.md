@@ -12,23 +12,23 @@
 
 **Ground Truth:**
 - File: `samples/ground_truth/hy_int_nc_ds_207.json`
-- [View Ground Truth JSON](samples/ground_truth/hy_int_nc_ds_207.json)
+- [View Ground Truth JSON](../../samples/ground_truth/hy_int_nc_ds_207.json)
 
 **Contract Code:**
 - File: `samples/contracts/hy_int_nc_ds_207.sol`
-- [View Contract](samples/contracts/hy_int_nc_ds_207.sol)
+- [View Contract](../../samples/contracts/hy_int_nc_ds_207.sol)
 
 **Model Response:**
 - File: `output/deepseek_v3.2/direct/r_hy_int_nc_ds_207.json`
-- [View Model Output](output/deepseek_v3.2/direct/r_hy_int_nc_ds_207.json)
+- [View Model Output](../../output/deepseek_v3.2/direct/r_hy_int_nc_ds_207.json)
 
 **Expert Review:**
 - File: `D4n13l_ExpertReviews/deepseek_v3.2/r_hy_int_nc_ds_207.json`
-- [View Expert Review](D4n13l_ExpertReviews/deepseek_v3.2/r_hy_int_nc_ds_207.json)
+- [View Expert Review](../../D4n13l_ExpertReviews/deepseek_v3.2/r_hy_int_nc_ds_207.json)
 
 **Mistral Judge Output:**
 - File: `judge_output/deepseek_v3.2/judge_outputs/j_hy_int_nc_ds_207_direct.json`
-- [View Judge Output](judge_output/deepseek_v3.2/judge_outputs/j_hy_int_nc_ds_207_direct.json)
+- [View Judge Output](../../judge_output/deepseek_v3.2/judge_outputs/j_hy_int_nc_ds_207_direct.json)
 
 ---
 

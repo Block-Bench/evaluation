@@ -113,24 +113,24 @@ def generate_disagreement_report(case_num: int, disagreement: Dict) -> str:
     report.append("## 📁 Source Files\n")
     report.append("**Ground Truth:**")
     report.append(f"- File: `{ground_truth_file.relative_to(BASE_DIR)}`")
-    report.append(f"- [View Ground Truth JSON]({ground_truth_file.relative_to(BASE_DIR)})\n")
+    report.append(f"- [View Ground Truth JSON](../../{ground_truth_file.relative_to(BASE_DIR)})\n")
 
     report.append("**Contract Code:**")
     report.append(f"- File: `{contract_file.relative_to(BASE_DIR)}`")
-    report.append(f"- [View Contract]({contract_file.relative_to(BASE_DIR)})\n")
+    report.append(f"- [View Contract](../../{contract_file.relative_to(BASE_DIR)})\n")
 
     report.append("**Model Response:**")
     report.append(f"- File: `{model_output_file.relative_to(BASE_DIR)}`")
-    report.append(f"- [View Model Output]({model_output_file.relative_to(BASE_DIR)})\n")
+    report.append(f"- [View Model Output](../../{model_output_file.relative_to(BASE_DIR)})\n")
 
     if expert_file:
         report.append("**Expert Review:**")
         report.append(f"- File: `{expert_file.relative_to(BASE_DIR)}`")
-        report.append(f"- [View Expert Review]({expert_file.relative_to(BASE_DIR)})\n")
+        report.append(f"- [View Expert Review](../../{expert_file.relative_to(BASE_DIR)})\n")
 
     report.append("**Mistral Judge Output:**")
     report.append(f"- File: `{judge_file_path.relative_to(BASE_DIR)}`")
-    report.append(f"- [View Judge Output]({judge_file_path.relative_to(BASE_DIR)})\n")
+    report.append(f"- [View Judge Output](../../{judge_file_path.relative_to(BASE_DIR)})\n")
 
     report.append("---\n")
 
