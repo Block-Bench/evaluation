@@ -301,21 +301,18 @@ def _compute_composite_scores(
     true_understanding = target_rate * avg_reasoning * (1 - invalid_rate)
 
     # Security Understanding Index (SUI)
+    # Updated formula: SUI = 0.40·TDR + 0.30·Reasoning + 0.30·Finding_Precision
     components = {
-        "f2": detection["f2"],
         "target_detection": target_rate,
-        "finding_precision": finding_quality["finding_precision"],
         "avg_reasoning": avg_reasoning,
-        "calibration": 1 - calibration["ece"] if calibration.get("ece") is not None else 0.5,
+        "finding_precision": finding_quality["finding_precision"],
     }
 
-    # Weights
+    # Weights (updated to match paper)
     weights = {
-        "f2": 0.25,
-        "target_detection": 0.25,
-        "finding_precision": 0.15,
-        "avg_reasoning": 0.25,
-        "calibration": 0.10,
+        "target_detection": 0.40,
+        "avg_reasoning": 0.30,
+        "finding_precision": 0.30,
     }
 
     sui = sum(

@@ -64,6 +64,11 @@ def load_all_sample_metrics() -> List[Dict]:
             continue
 
         model_name = model_dir.name
+
+        # Exclude Grok 4 Fast per user request
+        if model_name == 'grok_4_fast':
+            continue
+
         metrics_dir = model_dir / 'sample_metrics'
 
         if not metrics_dir.exists():
@@ -603,14 +608,14 @@ def generate_csv_export(aggregated: Dict) -> str:
                 model,
                 prompt,
                 str(det_p.get('total_samples', 0)),
-                f"{det_p.get('accuracy', 0):.4f}",
-                f"{det_p.get('precision', 0):.4f}",
-                f"{det_p.get('recall', 0):.4f}",
-                f"{det_p.get('f1_score', 0):.4f}",
-                f"{tgt_p.get('target_detection_rate', 0):.4f}",
-                f"{qual_p.get('avg_overall_quality_score', 0):.4f}" if qual_p.get('avg_overall_quality_score') else "",
-                f"{find_p.get('avg_finding_precision', 0):.4f}",
-                f"{find_p.get('hallucination_rate', 0):.4f}"
+                f"{det_p.get('accuracy') or 0:.4f}",
+                f"{det_p.get('precision') or 0:.4f}",
+                f"{det_p.get('recall') or 0:.4f}",
+                f"{det_p.get('f1_score') or 0:.4f}",
+                f"{tgt_p.get('target_detection_rate') or 0:.4f}",
+                f"{qual_p.get('avg_overall_quality_score') or 0:.4f}",
+                f"{find_p.get('avg_finding_precision') or 0:.4f}",
+                f"{find_p.get('hallucination_rate') or 0:.4f}"
             ]
             lines.append(','.join(row))
 

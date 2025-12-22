@@ -1,10 +1,10 @@
 # Comprehensive Model Evaluation Metrics
 
-**Generated:** 2025-12-21T16:52:08.962039
+**Generated:** 2025-12-22T00:58:44.963785
 
-**Total Samples:** 408
+**Total Samples:** 405
 **Unique Samples:** 58
-**Models Evaluated:** claude_opus_4.5, deepseek_v3.2, gemini_3_pro_preview, gpt-5.2, grok_4, grok_4_fast, llama_3.1_405b
+**Models Evaluated:** claude_opus_4.5, deepseek_v3.2, gemini_3_pro_preview, gpt-5.2, grok_4, llama_3.1_405b
 
 ---
 
@@ -14,37 +14,34 @@
 
 | Rank | Model | Detection Rate | Samples |
 |------|-------|----------------|---------|
-| 1 | grok_4 | 80.0% | 5 |
-| 2 | gemini_3_pro_preview | 57.6% | 66 |
-| 3 | gpt-5.2 | 55.9% | 68 |
-| 4 | claude_opus_4.5 | 52.9% | 68 |
+| 1 | gemini_3_pro_preview | 57.6% | 66 |
+| 2 | gpt-5.2 | 55.9% | 68 |
+| 3 | claude_opus_4.5 | 52.9% | 68 |
+| 4 | grok_4 | 44.1% | 68 |
 | 5 | deepseek_v3.2 | 38.2% | 68 |
-| 6 | grok_4_fast | 30.3% | 66 |
-| 7 | llama_3.1_405b | 17.9% | 67 |
+| 6 | llama_3.1_405b | 17.9% | 67 |
 
 ### By Quality Score (RCIR/AVA/FSV)
 
 | Rank | Model | Avg Quality | Samples with Target |
 |------|-------|-------------|---------------------|
-| 1 | grok_4 | 1.000 | 4 |
+| 1 | grok_4 | 0.983 | 30 |
 | 2 | claude_opus_4.5 | 0.979 | 36 |
 | 3 | gpt-5.2 | 0.974 | 38 |
 | 4 | gemini_3_pro_preview | 0.963 | 38 |
-| 5 | grok_4_fast | 0.917 | 20 |
-| 6 | deepseek_v3.2 | 0.896 | 26 |
-| 7 | llama_3.1_405b | 0.868 | 12 |
+| 5 | deepseek_v3.2 | 0.896 | 26 |
+| 6 | llama_3.1_405b | 0.868 | 12 |
 
 ### By Finding Precision
 
 | Rank | Model | Avg Precision |
 |------|-------|---------------|
-| 1 | grok_4 | 90.0% |
-| 2 | gpt-5.2 | 76.6% |
-| 3 | gemini_3_pro_preview | 71.5% |
+| 1 | gpt-5.2 | 76.6% |
+| 2 | gemini_3_pro_preview | 71.5% |
+| 3 | grok_4 | 68.4% |
 | 4 | claude_opus_4.5 | 65.9% |
-| 5 | grok_4_fast | 61.5% |
-| 6 | deepseek_v3.2 | 58.9% |
-| 7 | llama_3.1_405b | 20.4% |
+| 5 | deepseek_v3.2 | 58.9% |
+| 6 | llama_3.1_405b | 20.4% |
 
 ---
 
@@ -181,62 +178,32 @@
 ### grok_4
 
 **Detection Metrics:**
-- Accuracy: 100.0%
+- Accuracy: 69.1%
 - Precision: 100.0%
-- Recall: 100.0%
-- F1 Score: 1.000
+- Recall: 69.1%
+- F1 Score: 0.817
 
 **Target Detection:**
-- Detection Rate: 80.0%
-- Targets Found: 4 / 5
+- Detection Rate: 44.1%
+- Targets Found: 30 / 68
 
 **Quality Scores (when target found):**
-- RCIR (Root Cause): 1.000
+- RCIR (Root Cause): 0.983
 - AVA (Attack Vector): 1.000
-- FSV (Fix Suggestion): 1.000
-- Overall Quality: 1.000
+- FSV (Fix Suggestion): 0.967
+- Overall Quality: 0.983
 
 **Finding Quality:**
-- Avg Finding Precision: 90.0%
-- Hallucination Rate: 0.0%
-- Avg Findings/Sample: 1.6
+- Avg Finding Precision: 68.4%
+- Hallucination Rate: 1.4%
+- Avg Findings/Sample: 2.1
 
 **By Prompt Type:**
 | Prompt | Detection Rate | Quality Score | Finding Precision |
 |--------|----------------|---------------|-------------------|
-| direct | 80.0% | 1.000 | 90.0% |
-
----
-
-### grok_4_fast
-
-**Detection Metrics:**
-- Accuracy: 60.6%
-- Precision: 100.0%
-- Recall: 60.6%
-- F1 Score: 0.755
-
-**Target Detection:**
-- Detection Rate: 30.3%
-- Targets Found: 20 / 66
-
-**Quality Scores (when target found):**
-- RCIR (Root Cause): 0.950
-- AVA (Attack Vector): 0.925
-- FSV (Fix Suggestion): 0.875
-- Overall Quality: 0.917
-
-**Finding Quality:**
-- Avg Finding Precision: 61.5%
-- Hallucination Rate: 1.1%
-- Avg Findings/Sample: 2.7
-
-**By Prompt Type:**
-| Prompt | Detection Rate | Quality Score | Finding Precision |
-|--------|----------------|---------------|-------------------|
-| adversarial | 0.0% | N/A | 7.3% |
-| direct | 32.1% | 0.926 | 70.6% |
-| naturalistic | 40.0% | 0.833 | 13.2% |
+| adversarial | 20.0% | 1.000 | 4.0% |
+| direct | 46.6% | 0.981 | 77.3% |
+| naturalistic | 40.0% | 1.000 | 30.2% |
 
 ---
 
