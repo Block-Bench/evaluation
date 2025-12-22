@@ -97,10 +97,15 @@ def extract_judge_verdict(judge_data: Dict) -> Dict:
     # Extract type match
     type_match = target_assessment.get('type_match', 'none')
 
-    # Extract reasoning scores
-    rcir = target_assessment.get('root_cause_identification', {}).get('score', 0)
-    ava = target_assessment.get('attack_vector_validity', {}).get('score', 0)
-    fsv = target_assessment.get('fix_suggestion_validity', {}).get('score', 0)
+    # Extract reasoning scores (may be None if target not found)
+    rcir_data = target_assessment.get('root_cause_identification')
+    ava_data = target_assessment.get('attack_vector_validity')
+    fsv_data = target_assessment.get('fix_suggestion_validity')
+
+    # Handle None values when target not found
+    rcir = rcir_data.get('score', 0) if isinstance(rcir_data, dict) else 0
+    ava = ava_data.get('score', 0) if isinstance(ava_data, dict) else 0
+    fsv = fsv_data.get('score', 0) if isinstance(fsv_data, dict) else 0
 
     # Calculate finding precision
     total_findings = summary.get('total_findings', 0)

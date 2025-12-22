@@ -41,9 +41,10 @@ def main():
         expert_type = comp['expert']['type_match']
         judge_type = comp['judge']['type_match']
 
-        # Convert to binary: any detection (exact/semantic/partial) = FOUND
-        expert_found = expert_type != 'none'
-        judge_found = judge_type != 'none'
+        # Convert to binary: any detection (exact/semantic/partial/wrong) = FOUND
+        # "none" and "not_mentioned" = NOT FOUND
+        expert_found = expert_type not in ['none', 'not_mentioned']
+        judge_found = judge_type not in ['none', 'not_mentioned']
 
         expert_found_list.append(expert_found)
         judge_found_list.append(judge_found)
