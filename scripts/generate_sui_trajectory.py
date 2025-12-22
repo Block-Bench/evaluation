@@ -14,8 +14,8 @@ import numpy as np
 
 # Set style
 sns.set_style("whitegrid")
-plt.rcParams['figure.figsize'] = (14, 8)
-plt.rcParams['font.size'] = 10
+plt.rcParams['figure.figsize'] = (8, 7)  # More square for single column
+plt.rcParams['font.size'] = 9
 
 BASE_DIR = Path(__file__).parent.parent
 JUDGE_OUTPUT_DIR = BASE_DIR / 'judge_output'
@@ -154,26 +154,37 @@ def extract_sui_trajectory_data():
 
 def plot_sui_trajectory(df):
     """Plot SUI trajectory across transformations."""
-    fig, ax = plt.subplots(figsize=(14, 8))
+    fig, ax = plt.subplots(figsize=(8, 7))
 
     models = sorted(df['Model'].unique())
     colors = sns.color_palette("husl", len(models))
 
+    # Shorten stage names to reduce x-axis width
+    stage_abbrev = {
+        'Baseline (nc_o)': 'Baseline',
+        'Sanitized (sn)': 'Sanitized',
+        'Chameleon (ch_medical_nc)': 'Chameleon',
+        'Shapeshifter (ss_l3_medium_nc)': 'Shapeshifter'
+    }
+
+    df['Stage Short'] = df['Stage'].map(stage_abbrev)
+
     for idx, model in enumerate(models):
         model_data = df[df['Model'] == model].sort_values('Stage Order')
-        ax.plot(model_data['Stage'], model_data['SUI'],
-               marker='o', linewidth=2.5, markersize=8,
+        ax.plot(model_data['Stage Short'], model_data['SUI'],
+               marker='o', linewidth=2.5, markersize=7,
                color=colors[idx], label=model, alpha=0.85)
 
-    ax.set_ylabel('Security Understanding Index (SUI)', fontsize=12)
-    ax.set_xlabel('Transformation Stage', fontsize=12)
-    ax.set_title('Security Understanding Index Across TC Sample Transformations\nSUI = 0.40·TDR + 0.30·Reasoning + 0.30·Precision',
-                 fontsize=14, fontweight='bold', pad=20)
-    ax.legend(loc='best', fontsize=10)
+    ax.set_ylabel('Security Understanding Index (SUI)', fontsize=11)
+    ax.set_xlabel('Transformation Stage', fontsize=11)
+    ax.set_title('Security Understanding Index\nAcross TC Sample Transformations',
+                 fontsize=11, fontweight='bold', pad=15)
+    ax.legend(loc='best', fontsize=8, framealpha=0.9)
     ax.set_ylim(0, 100)
     ax.grid(axis='y', alpha=0.3)
 
-    plt.setp(ax.xaxis.get_majorticklabels(), rotation=25, ha='right')
+    # Reduce x-label rotation and spacing
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=20, ha='right', fontsize=9)
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / 'sui_trajectory.png', dpi=300, bbox_inches='tight')
     plt.close()
