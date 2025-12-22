@@ -74,11 +74,35 @@ Ground Truth: When a wallet is behind a checkpointer and a chained signature is 
 
 LLM: said reentrancy
 
-Expert Judged: false the PARTIAL (probably a mistake on their end)
+Expert Judged: Both Mistral and Expert are correct the vulnerability is no where related to the ground truth.
 
-Mistral is right the vulnerability is no where related to the ground truth.
+## Disagreement Case #2: ch_medical_nc_ds_234 - gemini_3_pro_preview
+
+- The model’s output included only one finding, while the remaining issue was absent. Therefore, the expert is correct in stating that the model missed this vulnerability, since the ground truth shows its root cause is weak randomness and not reentrancy.
+
+## Disagreement Case #4: nc_ds_234 - gpt-5.2
+-  There's a mix-up in the files here but LLM judge (Mistral) is right.
+
+## Disagreement Case #6: sn_gs_002 - gemini_3_pro_preview
+
+- Expert is correct
+
+## Disagreement Case #8: sn_gs_013 - gemini_3_pro_preview
+- LLM judge (Mistral) hallucinated here. Expert is correct
+
+## Disagreement Case #10: sn_gs_013 - gpt-5.2
+- Both judge (Mistral) and expert are correct. No disagreement
+
+## Disagreement Case #12: sn_gs_017 - deepseek_v3.2
+- Both LLM judge (Mistral) and Expert are correct. The model did not provide any response meaning it could not find any vulnerability on the target contract.
 
 
+## Disagreement Case #14: sn_gs_017 - gemini_3_pro_preview
+
+- Both LLM judge and Expert are correct. The model did not provide any response meaning it could not find any vulnerability on the target contract.
+
+## Disagreement Case #16: sn_gs_020 - gpt-5.2
+- Both LLM judge and Expert are correct. 
 
 
 
