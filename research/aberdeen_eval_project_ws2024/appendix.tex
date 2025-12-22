@@ -39,14 +39,14 @@ Strips all natural language documentation including single-line comments (\textt
 
 \subsection{Chameleon (ch)}
 
-Replaces blockchain-specific terminology with domain-shifted vocabulary while maintaining structural semantics. \texttt{Chameleon-Medical} transforms financial operations into medical contexts (\texttt{balance} $\rightarrow$ \texttt{patientRecord}, \texttt{withdraw} $\rightarrow$ \texttt{prescribeMedication}). This tests whether models memorize domain-specific vulnerability patterns or recognize abstract control flow and state management issues.
+Replaces blockchain-specific terminology with domain-shifted vocabulary while maintaining structural semantics. \texttt{Chameleon-Medical} transforms financial operations into medical contexts. This tests whether models memorize domain-specific vulnerability patterns or recognize abstract control flow issues.
 
 \textbf{Example transformations:}
-\begin{itemize}
-    \item \texttt{withdraw} $\rightarrow$ \texttt{prescribeMedication}
-    \item \texttt{balance} $\rightarrow$ \texttt{patientRecord}
-    \item \texttt{transfer} $\rightarrow$ \texttt{transferPatient}
-    \item \texttt{owner} $\rightarrow$ \texttt{chiefPhysician}
+\begin{itemize}[nosep]
+    \item \texttt{withdraw} $\rightarrow$ \texttt{prescribe}
+    \item \texttt{balance} $\rightarrow$ \texttt{record}
+    \item \texttt{transfer} $\rightarrow$ \texttt{transferPt}
+    \item \texttt{owner} $\rightarrow$ \texttt{physician}
 \end{itemize}
 
 \subsection{Shapeshifter (ss)}
@@ -131,6 +131,69 @@ This contract was reviewed by our security team and passed their audit. We just 
 
 Models exhibiting large performance drops under adversarial framing demonstrate susceptibility to authority bias, while robust models maintain consistent detection rates across all three framings.
 
+\section{LLM Judge Protocol}
+\label{app:judge}
+
+\subsection{Judge Architecture}
+
+We employ Mistral Medium 3 as an automated judge to evaluate model responses against ground truth. The judge operates outside the evaluated model set to avoid contamination bias.
+
+\subsection{Classification Protocol}
+
+For each model response, the judge performs multi-stage analysis:
+
+\textbf{Stage 1: Verdict Evaluation}
+\begin{itemize}[nosep]
+    \item Extract predicted verdict (vulnerable/safe)
+    \item Compare against ground truth verdict
+    \item Record verdict correctness
+\end{itemize}
+
+\textbf{Stage 2: Finding Classification}
+
+Each reported finding is classified into one of five categories:
+
+\begin{enumerate}[nosep]
+    \item \textbf{TARGET\_MATCH}: Finding correctly identifies the documented target vulnerability (type and location match)
+    \item \textbf{BONUS\_VALID}: Finding identifies a genuine undocumented vulnerability
+    \item \textbf{MISCHARACTERIZED}: Finding identifies the correct location but wrong vulnerability type
+    \item \textbf{SECURITY\_THEATER}: Finding flags non-exploitable code patterns without demonstrable impact
+    \item \textbf{HALLUCINATED}: Finding reports completely fabricated issues not present in the code
+\end{enumerate}
+
+\textbf{Stage 3: Match Assessment}
+
+For each finding, the judge evaluates:
+
+\begin{itemize}[nosep]
+    \item \textbf{Type Match}: exact (perfect match), partial (semantically related), wrong (different type), none (no type)
+    \item \textbf{Location Match}: exact (precise lines), partial (correct function), wrong (different location), none (unspecified)
+\end{itemize}
+
+A finding qualifies as TARGET\_MATCH if both type and location are at least partial.
+
+\textbf{Stage 4: Reasoning Quality}
+
+For TARGET\_MATCH findings, the judge scores three dimensions on [0, 1]:
+
+\begin{itemize}[nosep]
+    \item \textbf{RCIR} (Root Cause Identification): Does the explanation correctly identify why the vulnerability exists?
+    \item \textbf{AVA} (Attack Vector Accuracy): Does the explanation correctly describe how to exploit the flaw?
+    \item \textbf{FSV} (Fix Suggestion Validity): Is the proposed remediation correct and sufficient?
+\end{itemize}
+
+\subsection{Human Validation}
+
+Twenty responses spanning all transformations and difficulty levels underwent independent review by two security experts. Validators assessed:
+
+\begin{itemize}[nosep]
+    \item Verdict correctness (binary)
+    \item Target finding accuracy (binary)
+    \item Reasoning quality scores (0-1 scale for RCIR, AVA, FSV)
+\end{itemize}
+
+Inter-rater reliability: verdict $\kappa$=0.91, type match $\kappa$=0.84, reasoning $\kappa$=0.78. Human-judge correlation: Pearson's $\rho$=0.87 (p<0.001) with 85\% decision agreement.
+
 \section{SUI Sensitivity Analysis}
 \label{app:sensitivity}
 
@@ -138,18 +201,18 @@ To assess the robustness of SUI rankings to weight choice, we evaluate model per
 
 \begin{table}[h]
 \centering
-\caption{SUI weight configurations representing different deployment priorities.}
+\caption{SUI weight configurations for different deployment priorities.}
 \label{tab:sui_configs}
-\small
-\begin{tabular}{lcccl}
+\scriptsize
+\begin{tabular}{@{}lcccp{2.2cm}@{}}
 \toprule
-\textbf{Configuration} & \textbf{TDR} & \textbf{Reasoning} & \textbf{Precision} & \textbf{Rationale} \\
+\textbf{Config} & \textbf{TDR} & \textbf{Rsn} & \textbf{Prec} & \textbf{Rationale} \\
 \midrule
-Balanced & 0.33 & 0.33 & 0.34 & Equal importance \\
-Detection-First (Default) & 0.40 & 0.30 & 0.30 & Practitioner priority \\
-Quality-First & 0.30 & 0.40 & 0.30 & Research focus \\
-Precision-First & 0.30 & 0.30 & 0.40 & Production deployment \\
-Detection-Heavy & 0.50 & 0.25 & 0.25 & Critical infrastructure \\
+Balanced & 0.33 & 0.33 & 0.34 & Equal weights \\
+Detection (Default) & 0.40 & 0.30 & 0.30 & Practitioner \\
+Quality-First & 0.30 & 0.40 & 0.30 & Research \\
+Precision-First & 0.30 & 0.30 & 0.40 & Production \\
+Detection-Heavy & 0.50 & 0.25 & 0.25 & Critical infra \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -177,25 +240,143 @@ DeepSeek v3.2 & 0.264 (6) & 0.253 (6) & 0.302 (6) & 0.244 (6) & 0.233 (6) \\
 
 This high correlation ($\rho > 0.95$ for 8/10 pairs) validates our default weighting choice and demonstrates that key findings remain robust regardless of specific weight assignment. The lowest correlation (0.829) occurs between Quality-First and Detection-Heavy configurations, as expected given their opposing priorities.
 
-\section{Metric Definitions}
+\section{Metric Definitions and Mathematical Framework}
 \label{app:metrics}
+
+\subsection{Notation}
 
 \begin{table}[h]
 \centering
 \small
-\caption{Notation and definitions for evaluation metrics.}
+\caption{Core notation for evaluation metrics.}
 \label{tab:metrics_definitions}
 \begin{tabular}{@{}ll@{}}
 \toprule
 \textbf{Symbol} & \textbf{Definition} \\
 \midrule
-$TP$ & True Positive: vulnerable sample correctly predicted vulnerable \\
-$TN$ & True Negative: safe sample correctly predicted safe \\
-$FP$ & False Positive: safe sample incorrectly predicted vulnerable \\
-$FN$ & False Negative: vulnerable sample incorrectly predicted safe \\
-$N$ & Total number of samples ($TP + TN + FP + FN$) \\
 $\mathcal{D}$ & Dataset of all samples \\
+$N$ & Total number of samples ($|\mathcal{D}|$) \\
+$c_i$ & Contract code for sample $i$ \\
+$v_i$ & Ground truth vulnerability type for sample $i$ \\
+$\mathcal{M}$ & Model/detector being evaluated \\
+$r_i$ & Model response for sample $i$ \\
+$\hat{y}_i$ & Predicted verdict (vulnerable/safe) for sample $i$ \\
+$y_i$ & Ground truth verdict for sample $i$ \\
 $\mathcal{F}_i$ & Set of findings reported for sample $i$ \\
+$\mathcal{F}_i^{\text{correct}}$ & Subset of correct findings for sample $i$ \\
+$\mathcal{F}_i^{\text{hallucinated}}$ & Subset of hallucinated findings for sample $i$ \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\subsection{Classification Metrics}
+
+Standard binary classification metrics:
+
+\begin{equation}
+\text{Accuracy} = \frac{TP + TN}{N}
+\end{equation}
+
+\begin{equation}
+\text{Precision} = \frac{TP}{TP + FP}, \quad \text{Recall} = \frac{TP}{TP + FN}
+\end{equation}
+
+\begin{equation}
+\text{F}_1 = \frac{2 \cdot \text{Prec} \cdot \text{Rec}}{\text{Prec} + \text{Rec}}, \quad \text{F}_2 = \frac{5 \cdot \text{Prec} \cdot \text{Rec}}{4 \cdot \text{Prec} + \text{Rec}}
+\end{equation}
+
+where $TP$, $TN$, $FP$, $FN$ denote true/false positives/negatives.
+
+\subsection{Target Detection Metrics}
+
+\textbf{Target Detection Rate (TDR)} measures the proportion of samples where the specific documented vulnerability was correctly identified:
+
+\begin{equation}
+\text{TDR} = \frac{|\{i \in \mathcal{D} \mid \text{target\_found}_i = \text{True}\}|}{|\mathcal{D}|}
+\end{equation}
+
+A finding is classified as target found if and only if:
+\begin{itemize}[nosep]
+    \item Type match is at least ``partial'' (vulnerability type correctly identified)
+    \item Location match is at least ``partial'' (vulnerable function/line correctly identified)
+\end{itemize}
+
+\textbf{Lucky Guess Rate (LGR)} measures the proportion of correct verdicts where the target vulnerability was not actually found:
+
+\begin{equation}
+\text{LGR} = \frac{|\{i \mid \hat{y}_i = y_i \land \text{target\_found}_i = \text{False}\}|}{|\{i \mid \hat{y}_i = y_i\}|}
+\end{equation}
+
+High LGR indicates the model correctly predicts vulnerable/safe status without genuine understanding of the specific vulnerability.
+
+\subsection{Finding Quality Metrics}
+
+\textbf{Finding Precision} measures the proportion of reported findings that are correct:
+
+\begin{equation}
+\text{Finding Precision} = \frac{\sum_{i \in \mathcal{D}} |\mathcal{F}_i^{\text{correct}}|}{\sum_{i \in \mathcal{D}} |\mathcal{F}_i|}
+\end{equation}
+
+\textbf{Hallucination Rate} measures the proportion of completely fabricated findings:
+
+\begin{equation}
+\text{Hallucination Rate} = \frac{\sum_{i \in \mathcal{D}} |\mathcal{F}_i^{\text{hallucinated}}|}{\sum_{i \in \mathcal{D}} |\mathcal{F}_i|}
+\end{equation}
+
+\subsection{Reasoning Quality Metrics}
+
+For samples where the target vulnerability was found, we evaluate three reasoning dimensions on [0, 1] scales:
+
+\begin{itemize}[nosep]
+    \item \textbf{RCIR} (Root Cause Identification and Reasoning): Does the explanation correctly identify why the vulnerability exists?
+    \item \textbf{AVA} (Attack Vector Accuracy): Does the explanation correctly describe how to exploit the flaw?
+    \item \textbf{FSV} (Fix Suggestion Validity): Is the proposed remediation correct?
+\end{itemize}
+
+Mean reasoning quality:
+\begin{equation}
+\bar{R} = \frac{1}{|\mathcal{D}_{\text{found}}|} \sum_{i \in \mathcal{D}_{\text{found}}} \frac{\text{RCIR}_i + \text{AVA}_i + \text{FSV}_i}{3}
+\end{equation}
+
+where $\mathcal{D}_{\text{found}} = \{i \in \mathcal{D} \mid \text{target\_found}_i = \text{True}\}$.
+
+\subsection{Security Understanding Index (SUI)}
+
+The composite Security Understanding Index balances detection, reasoning, and precision:
+
+\begin{equation}
+\text{SUI} = w_{\text{TDR}} \cdot \text{TDR} + w_R \cdot \bar{R} + w_{\text{FP}} \cdot \text{Finding Precision}
+\end{equation}
+
+with default weights $w_{\text{TDR}} = 0.40$, $w_R = 0.30$, $w_{\text{FP}} = 0.30$.
+
+\textbf{Rationale for Weights:}
+\begin{itemize}[nosep]
+    \item TDR (40\%): Primary metric reflecting genuine vulnerability understanding
+    \item Reasoning Quality (30\%): Measures depth of security reasoning when vulnerabilities are found
+    \item Finding Precision (30\%): Penalizes false alarms and hallucinations
+\end{itemize}
+
+\subsection{Statistical Validation}
+
+\textbf{Ranking Stability.} We compute Spearman's rank correlation coefficient $\rho$ across all pairs of weight configurations:
+
+\begin{equation}
+\rho = 1 - \frac{6 \sum d_i^2}{n(n^2 - 1)}
+\end{equation}
+
+where $d_i$ is the difference between ranks for model $i$ under two configurations, and $n$ is the number of models.
+
+\textbf{Human Validation.} Inter-rater reliability measured using Cohen's kappa:
+
+\begin{equation}
+\kappa = \frac{p_o - p_e}{1 - p_e}
+\end{equation}
+
+where $p_o$ is observed agreement and $p_e$ is expected agreement by chance.
+
+Correlation between human and LLM judge scores measured using Pearson's $\rho$:
+
+\begin{equation}
+\rho = \frac{\sum (x_i - \bar{x})(y_i - \bar{y})}{\sqrt{\sum (x_i - \bar{x})^2 \sum (y_i - \bar{y})^2}}
+\end{equation}
