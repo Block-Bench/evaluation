@@ -1,0 +1,88 @@
+{
+  "sample_id": "df_tc_004",
+  "exploit_name": "Harvest Finance",
+  "date": "2020-10-26",
+  "amount_lost_usd": "24000000",
+  "blockchain": "ethereum",
+  "language": "solidity",
+  "vulnerability_type": "price_oracle_manipulation",
+  "vulnerability_subtype": "flash_loan_amm_manipulation",
+  "severity": "critical",
+  "difficulty_tier": 4,
+  "is_vulnerable": false,
+  "temporal_category": "pre_cutoff",
+  "description": "Fixed version with price deviation check to prevent flash loan manipulation",
+  "vulnerable_contract": "that",
+  "vulnerable_function": "deposit, withdraw",
+  "vulnerable_lines": [],
+  "attack_scenario": "Attacker takes $50M USDC + $17M USDT flash loans from Uniswap. Swaps USDT->USDC on Curve to inflate USDC price. Deposits 49M USDC into Harvest at inflated price, receiving more fUSDC shares. Swaps USDC->USDT to deflate price. Withdraws fUSDC shares at normal price, receiving more USDC than deposited. Repeats cycle 6 times to amplify profit. Repays flash loans with $24M profit.",
+  "root_cause": "The vault calculated share prices using getTotalAssets() which included current balances in Curve pools. These balances could be manipulated via large swaps within a single transaction. The protocol used spot prices without any deviation check, allowing flash loan manipulation.",
+  "fix_description": "Use Time-Weighted Average Price (TWAP) oracles instead of spot prices from AMMs. Implement deposit/withdrawal fees to make flash loan attacks unprofitable. Add slippage protection on all swaps. Limit maximum deposit/withdrawal amounts per block. Use multiple price sources (Chainlink oracles). Implement commit-reveal pattern for deposits/withdrawals. Add minimum time delay between deposits and withdrawals.",
+  "source_reference": "https://github.com/SunWeb3Sec/DeFiHackLabs/blob/main/src/test/2020-10/HarvestFinance_exp.sol",
+  "external_references": [
+    "https://rekt.news/harvest-finance-rekt/",
+    "https://medium.com/harvest-finance/harvest-flashloan-economic-attack-post-mortem-3cf900d65217"
+  ],
+  "tags": [
+    "flash_loan",
+    "price_manipulation",
+    "oracle",
+    "curve",
+    "amm",
+    "arbitrage",
+    "historical",
+    "differential",
+    "fixed"
+  ],
+  "variant_type": "differential",
+  "variant_parent_id": "tc_004",
+  "notes": "One of the earliest and most significant flash loan price manipulation attacks. Demonstrated that vault protocols cannot safely use AMM spot prices for accounting. The attack was repeated 6 times in rapid succession to maximize profit, showing the attacker's sophistication.",
+  "contract_file": "contracts/df_tc_004.sol",
+  "subset": "annotated",
+  "original_subset": "temporal_contamination",
+  "transformation": {
+    "type": "differential",
+    "strategy": "minimal_fix",
+    "source_dir": "/Users/poamen/projects/grace/blockbench/base/dataset/temporal_contamination/original",
+    "source_contract": "/Users/poamen/projects/grace/blockbench/base/dataset/temporal_contamination/original/contracts/tc_004.sol",
+    "source_metadata": "/Users/poamen/projects/grace/blockbench/base/dataset/temporal_contamination/original/metadata/tc_004.json",
+    "pair_metadata": "/Users/poamen/projects/grace/blockbench/base/data/manual_strategies/differential/metadata/df_pair_tc_004.json",
+    "script": "manual",
+    "is_fixed_version": true,
+    "fix_type": "price_deviation_protection",
+    "fix_description": "Added lastPricePerShare and lastPriceUpdate state variables (lines 36-37), MAX_PRICE_DEVIATION and MIN_PRICE_UPDATE_INTERVAL constants (lines 38-39), price deviation check in deposit/withdraw (lines 58, 87), and _checkPriceDeviation/_updatePrice helper functions (lines 107-123).",
+    "exact_changes": [
+      {
+        "location": "state variables (lines 36-39)",
+        "version_a": "uint256 public lastPricePerShare;\nuint256 public lastPriceUpdate;\nuint256 constant MAX_PRICE_DEVIATION = 5;\nuint256 constant MIN_PRICE_UPDATE_INTERVAL = 1 hours;",
+        "version_b": "// No price tracking state"
+      },
+      {
+        "location": "constructor (lines 47-48)",
+        "version_a": "lastPricePerShare = 1e18;\nlastPriceUpdate = block.timestamp;",
+        "version_b": "// No price initialization"
+      },
+      {
+        "location": "deposit function (lines 58, 73)",
+        "version_a": "_checkPriceDeviation();\n...\n_updatePrice();",
+        "version_b": "// No price checks"
+      },
+      {
+        "location": "withdraw function (lines 87, 98)",
+        "version_a": "_checkPriceDeviation();\n...\n_updatePrice();",
+        "version_b": "// No price checks"
+      },
+      {
+        "location": "_checkPriceDeviation function (lines 107-113)",
+        "version_a": "require(currentPrice >= minAllowed && currentPrice <= maxAllowed, \"Price deviation too high\");",
+        "version_b": "// Function does not exist"
+      }
+    ],
+    "why_fix_works": "The minimal fix (price deviation check) makes flash loan price manipulation attacks impossible by rejecting transactions when the current price deviates more than 5% from the stored price. The stored price only updates after a minimum interval, preventing same-block manipulation.",
+    "contracts_in_file": [
+      "that",
+      "YieldVault"
+    ],
+    "created_date": "2025-12-30T02:02:17.925097"
+  }
+}

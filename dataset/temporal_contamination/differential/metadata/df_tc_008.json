@@ -1,0 +1,78 @@
+{
+  "sample_id": "df_tc_008",
+  "exploit_name": "Cream Finance",
+  "date": "2021-10-27",
+  "amount_lost_usd": "130000000",
+  "blockchain": "ethereum",
+  "language": "solidity",
+  "vulnerability_type": "price_oracle_manipulation",
+  "vulnerability_subtype": "flash_loan_oracle_manipulation",
+  "severity": "critical",
+  "difficulty_tier": 4,
+  "is_vulnerable": false,
+  "temporal_category": "pre_cutoff",
+  "description": "Fixed version with price deviation protection to prevent oracle manipulation",
+  "vulnerable_contract": "LendingProtocol",
+  "vulnerable_function": "borrow",
+  "vulnerable_lines": [],
+  "attack_scenario": "Attacker flash loans $500M DAI from MakerDAO, converts to yUSD, deposits to Cream for crYUSD collateral. Flash loans 524K ETH from Aave, deposits for crETH collateral. Borrows yUSD multiple times against ETH collateral. Withdraws yUSD from Curve to underlying tokens, reducing yUSD supply in pool. Reduced supply makes remaining yUSD appear more valuable. Oracle reports inflated yUSD price. Attacker's crYUSD collateral now valued at $1.5B (was $500M). Borrows massive amounts against inflated collateral value. Repays flash loans with $130M profit.",
+  "root_cause": "The borrow function uses oracle.getUnderlyingPrice() directly without any manipulation resistance. Attacker can flash loan to manipulate AMM pool prices, inflate collateral value, and borrow against artificially high collateral.",
+  "fix_description": "Use Time-Weighted Average Price (TWAP) oracles instead of spot prices. Integrate Chainlink or other manipulation-resistant oracle networks. Never use LP token prices directly from AMM pools without safeguards. Implement price sanity checks and circuit breakers for rapid price changes. Add per-market borrow caps. Use gradual price updates with rate limiting. Aggregate multiple oracle sources and use median values. Add flash loan attack detection. Avoid listing low-liquidity tokens. Implement deposit/borrow delays.",
+  "source_reference": "https://github.com/SunWeb3Sec/DeFiHackLabs/blob/main/src/test/2021-10/Cream_2_exp.sol",
+  "external_references": [
+    "https://medium.com/immunefi/hack-analysis-cream-finance-oct-2021-fc222d913fc5",
+    "https://rekt.news/cream-rekt-2/",
+    "https://twitter.com/peckshield/status/1453364046904786950"
+  ],
+  "tags": [
+    "flash_loan",
+    "oracle_manipulation",
+    "lending",
+    "compound_fork",
+    "curve",
+    "price_manipulation",
+    "historical",
+    "differential",
+    "fixed"
+  ],
+  "variant_type": "differential",
+  "variant_parent_id": "tc_008",
+  "notes": "Complex multi-flash-loan attack demonstrating sophisticated oracle manipulation. Cream was a Compound fork particularly vulnerable due to listing many low-liquidity tokens. This was one of multiple hacks Cream suffered. Attack required deep understanding of Curve mechanics, Cream's oracle system, and flash loan coordination across multiple protocols (MakerDAO + Aave). Demonstrates that lending protocols cannot safely use AMM spot prices for collateral valuation.",
+  "contract_file": "contracts/df_tc_008.sol",
+  "subset": "annotated",
+  "original_subset": "temporal_contamination",
+  "transformation": {
+    "type": "differential",
+    "strategy": "minimal_fix",
+    "source_dir": "/Users/poamen/projects/grace/blockbench/base/dataset/temporal_contamination/original",
+    "source_contract": "/Users/poamen/projects/grace/blockbench/base/dataset/temporal_contamination/original/contracts/tc_008.sol",
+    "source_metadata": "/Users/poamen/projects/grace/blockbench/base/dataset/temporal_contamination/original/metadata/tc_008.json",
+    "pair_metadata": "/Users/poamen/projects/grace/blockbench/base/data/manual_strategies/differential/metadata/df_pair_tc_008.json",
+    "script": "manual",
+    "is_fixed_version": true,
+    "fix_type": "price_deviation_protection",
+    "fix_description": "Added lastKnownPrice and lastPriceUpdate mappings, MAX_PRICE_DEVIATION constant (10%), MIN_PRICE_UPDATE_INTERVAL (1 hour), _validatePrice() function that rejects prices deviating more than 10% from cached price, and updateCachedPrice() admin function.",
+    "exact_changes": [
+      {
+        "location": "state variables (lines 42-45)",
+        "version_a": "mapping(address => uint256) public lastKnownPrice;\nmapping(address => uint256) public lastPriceUpdate;\nuint256 public constant MAX_PRICE_DEVIATION = 10;\nuint256 public constant MIN_PRICE_UPDATE_INTERVAL = 1 hours;",
+        "version_b": "// No price tracking"
+      },
+      {
+        "location": "_validatePrice function (lines 52-63)",
+        "version_a": "function _validatePrice(address cToken) internal view returns (uint256) { ... require(currentPrice >= minAllowed && currentPrice <= maxAllowed, \"Price deviation too high\"); }",
+        "version_b": "// No validation function"
+      },
+      {
+        "location": "borrow function (line 87)",
+        "version_a": "uint256 price = _validatePrice(cToken);",
+        "version_b": "// Uses oracle.getUnderlyingPrice(cToken) directly"
+      }
+    ],
+    "why_fix_works": "Price deviation protection prevents flash loan attacks by rejecting prices that change more than 10% within the update interval, making manipulation unprofitable.",
+    "contracts_in_file": [
+      "LendingProtocol"
+    ],
+    "created_date": "2025-12-30T02:02:17.928088"
+  }
+}
