@@ -62,6 +62,17 @@ class APIConfig:
     google_api_key: Optional[str] = field(
         default_factory=lambda: os.getenv("GOOGLE_API_KEY")
     )
+    # Vertex AI configuration
+    vertex_project_id: Optional[str] = field(
+        default_factory=lambda: os.getenv("VERTEX_PROJECT_ID")
+    )
+    vertex_location: Optional[str] = field(
+        default_factory=lambda: os.getenv("VERTEX_LOCATION", "us-central1")
+    )
+    # OpenRouter configuration
+    openrouter_api_key: Optional[str] = field(
+        default_factory=lambda: os.getenv("OPENROUTER_API_KEY")
+    )
 
 
 @dataclass
@@ -75,10 +86,41 @@ class DetectionConfig:
 
 
 @dataclass
+class JudgeModelConfig:
+    """Configuration for a single judge model."""
+    name: str
+    provider: str  # "vertex-anthropic", "vertex-mistral", "openrouter"
+    model_id: str
+    family: str  # "anthropic", "openai", "mistral"
+
+
+@dataclass
 class EvaluationConfig:
     """Configuration for evaluation runs."""
-    judge_model: str = "claude-sonnet-4-20250514"
     judge_temperature: float = 0.0
+
+    # Default judge models for multi-judge evaluation
+    # Using 3 judges from different families for ablation study
+    judge_models: list = field(default_factory=lambda: [
+        JudgeModelConfig(
+            name="haiku",
+            provider="vertex-anthropic",
+            model_id="claude-haiku-4-5@20251001",
+            family="anthropic"
+        ),
+        JudgeModelConfig(
+            name="gpt4o-mini",
+            provider="openrouter",
+            model_id="openai/gpt-4o-mini",
+            family="openai"
+        ),
+        JudgeModelConfig(
+            name="codestral",
+            provider="vertex-mistral",
+            model_id="codestral-2",
+            family="mistral"
+        ),
+    ])
 
 
 @dataclass
