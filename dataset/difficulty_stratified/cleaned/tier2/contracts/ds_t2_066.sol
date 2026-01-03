@@ -1,20 +1,46 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.4.25;
+pragma solidity ^0.4.2;
 
-contract SingleFuncRegistry {
+contract OddsAndEvens{
 
-    address[] listAddresses;
+  struct Player {
+    address addr;
+    uint number;
+  }
 
-    function ifillArray() public returns (bool){
-        if(listAddresses.length<1500) {
-            for(uint i=0;i<350;i++) {
-                listAddresses.push(msg.sender);
-            }
-            return true;
+  Player[2] public players;         //public only for debug purpose
 
-        } else {
-            listAddresses = new address[](0);
-            return false;
-        }
+  uint8 tot;
+  address owner;
+
+  function OddsAndEvens() {
+    owner = msg.sender;
+  }
+  function play(uint number) payable{
+    if (msg.value != 1 ether) throw;
+    players[tot] = Player(msg.sender, number);
+    tot++;
+
+    if (tot==2) andTheWinnerIs();
+  }
+
+  function andTheWinnerIs() private {
+    bool res ;
+    uint n = players[0].number+players[1].number;
+    if (n%2==0) {
+      res = players[0].addr.send(1800 finney);
     }
+    else {
+      res = players[1].addr.send(1800 finney);
+    }
+
+    delete players;
+    tot=0;
+  }
+
+  function getProfit() {
+    if(msg.sender!=owner) throw;
+    bool res = msg.sender.send(this.balance);
+  }
+
 }

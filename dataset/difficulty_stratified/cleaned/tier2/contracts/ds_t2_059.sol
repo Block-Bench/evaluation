@@ -1,23 +1,39 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.4.21;
+pragma solidity ^0.4.25;
 
-contract GuessTheRandomNumberChallenge {
-    uint8 answer;
+contract NumberRegistry {
 
-    function GuessTheRandomNumberChallenge() public payable {
-        require(msg.value == 1 ether);
-        answer = uint8(keccak256(block.blockhash(block.number - 1), now));
-    }
+    uint numElements = 0;
+    uint[] array;
 
-    function isComplete() public view returns (bool) {
-        return address(this).balance == 0;
-    }
+    function insertNnumbers(uint value,uint numbers) public {
 
-    function guess(uint8 n) public payable {
-        require(msg.value == 1 ether);
-
-        if (n == answer) {
-            msg.sender.transfer(2 ether);
+        for(uint i=0;i<numbers;i++) {
+            if(numElements == array.length) {
+                array.length += 1;
+            }
+            array[numElements++] = value;
         }
+    }
+
+    function clear() public {
+        require(numElements>1500);
+        numElements = 0;
+    }
+
+    function clearDOS() public {
+
+        // number depends on actual gas limit
+        require(numElements>1500);
+        array = new uint[](0);
+        numElements = 0;
+    }
+
+    function getLengthArray() public view returns(uint) {
+        return numElements;
+    }
+
+    function getRealLengthArray() public view returns(uint) {
+        return array.length;
     }
 }

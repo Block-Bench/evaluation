@@ -1,28 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import "forge-std/Test.sol";
-
-contract ContractTest is Test {
-    Vault VaultContract;
-
-    function testReadprivatedata() public {
-        VaultContract = new Vault(123456789);
-        bytes32 leet = vm.load(address(VaultContract), bytes32(uint256(0)));
-        console.log(uint256(leet));
-
-        // users in slot 1 - length of array
-        // starting from slot hash(1) - array elements
-        // slot where array element is stored = keccak256(slot)) + (index * elementSize)
-        // where slot = 1 and elementSize = 2 (1 (uint) +  1 (bytes32))
-        bytes32 user = vm.load(
-            address(VaultContract),
-            VaultContract.getArrayLocation(1, 1, 1)
-        );
-        console.log(uint256(user));
-    }
-}
-
 contract Vault {
     // slot 0
     uint256 private password;

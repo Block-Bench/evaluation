@@ -1,39 +1,26 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.4.15;
+pragma solidity ^0.4.24;
 
-contract CrowdFundBasic {
-  address[] private refundAddresses;
-  mapping(address => uint) public refundAmount;
+contract Missing{
+    address private owner;
 
-  function refundAll() public {
-    for(uint i; i < refundAddresses.length; i++) {
-      require(refundAddresses[i].transfer(refundAmount[refundAddresses[i]]));
+    modifier onlyowner {
+        require(msg.sender==owner);
+        _;
     }
-  }
-}
 
-contract CrowdFundPull {
-  address[] private refundAddresses;
-  mapping(address => uint) public refundAmount;
-
-  function withdraw() external {
-    uint refund = refundAmount[msg.sender];
-    refundAmount[msg.sender] = 0;
-    msg.sender.transfer(refund);
-  }
-}
-
-contract CrowdFundBatched {
-  address[] private refundAddresses;
-  mapping(address => uint) public refundAmount;
-  uint256 nextIdx;
-
-  function refundBatched() public {
-    uint256 i = nextIdx;
-    while(i < refundAddresses.length && msg.gas > 200000) {
-      refundAddresses[i].transfer(refundAmount[i]);
-      i++;
+    function IamMissing()
+        public
+    {
+        owner = msg.sender;
     }
-    nextIdx = i;
-  }
+
+    function () payable {}
+
+    function withdraw()
+        public
+        onlyowner
+    {
+       owner.transfer(this.balance);
+    }
 }

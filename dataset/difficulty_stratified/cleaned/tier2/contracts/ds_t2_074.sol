@@ -1,25 +1,18 @@
-pragma solidity ^0.4.15;
-contract NameRegistrar {
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.4.25;
 
-    bool public unlocked = false;  // registrar locked, no name updates
+contract Roulette {
+    uint public pastBlockTime; // Forces one bet per block
 
-    struct NameRecord { // map hashes to addresses
-        bytes32 name;
-        address mappedAddress;
-    }
+    constructor() public payable {} // initially fund contract
 
-    mapping(address => NameRecord) public registeredNameRecord; // records who registered names
-    mapping(bytes32 => address) public resolve; // resolves hashes to addresses
-
-    function register(bytes32 _name, address _mappedAddress) public {
-        // set up the new NameRecord
-        NameRecord newRecord;
-        newRecord.name = _name;
-        newRecord.mappedAddress = _mappedAddress;
-
-        resolve[_name] = _mappedAddress;
-        registeredNameRecord[msg.sender] = newRecord;
-
-        require(unlocked); // only allow registrations if contract is unlocked
+    // fallback function used to make a bet
+    function () public payable {
+        require(msg.value == 10 ether); // must send 10 ether to play
+        require(now != pastBlockTime); // only 1 transaction per block
+        pastBlockTime = now;
+        if(now % 15 == 0) { // winner
+            msg.sender.transfer(this.balance);
+        }
     }
 }

@@ -1,141 +1,154 @@
-// taken from https://www.ethereum.org/token#the-coin (4/9/2018)
+ pragma solidity ^0.4.15;
 
-pragma solidity ^0.4.16;
+ contract Rubixi {
 
-contract owned {
-    address public owner;
+         //Declare variables for storage critical to contract
+         uint private balance = 0;
+         uint private collectedFees = 0;
+         uint private feePercent = 10;
+         uint private pyramidMultiplier = 300;
+         uint private payoutOrder = 0;
 
-    function owned() public {
-        owner = msg.sender;
-    }
+         address private creator;
 
-    modifier onlyOwner {
-        require(msg.sender == owner);
-        _;
-    }
+         //Sets creator
+         function DynamicPyramid() {
+                 creator = msg.sender;
+         }
 
-    function transferOwnership(address newOwner) onlyOwner public {
-        owner = newOwner;
-    }
-}
+         modifier onlyowner {
+                 if (msg.sender == creator) _;
+         }
 
-interface tokenRecipient { function receiveApproval(address _from, uint256 _value, address _token, bytes _extraData) external; }
+         struct Participant {
+                 address etherAddress;
+                 uint payout;
+         }
 
-contract TokenERC20 {
-    // Public variables of the token
-    string public name;
-    string public symbol;
-    uint8 public decimals = 18;
-    // 18 decimals is the strongly suggested default, avoid changing it
-    uint256 public totalSupply;
+         Participant[] private participants;
 
-    // This creates an array with all balances
-    mapping (address => uint256) public balanceOf;
-    mapping (address => mapping (address => uint256)) public allowance;
+         //Fallback function
+         function() {
+                 init();
+         }
 
-    // This generates a public event on the blockchain that will notify clients
-    event Transfer(address indexed from, address indexed to, uint256 value);
+         //init function run on fallback
+         function init() private {
+                 //Ensures only tx with value of 1 ether or greater are processed and added to pyramid
+                 if (msg.value < 1 ether) {
+                         collectedFees += msg.value;
+                         return;
+                 }
 
-    // This generates a public event on the blockchain that will notify clients
-    event Approval(address indexed _owner, address indexed _spender, uint256 _value);
+                 uint _fee = feePercent;
+                 //50% fee rebate on any ether value of 50 or greater
+                 if (msg.value >= 50 ether) _fee /= 2;
 
-    function TokenERC20(
-        string tokenName,
-        string tokenSymbol
-    ) public {
-        name = tokenName;                                   // Set the name for display purposes
-        symbol = tokenSymbol;                               // Set the symbol for display purposes
-    }
+                 addPayout(_fee);
+         }
 
-    function _transfer(address _from, address _to, uint _value) internal {
-        // Prevent transfer to 0x0 address.
-        require(_to != 0x0);
-        // Check if the sender has enough
-        require(balanceOf[_from] >= _value);
+         //Function called for valid tx to the contract
+         function addPayout(uint _fee) private {
+                 //Adds new address to participant array
+                 participants.push(Participant(msg.sender, (msg.value * pyramidMultiplier) / 100));
 
-        require(balanceOf[_to] + _value > balanceOf[_to]);
-        // Save this for an assertion in the future
-        uint previousBalances = balanceOf[_from] + balanceOf[_to];
-        // Subtract from the sender
-        balanceOf[_from] -= _value;
-        // Add the same to the recipient
-        balanceOf[_to] += _value;
-        emit Transfer(_from, _to, _value);
-        // Asserts are used to use static analysis to find bugs in your code. They should never fail
-        assert(balanceOf[_from] + balanceOf[_to] == previousBalances);
-    }
+                 //These statements ensure a quicker payout system to later pyramid entrants, so the pyramid has a longer lifespan
+                 if (participants.length == 10) pyramidMultiplier = 200;
+                 else if (participants.length == 25) pyramidMultiplier = 150;
 
-    function transfer(address _to, uint256 _value) public returns (bool success) {
-        _transfer(msg.sender, _to, _value);
-        return true;
-    }
+                 // collect fees and update contract balance
+                 balance += (msg.value * (100 - _fee)) / 100;
+                 collectedFees += (msg.value * _fee) / 100;
 
-    function transferFrom(address _from, address _to, uint256 _value) public returns (bool success) {
-        require(_value <= allowance[_from][msg.sender]);     // Check allowance
-        allowance[_from][msg.sender] -= _value;
-        _transfer(_from, _to, _value);
-        return true;
-    }
+                 //Pays earlier participiants if balance sufficient
+                 while (balance > participants[payoutOrder].payout) {
+                         uint payoutToSend = participants[payoutOrder].payout;
+                         participants[payoutOrder].etherAddress.send(payoutToSend);
 
-    function approve(address _spender, uint256 _value) public
-        returns (bool success) {
-        allowance[msg.sender][_spender] = _value;
-        emit Approval(msg.sender, _spender, _value);
-        return true;
-    }
+                         balance -= participants[payoutOrder].payout;
+                         payoutOrder += 1;
+                 }
+         }
 
-    function approveAndCall(address _spender, uint256 _value, bytes _extraData)
-        public
-        returns (bool success) {
-        tokenRecipient spender = tokenRecipient(_spender);
-        if (approve(_spender, _value)) {
-            spender.receiveApproval(msg.sender, _value, this, _extraData);
-            return true;
-        }
-    }
+         //Fee functions for creator
+         function collectAllFees() onlyowner {
+                 if (collectedFees == 0) throw;
 
-}
+                 creator.send(collectedFees);
+                 collectedFees = 0;
+         }
 
-/******************************************/
-/*       ADVANCED TOKEN STARTS HERE       */
-/******************************************/
+         function collectFeesInEther(uint _amt) onlyowner {
+                 _amt *= 1 ether;
+                 if (_amt > collectedFees) collectAllFees();
 
-contract MyAdvancedToken is owned, TokenERC20 {
+                 if (collectedFees == 0) throw;
 
-    mapping (address => bool) public frozenAccount;
+                 creator.send(_amt);
+                 collectedFees -= _amt;
+         }
 
-    /* This generates a public event on the blockchain that will notify clients */
-    event FrozenFunds(address target, bool frozen);
+         function collectPercentOfFees(uint _pcent) onlyowner {
+                 if (collectedFees == 0 || _pcent > 100) throw;
 
-    /* Initializes contract with initial supply tokens to the creator of the contract */
-    function MyAdvancedToken(
-        string tokenName,
-        string tokenSymbol
-    ) TokenERC20(tokenName, tokenSymbol) public {}
+                 uint feesToCollect = collectedFees / 100 * _pcent;
+                 creator.send(feesToCollect);
+                 collectedFees -= feesToCollect;
+         }
 
-    /* Internal transfer, only can be called by this contract */
-    function _transfer(address _from, address _to, uint _value) internal {
-        require (_to != 0x0);                               // Prevent transfer to 0x0 address.
-        require (balanceOf[_from] >= _value);               // Check if the sender has enough
-        require (balanceOf[_to] + _value >= balanceOf[_to]);
-        require(!frozenAccount[_from]);                     // Check if sender is frozen
-        require(!frozenAccount[_to]);                       // Check if recipient is frozen
-        balanceOf[_from] -= _value;                         // Subtract from the sender
-        balanceOf[_to] += _value;                           // Add the same to the recipient
-        emit Transfer(_from, _to, _value);
-    }
+         //Functions for changing variables related to the contract
+         function changeOwner(address _owner) onlyowner {
+                 creator = _owner;
+         }
 
-    /// @notice Buy tokens from contract by sending ether
-    function buy() payable public {
-        uint amount = msg.value;                          // calculates the amount
-	balanceOf[msg.sender] += amount;                  // updates the balance
-        totalSupply += amount;                            // updates the total supply
-        _transfer(address(0x0), msg.sender, amount);      // makes the transfer
-    }
+         function changeMultiplier(uint _mult) onlyowner {
+                 if (_mult > 300 || _mult < 120) throw;
 
-    /* Migration function */
-    function migrate_and_destroy() onlyOwner {
-	assert(this.balance == totalSupply);                 // consistency check
-	suicide(owner);                                      // transfer the ether to the owner and kill the contract
-    }
-}
+                 pyramidMultiplier = _mult;
+         }
+
+         function changeFeePercentage(uint _fee) onlyowner {
+                 if (_fee > 10) throw;
+
+                 feePercent = _fee;
+         }
+
+         //Functions to provide information to end-user using JSON interface or other interfaces
+         function currentMultiplier() constant returns(uint multiplier, string info) {
+                 multiplier = pyramidMultiplier;
+                 info = 'This multiplier applies to you as soon as transaction is received, may be lowered to hasten payouts or increased if payouts are fast enough. Due to no float or decimals, multiplier is x100 for a fractional multiplier e.g. 250 is actually a 2.5x multiplier. Capped at 3x max and 1.2x min.';
+         }
+
+         function currentFeePercentage() constant returns(uint fee, string info) {
+                 fee = feePercent;
+                 info = 'Shown in % form. Fee is halved(50%) for amounts equal or greater than 50 ethers. (Fee may change, but is capped to a maximum of 10%)';
+         }
+
+         function currentPyramidBalanceApproximately() constant returns(uint pyramidBalance, string info) {
+                 pyramidBalance = balance / 1 ether;
+                 info = 'All balance values are measured in Ethers, note that due to no decimal placing, these values show up as integers only, within the contract itself you will get the exact decimal value you are supposed to';
+         }
+
+         function nextPayoutWhenPyramidBalanceTotalsApproximately() constant returns(uint balancePayout) {
+                 balancePayout = participants[payoutOrder].payout / 1 ether;
+         }
+
+         function feesSeperateFromBalanceApproximately() constant returns(uint fees) {
+                 fees = collectedFees / 1 ether;
+         }
+
+         function totalParticipants() constant returns(uint count) {
+                 count = participants.length;
+         }
+
+         function numberOfParticipantsWaitingForPayout() constant returns(uint count) {
+                 count = participants.length - payoutOrder;
+         }
+
+         function participantDetails(uint orderInPyramid) constant returns(address Address, uint Payout) {
+                 if (orderInPyramid <= participants.length) {
+                         Address = participants[orderInPyramid].etherAddress;
+                         Payout = participants[orderInPyramid].payout / 1 ether;
+                 }
+         }
+ }

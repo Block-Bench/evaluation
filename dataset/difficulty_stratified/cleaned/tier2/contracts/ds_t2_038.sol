@@ -1,26 +1,14 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.4.24;
+pragma solidity ^0.4.10;
 
-contract Missing{
-    address private owner;
+contract AdditionCounter {
+    mapping (address => uint256) public balanceOf;
 
-    modifier onlyowner {
-        require(msg.sender==owner);
-        _;
-    }
+    function transfer(address _to, uint256 _value) public{
+        /* Check if sender has balance */
+        require(balanceOf[msg.sender] >= _value);
+        balanceOf[msg.sender] -= _value;
+        balanceOf[_to] += _value;
+}
 
-    function IamMissing()
-        public
-    {
-        owner = msg.sender;
-    }
-
-    function () payable {}
-
-    function withdraw()
-        public
-        onlyowner
-    {
-       owner.transfer(this.balance);
-    }
 }

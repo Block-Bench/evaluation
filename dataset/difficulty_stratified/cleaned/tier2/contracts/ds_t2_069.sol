@@ -1,100 +1,82 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.4.24;
+pragma solidity ^0.4.19;
 
-library SafeMath {
-
-  function mul(uint256 a, uint256 b) internal pure returns (uint256) {
-    // Gas optimization: this is cheaper than requiring 'a' not being zero, but the
-    // benefit is lost if 'b' is also tested.
-    // See: https://github.com/OpenZeppelin/openzeppelin-solidity/pull/522
-    if (a == 0) {
-      return 0;
+contract OpenAddressLottery{
+    struct SeedComponents{
+        uint component1;
+        uint component2;
+        uint component3;
+        uint component4;
     }
 
-    uint256 c = a * b;
-    require(c / a == b);
+    address owner; //address of the owner
+    uint private secretSeed; //seed used to calculate number of an address
+    uint private lastReseed; //last reseed - used to automatically reseed the contract every 1000 blocks
+    uint LuckyNumber = 7; //if the number of an address equals 7, it wins
 
-    return c;
-  }
+    mapping (address => bool) winner; //keeping track of addresses that have already won
 
-  function div(uint256 a, uint256 b) internal pure returns (uint256) {
-    require(b > 0); // Solidity only automatically asserts when dividing by 0
-    uint256 c = a / b;
-    // assert(a == b * c + a % b); // There is no case in which this doesn't hold
+    function OpenAddressLottery() {
+        owner = msg.sender;
+        reseed(SeedComponents((uint)(block.coinbase), block.difficulty, block.gaslimit, block.timestamp)); //generate a quality random seed
+    }
 
-    return c;
-  }
+    function participate() payable {
+        if(msg.value<0.1 ether)
+            return; //verify ticket price
 
-  function sub(uint256 a, uint256 b) internal pure returns (uint256) {
-    require(b <= a);
-    uint256 c = a - b;
+        // make sure he hasn't won already
+        require(winner[msg.sender] == false);
 
-    return c;
-  }
+        if(luckyNumberOfAddress(msg.sender) == LuckyNumber){ //check if it equals 7
+            winner[msg.sender] = true; // every address can only win once
 
-  function add(uint256 a, uint256 b) internal pure returns (uint256) {
-    uint256 c = a + b;
-    require(c >= a);
+            uint win=msg.value*7; //win = 7 times the ticket price
 
-    return c;
-  }
+            if(win>this.balance) //if the balance isnt sufficient...
+                win=this.balance; //...send everything we've got
+            msg.sender.transfer(win);
+        }
 
-  function mod(uint256 a, uint256 b) internal pure returns (uint256) {
-    require(b != 0);
-    return a % b;
-  }
-}
+        if(block.number-lastReseed>1000) //reseed if needed
+            reseed(SeedComponents((uint)(block.coinbase), block.difficulty, block.gaslimit, block.timestamp)); //generate a quality random seed
+    }
 
-contract ERC20 {
+    function luckyNumberOfAddress(address addr) constant returns(uint n){
+        // calculate the number of current address - 1 in 8 chance
+        n = uint(keccak256(uint(addr), secretSeed)[0]) % 8;
+    }
 
-  event Transfer( address indexed from, address indexed to, uint256 value );
-  event Approval( address indexed owner, address indexed spender, uint256 value);
-  using SafeMath for *;
+    function reseed(SeedComponents components) internal {
+        secretSeed = uint256(keccak256(
+            components.component1,
+            components.component2,
+            components.component3,
+            components.component4
+        )); //hash the incoming parameters and use the hash to (re)initialize the seed
+        lastReseed = block.number;
+    }
 
-  mapping (address => uint256) private _balances;
+    function kill() {
+        require(msg.sender==owner);
 
-  mapping (address => mapping (address => uint256)) private _allowed;
+        selfdestruct(msg.sender);
+    }
 
-  uint256 private _totalSupply;
+    function forceReseed() { //reseed initiated by the owner - for testing purposes
+        require(msg.sender==owner);
+        SeedComponents s;
+        s.component1 = uint(msg.sender);
+        s.component2 = uint256(block.blockhash(block.number - 1));
+        s.component3 = block.difficulty*(uint)(block.coinbase);
+        s.component4 = tx.gasprice * 7;
 
-  constructor(uint totalSupply){
-    _balances[msg.sender] = totalSupply;
-  }
+        reseed(s); //reseed
+    }
 
-  function balanceOf(address owner) public view returns (uint256) {
-    return _balances[owner];
-  }
+    function () payable { //if someone sends money without any function call, just assume he wanted to participate
+        if(msg.value>=0.1 ether && msg.sender!=owner) //owner can't participate, he can only fund the jackpot
+            participate();
+    }
 
-  function allowance(address owner, address spender) public view returns (uint256)
-  {
-    return _allowed[owner][spender];
-  }
-
-  function transfer(address to, uint256 value) public returns (bool) {
-    require(value <= _balances[msg.sender]);
-    require(to != address(0));
-
-    _balances[msg.sender] = _balances[msg.sender].sub(value);
-    _balances[to] = _balances[to].add(value);
-    emit Transfer(msg.sender, to, value);
-    return true;
-  }
-  function approve(address spender, uint256 value) public returns (bool) {
-    require(spender != address(0));
-    _allowed[msg.sender][spender] = value;
-    emit Approval(msg.sender, spender, value);
-    return true;
-  }
-
-  function transferFrom(address from, address to, uint256 value) public returns (bool) {
-    require(value <= _balances[from]);
-    require(value <= _allowed[from][msg.sender]);
-    require(to != address(0));
-
-    _balances[from] = _balances[from].sub(value);
-    _balances[to] = _balances[to].add(value);
-    _allowed[from][msg.sender] = _allowed[from][msg.sender].sub(value);
-    emit Transfer(from, to, value);
-    return true;
-  }
 }

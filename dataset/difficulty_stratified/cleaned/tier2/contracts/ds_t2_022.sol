@@ -1,59 +1,39 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import "forge-std/Test.sol";
+contract SimpleBank {
+    mapping(address => uint256) private balances;
+    address Admin; //default is address(0)
 
-contract ContractTest is Test {
-    LotteryGame LotteryGameContract;
-
-    function testLotteryGame() public {
-        address alice = vm.addr(1);
-        address bob = vm.addr(2);
-        LotteryGameContract = new LotteryGame();
-        console.log(
-            "Alice performs pickWinner, of course she will not be a winner"
-        );
-        vm.prank(alice);
-        LotteryGameContract.pickWinner(address(alice));
-        console.log("Prize: ", LotteryGameContract.prize());
-
-        console.log("Now, admin calls pickWinner.");
-        LotteryGameContract.pickWinner(address(bob));
-        console.log("Winner: ", LotteryGameContract.winner());
-        console.log("operate completed");
+    function getBalance(address _account) public view returns (uint256) {
+        return balances[_account];
     }
 
-    receive() external payable {}
-}
-
-contract LotteryGame {
-    uint256 public prize = 1000;
-    address public winner;
-    address public admin = msg.sender;
-
-    modifier safeCheck() {
-        if (msg.sender == referee()) {
-            _;
-        } else {
-            getkWinner();
-        }
+    function recoverSignerAddress(
+        bytes32 _hash,
+        uint8 _v,
+        bytes32 _r,
+        bytes32 _s
+    ) private pure returns (address) {
+        address recoveredAddress = ecrecover(_hash, _v, _r, _s);
+        return recoveredAddress;
     }
 
-    function referee() internal view returns (address user) {
-        assembly {
-            // load admin value at slot 2 of storage
-            user := sload(2)
-        }
-    }
+    function transfer(
+        address _to,
+        uint256 _amount,
+        bytes32 _hash,
+        uint8 _v,
+        bytes32 _r,
+        bytes32 _s
+    ) public {
+        require(_to != address(0), "Invalid recipient address");
 
-    function pickWinner(address random) public safeCheck {
-        assembly {
-            sstore(1, random)
-        }
-    }
+        address signer = recoverSignerAddress(_hash, _v, _r, _s);
 
-    function getkWinner() public view returns (address) {
-        console.log("Current winner: ", winner);
-        return winner;
+        //require(signer != address(0), "Invalid signature");
+        require(signer == Admin, "Invalid signature");
+
+        balances[_to] += _amount;
     }
 }

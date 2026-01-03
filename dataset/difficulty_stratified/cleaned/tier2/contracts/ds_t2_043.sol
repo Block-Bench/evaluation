@@ -1,24 +1,11 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.4.15;
 
- contract OpenAccess{
-     address private owner;
 
-     modifier onlyowner {
-         require(msg.sender==owner);
-         _;
-     }
+pragma solidity ^0.4.19;
 
-     function OpenAccess()
-         public
-     {
-         owner = msg.sender;
-     }
+contract MinimalCounter {
+    uint public count = 1;
 
-     function changeOwner(address _newOwner)
-         public
-     {
-        owner = _newOwner;
-     }
-
- }
+    function run(uint256 input) public {
+        count -= input;
+    }
+}

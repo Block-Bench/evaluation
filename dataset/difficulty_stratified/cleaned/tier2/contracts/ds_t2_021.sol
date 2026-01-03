@@ -1,90 +1,63 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-import "forge-std/Test.sol";
 
-contract ContractTest is Test {
-    Target TargetContract;
-    FailedOperator FailedOperatorContract;
-    Operator OperatorContract;
-    TargetB TargetContractB;
-
-    constructor() {
-        TargetContract = new Target();
-        FailedOperatorContract = new FailedOperator();
-        TargetContractB = new TargetB();
+contract BasicBank {
+    struct Locker {
+        bool hasLockedTokens;
+        uint256 amount;
+        uint256 lockTime;
+        address tokenAddress;
     }
 
-    function testFailedContractCheck() public {
-        console.log(
-            "Before operation",
-            TargetContract.completed()
+    mapping(address => mapping(uint256 => Locker)) private _unlockToken;
+    uint256 private _nextLockerId = 1;
+
+    function createLocker(
+        address tokenAddress,
+        uint256 amount,
+        uint256 lockTime
+    ) public {
+        require(amount > 0, "Amount must be greater than 0");
+        require(lockTime > block.timestamp, "Lock time must be in the future");
+        require(
+            IERC20(tokenAddress).balanceOf(msg.sender) >= amount,
+            "Insufficient token balance"
         );
-        console.log("operate Failed");
-        FailedOperatorContract.execute(address(TargetContract));
+
+        IERC20(tokenAddress).transferFrom(msg.sender, address(this), amount);
+
+        Locker storage locker = _unlockToken[msg.sender][_nextLockerId];
+        locker.hasLockedTokens = true;
+        locker.amount = amount;
+        locker.lockTime = lockTime;
+        locker.tokenAddress = tokenAddress;
+
+        _nextLockerId++;
     }
 
-    function testContractCheck() public {
-        console.log(
-            "Before operation",
-            TargetContract.completed()
-        );
-        OperatorContract = new Operator(address(TargetContract));
-        console.log(
-            "After operation",
-            TargetContract.completed()
-        );
-        console.log("operate completed");
-    }
+    function unlockToken(uint256 lockerId) public {
+        Locker storage locker = _unlockToken[msg.sender][lockerId];
+        uint256 amount = locker.amount;
+        require(locker.hasLockedTokens, "No locked tokens");
 
-    receive() external payable {}
-}
-
-contract Target {
-    function isContract(address account) public view returns (bool) {
-        uint size;
-        assembly {
-            size := extcodesize(account)
+        if (block.timestamp > locker.lockTime) {
+            locker.amount = 0;
         }
-        return size > 0;
-    }
 
-    bool public completed = false;
-
-    function protected() external {
-        require(!isContract(msg.sender), "no contract allowed");
-        completed = true;
+        IERC20(locker.tokenAddress).transfer(msg.sender, amount);
     }
 }
 
-contract FailedOperator is Test {
-    function execute(address _target) external {
-        vm.expectRevert("no contract allowed");
-        Target(_target).protected();
+contract BanksLP is ERC20, Ownable {
+    constructor() ERC20("BanksLP", "BanksLP") {
+        _mint(msg.sender, 10000 * 10 ** decimals());
+    }
+
+    function mint(address to, uint256 amount) public onlyOwner {
+        _mint(to, amount);
     }
 }
 
-contract Operator {
-    bool public isContract;
-    address public addr;
-
-    constructor(address _target) {
-        isContract = Target(_target).isContract(address(this));
-        addr = address(this);
-        Target(_target).protected();
-    }
-}
-
-contract TargetB {
-    function isContract(address account) public view returns (bool) {
-        require(tx.origin == msg.sender);
-        return account.code.length > 0;
-    }
-
-    bool public completed = false;
-
-    function protected() external {
-        require(!isContract(msg.sender), "no contract allowed");
-        completed = true;
-    }
-}

@@ -1,57 +1,41 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.18;
+pragma solidity ^0.8.24;
 
-import "forge-std/Test.sol";
+import "forge-std/console.sol";
 
-contract ContractTest is Test {
-    ArrayDeletion ArrayDeletionContract;
-    ArrayDeletionB ArrayDeletionContractB;
+contract SimpleVault {
+    // mint function
+    function mint(uint256 amountToDeposit) external returns (uint256) {
+        // Write vault address (address(this)) to transient storage
+        address vault = address(this);
+        assembly {
+            tstore(1, vault)
+        }
 
-    function setUp() public {
-        ArrayDeletionContract = new ArrayDeletion();
-        ArrayDeletionContractB = new ArrayDeletionB();
+        // Directly call own callback function
+        this.SwapCallback(amountToDeposit, "");
     }
 
-    function testArrayDeletionA() public {
-        ArrayDeletionContract.myArray(1);
-        ArrayDeletionContract.deleteElement(1);
-        ArrayDeletionContract.myArray(1);
-        ArrayDeletionContract.getLength();
-    }
+    // Simulate SwapCallback callback function
+    function SwapCallback(uint256 amount, bytes calldata data) external {
+        // Read vault address from transient storage
+        address vault;
+        assembly {
+            vault := tload(1)
+        }
 
-    function testArrayDeletionB() public {
-        ArrayDeletionContractB.myArray(1);
-        ArrayDeletionContractB.deleteElement(1);
-        ArrayDeletionContractB.myArray(1);
-        ArrayDeletionContractB.getLength();
-    }
+        // Check if caller is a legitimate vault
+        require(msg.sender == vault, "Not authorized");
 
-    receive() external payable {}
-}
-
-contract ArrayDeletion {
-    uint[] public myArray = [1, 2, 3, 4, 5];
-
-    function deleteElement(uint index) external {
-        require(index < myArray.length, "Invalid index");
-        delete myArray[index];
-    }
-
-    function getLength() public view returns (uint) {
-        return myArray.length;
-    }
-}
-
-contract ArrayDeletionB {
-    uint[] public myArray = [1, 2, 3, 4, 5];
-
-    function deleteElement(uint index) external {
-        require(index < myArray.length, "Invalid index");
-        myArray[index] = myArray[myArray.length - 1];
-        myArray.pop();
-    }
-
-    function getLength() public view returns (uint) {
-        return myArray.length;
+        if (vault == address(this)) {
+            // Output vault address for observation
+            console.log("vault address:", vault);
+            // Write the returned amount to transient storage
+            assembly {
+                tstore(1, amount)
+            }
+        } else {
+            console.log("Different vault address:", vault);
+        }
     }
 }

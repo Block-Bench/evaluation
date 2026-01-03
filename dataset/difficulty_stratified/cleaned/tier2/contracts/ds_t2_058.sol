@@ -1,162 +1,30 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.4.16;
+pragma solidity ^0.4.25;
 
-contract Ethraffle_v4b {
-    struct Contestant {
-        address addr;
-        uint raffleId;
-    }
+contract GasAuction {
 
-    event RaffleResult(
-        uint raffleId,
-        uint winningNumber,
-        address winningAddress,
-        address seed1,
-        address seed2,
-        uint seed3,
-        bytes32 randHash
-    );
+    address[] creditorAddresses;
+    bool win = false;
 
-    event TicketPurchase(
-        uint raffleId,
-        address contestant,
-        uint number
-    );
-
-    event TicketRefund(
-        uint raffleId,
-        address contestant,
-        uint number
-    );
-
-    // Constants
-    uint public constant prize = 2.5 ether;
-    uint public constant fee = 0.03 ether;
-    uint public constant totalTickets = 50;
-    uint public constant pricePerTicket = (prize + fee) / totalTickets; // Make sure this divides evenly
-    address feeAddress;
-
-    // Other internal variables
-    bool public paused = false;
-    uint public raffleId = 1;
-    uint public blockNumber = block.number;
-    uint nextTicket = 0;
-    mapping (uint => Contestant) contestants;
-    uint[] gaps;
-
-    // Initialization
-    function Ethraffle_v4b() public {
-        feeAddress = msg.sender;
-    }
-
-    // Call buyTickets() when receiving Ether outside a function
-    function () payable public {
-        buyTickets();
-    }
-
-    function buyTickets() payable public {
-        if (paused) {
-            msg.sender.transfer(msg.value);
-            return;
-        }
-
-        uint moneySent = msg.value;
-
-        while (moneySent >= pricePerTicket && nextTicket < totalTickets) {
-            uint currTicket = 0;
-            if (gaps.length > 0) {
-                currTicket = gaps[gaps.length-1];
-                gaps.length--;
-            } else {
-                currTicket = nextTicket++;
-            }
-
-            contestants[currTicket] = Contestant(msg.sender, raffleId);
-            TicketPurchase(raffleId, msg.sender, currTicket);
-            moneySent -= pricePerTicket;
-        }
-
-        // Choose winner if we sold all the tickets
-        if (nextTicket == totalTickets) {
-            chooseWinner();
-        }
-
-        // Send back leftover money
-        if (moneySent > 0) {
-            msg.sender.transfer(moneySent);
+    function emptyCreditors() public {
+        if(creditorAddresses.length>1500) {
+            creditorAddresses = new address[](0);
+            win = true;
         }
     }
 
-    function chooseWinner() private {
-        address seed1 = contestants[uint(block.coinbase) % totalTickets].addr;
-        address seed2 = contestants[uint(msg.sender) % totalTickets].addr;
-        uint seed3 = block.difficulty;
-        bytes32 randHash = keccak256(seed1, seed2, seed3);
-
-        uint winningNumber = uint(randHash) % totalTickets;
-        address winningAddress = contestants[winningNumber].addr;
-        RaffleResult(raffleId, winningNumber, winningAddress, seed1, seed2, seed3, randHash);
-
-        // Start next raffle
-        raffleId++;
-        nextTicket = 0;
-        blockNumber = block.number;
-
-        // gaps.length = 0 isn't necessary here,
-        // because buyTickets() eventually clears
-        // the gaps array in the loop itself.
-
-        // Distribute prize and fee
-        winningAddress.transfer(prize);
-        feeAddress.transfer(fee);
+    function addCreditors() public returns (bool) {
+        for(uint i=0;i<350;i++) {
+          creditorAddresses.push(msg.sender);
+        }
+        return true;
     }
 
-    // Get your money back before the raffle occurs
-    function getRefund() public {
-        uint refund = 0;
-        for (uint i = 0; i < totalTickets; i++) {
-            if (msg.sender == contestants[i].addr && raffleId == contestants[i].raffleId) {
-                refund += pricePerTicket;
-                contestants[i] = Contestant(address(0), 0);
-                gaps.push(i);
-                TicketRefund(raffleId, msg.sender, i);
-            }
-        }
-
-        if (refund > 0) {
-            msg.sender.transfer(refund);
-        }
+    function iWin() public view returns (bool) {
+        return win;
     }
 
-    // Refund everyone's money, start a new raffle, then pause it
-    function endRaffle() public {
-        if (msg.sender == feeAddress) {
-            paused = true;
-
-            for (uint i = 0; i < totalTickets; i++) {
-                if (raffleId == contestants[i].raffleId) {
-                    TicketRefund(raffleId, contestants[i].addr, i);
-                    contestants[i].addr.transfer(pricePerTicket);
-                }
-            }
-
-            RaffleResult(raffleId, totalTickets, address(0), address(0), address(0), 0, 0);
-            raffleId++;
-            nextTicket = 0;
-            blockNumber = block.number;
-            gaps.length = 0;
-        }
-    }
-
-    function togglePause() public {
-        if (msg.sender == feeAddress) {
-            paused = !paused;
-        }
-    }
-
-    function kill() public {
-        if (msg.sender == feeAddress) {
-            selfdestruct(feeAddress);
-        }
+    function numberCreditors() public view returns (uint) {
+        return creditorAddresses.length;
     }
 }

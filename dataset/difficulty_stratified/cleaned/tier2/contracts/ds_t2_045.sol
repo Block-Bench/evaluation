@@ -1,10 +1,19 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.4.15;
+//Arithmetic instruction reachable
 
- contract Ledger {
-     uint private sellerBalance=0;
+pragma solidity ^0.4.23;
 
-     function add(uint value) returns (bool){
-         sellerBalance += value;
-     }
- }
+contract MultiTxCalculator {
+    uint256 private initialized = 0;
+    uint256 public count = 1;
+
+    function init() public {
+        initialized = 1;
+    }
+
+    function run(uint256 input) {
+        if (initialized == 0) {
+            return;
+        }
+        count -= input;
+    }
+}

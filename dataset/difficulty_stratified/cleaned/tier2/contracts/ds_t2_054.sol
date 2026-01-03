@@ -1,32 +1,57 @@
+  pragma solidity ^0.4.0;
 
+ contract Lottery {
+     event GetBet(uint betAmount, uint blockNumber, bool won);
 
-pragma solidity ^0.4.23;
+     struct Bet {
+         uint betAmount;
+         uint blockNumber;
+         bool won;
+     }
 
-contract SingleTxCounter {
-    uint public count = 1;
+     address private organizer;
+     Bet[] private bets;
 
-    function addtostate(uint256 input) public {
-        count += input;
-    }
+     // Create a new lottery with numOfBets supported bets.
+     function Lottery() {
+         organizer = msg.sender;
+     }
 
-    function multostate(uint256 input) public {
-        count *= input;
-    }
+     // Fallback function returns ether
+     function() {
+         throw;
+     }
 
-    function subFromState(uint256 input) public {
-        count -= input;
-    }
+     // Make a bet
+     function makeBet() {
+         // Won if block number is even
 
-    function localcalc(uint256 input) public {
-        uint res = count + input;
-    }
+         bool won = (block.number % 2) == 0;
 
-    function mullocalonly(uint256 input) public {
-        uint res = count * input;
-    }
+         // Record the bet with an event
+         bets.push(Bet(msg.value, block.number, won));
 
-    function subLocalOnly(uint256 input) public {
-       	uint res = count - input;
-    }
+         // Payout if the user won, otherwise take their money
+         if(won) {
+             if(!msg.sender.send(msg.value)) {
+                 // Return ether to sender
+                 throw;
+             }
+         }
+     }
 
-}
+     // Get all bets that have been made
+     function getBets() {
+         if(msg.sender != organizer) { throw; }
+
+         for (uint i = 0; i < bets.length; i++) {
+             GetBet(bets[i].betAmount, bets[i].blockNumber, bets[i].won);
+         }
+     }
+
+     function destroy() {
+         if(msg.sender != organizer) { throw; }
+
+         suicide(organizer);
+     }
+ }

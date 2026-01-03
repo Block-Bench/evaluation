@@ -1,13 +1,18 @@
-contract Destructible {
-  address owner;
-  function suicide() public returns (address) {
-    require(owner == msg.sender);
-    selfdestruct(owner);
-  }
-}
-contract C is Destructible {
-  address owner;
-  function C() {
-    owner = msg.sender;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.4.15;
+
+contract SimpleAuction {
+  address currentFrontrunner;
+  uint currentBid;
+
+  function bid() payable {
+    require(msg.value > currentBid);
+
+    if (currentFrontrunner != 0) {
+      require(currentFrontrunner.send(currentBid));
+    }
+
+    currentFrontrunner = msg.sender;
+    currentBid         = msg.value;
   }
 }

@@ -1,43 +1,25 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.4.15;
+pragma solidity ^0.4.24;
 
-contract SimpleAuction {
-  address currentFrontrunner;
-  uint currentBid;
+contract Missing{
+    address private owner;
 
-  function bid() payable {
-    require(msg.value > currentBid);
-
-    if (currentFrontrunner != 0) {
-      require(currentFrontrunner.send(currentBid));
+    modifier onlyowner {
+        require(msg.sender==owner);
+        _;
+    }
+    function missing()
+        public
+    {
+        owner = msg.sender;
     }
 
-    currentFrontrunner = msg.sender;
-    currentBid         = msg.value;
-  }
-}
+    function () payable {}
 
-contract AuctionB {
-  address currentFrontrunner;
-  uint    currentBid;
-
-  mapping(address => uint) refunds;
-
-  function bid() payable external {
-    require(msg.value > currentBid);
-
-    if (currentFrontrunner != 0) {
-      refunds[currentFrontrunner] += currentBid;
+    function withdraw()
+        public
+        onlyowner
+    {
+       owner.transfer(this.balance);
     }
-
-    currentFrontrunner = msg.sender;
-    currentBid         = msg.value;
-  }
-
-  function withdraw() external {
-    uint refund = refunds[msg.sender];
-    refunds[msg.sender] = 0;
-
-    msg.sender.send(refund);
-  }
 }

@@ -1,40 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.7.6;
 
-import "forge-std/Test.sol";
-
-contract ContractTest is Test {
-    TokenWhaleChallenge TokenWhaleChallengeContract;
-
-    function testCalculation() public {
-        address alice = vm.addr(1);
-        address bob = vm.addr(2);
-
-        TokenWhaleChallengeContract = new TokenWhaleChallenge();
-        TokenWhaleChallengeContract.TokenWhaleDeploy(address(this));
-        console.log(
-            "Player balance:",
-            TokenWhaleChallengeContract.balanceOf(address(this))
-        );
-        TokenWhaleChallengeContract.transfer(address(alice), 800);
-
-        vm.prank(alice);
-        TokenWhaleChallengeContract.approve(address(this), 1000);
-        TokenWhaleChallengeContract.transferFrom(
-            address(alice),
-            address(bob),
-            500
-        );
-
-        console.log("operate completed, balance calculate");
-        console.log(
-            "Player balance:",
-            TokenWhaleChallengeContract.balanceOf(address(this))
-        );
-    }
-
-    receive() external payable {}
-}
 
 contract TokenWhaleChallenge {
     address player;

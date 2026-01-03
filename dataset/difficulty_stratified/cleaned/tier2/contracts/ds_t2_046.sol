@@ -1,11 +1,16 @@
+//Arithmetic instruction reachable
 
+pragma solidity ^0.4.23;
 
-pragma solidity ^0.4.19;
-
-contract AdditionCounter {
-    uint public count = 1;
+contract SingleFuncCalculator {
+    uint256 private initialized = 0;
+    uint256 public count = 1;
 
     function run(uint256 input) public {
-        count += input;
+        if (initialized == 0) {
+            initialized = 1;
+            return;
+        }
+        count -= input;
     }
 }

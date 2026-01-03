@@ -1,9 +1,32 @@
-pragma solidity ^0.4.11;
 
-contract MappingCounter {
-    mapping(uint256 => uint256) map;
 
-    function init(uint256 k, uint256 v) public {
-        map[k] -= v;
+pragma solidity ^0.4.23;
+
+contract SingleTxCounter {
+    uint public count = 1;
+
+    function addtostate(uint256 input) public {
+        count += input;
     }
+
+    function multostate(uint256 input) public {
+        count *= input;
+    }
+
+    function subFromState(uint256 input) public {
+        count -= input;
+    }
+
+    function localcalc(uint256 input) public {
+        uint res = count + input;
+    }
+
+    function mullocalonly(uint256 input) public {
+        uint res = count * input;
+    }
+
+    function subLocalOnly(uint256 input) public {
+       	uint res = count - input;
+    }
+
 }

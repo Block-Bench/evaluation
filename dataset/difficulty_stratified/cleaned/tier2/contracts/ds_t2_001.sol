@@ -1,33 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.15;
 
-import "forge-std/Test.sol";
-
-contract ContractTest is Test {
-    HashCollision HashCollisionContract;
-
-    function setUp() public {
-        HashCollisionContract = new HashCollision();
-    }
-
-    function testHash_collisions() public {
-        emit log_named_bytes32(
-            "(AAA,BBB) Hash",
-            HashCollisionContract.createHash("AAA", "BBB")
-        );
-        HashCollisionContract.deposit{value: 1 ether}("AAA", "BBB");
-
-        emit log_named_bytes32(
-            "(AA,ABBB) Hash",
-            HashCollisionContract.createHash("AA", "ABBB")
-        );
-        vm.expectRevert("Hash collision detected");
-        HashCollisionContract.deposit{value: 1 ether}("AA", "ABBB"); //Hash collision detected
-    }
-
-    receive() external payable {}
-}
-
 contract HashCollision {
     mapping(bytes32 => uint256) public balances;
 
