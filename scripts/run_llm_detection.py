@@ -18,6 +18,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+# Load .env file
+from dotenv import load_dotenv
+load_dotenv(PROJECT_ROOT / ".env")
+
 from src.detection.llm.model_config import get_client, load_model_config
 from src.detection.llm.prompts.ds.direct import DSDirectPromptBuilder
 
@@ -30,23 +34,41 @@ def parse_json_response(raw_response: str) -> tuple[dict | None, list[str]]:
         (parsed_dict, errors) - parsed dict or None, list of parsing errors
     """
     errors = []
+    json_str = None
 
-    # Try to find JSON in code block
-    json_match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw_response, re.DOTALL)
-    if json_match:
-        json_str = json_match.group(1).strip()
-    else:
-        # Try the whole response as JSON
-        json_str = raw_response.strip()
+    # Strategy 1: If response starts with {, try parsing directly
+    stripped = raw_response.strip()
+    if stripped.startswith('{'):
+        json_str = stripped
 
+    # Strategy 2: If wrapped in ```json ... ```, extract carefully
+    # Use greedy match to get content between FIRST ```json and LAST ```
+    elif stripped.startswith('```'):
+        # Find the opening ```json or ```
+        start_match = re.match(r'```(?:json)?\s*\n?', stripped)
+        if start_match:
+            content_start = start_match.end()
+            # Find the LAST ``` (not nested ones)
+            last_fence = stripped.rfind('```')
+            if last_fence > content_start:
+                json_str = stripped[content_start:last_fence].strip()
+
+    # Strategy 3: Fallback - try non-greedy match (original behavior)
+    if json_str is None:
+        json_match = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw_response, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1).strip()
+        else:
+            json_str = stripped
+
+    # Try parsing
     try:
         parsed = json.loads(json_str)
         return parsed, errors
     except json.JSONDecodeError as e:
         errors.append(f"JSON parse error: {e}")
 
-        # Try to fix common issues
-        # Remove trailing commas
+        # Try to fix common issues - trailing commas
         fixed = re.sub(r',\s*([}\]])', r'\1', json_str)
         try:
             parsed = json.loads(fixed)
@@ -225,12 +247,13 @@ async def run_tier(
         )
 
         # Print quick summary
-        if result["prediction"]:
+        if result and result.get("prediction"):
             verdict = result["prediction"].get("verdict", "?")
             vulns = len(result["prediction"].get("vulnerabilities", []))
             print(f"verdict={verdict}, findings={vulns}")
         else:
-            print(f"ERROR: {result.get('error', 'parse failed')[:50]}")
+            error_msg = result.get('error', 'parse failed') if result else 'unknown error'
+            print(f"ERROR: {str(error_msg)[:50]}")
 
         results.append(result)
 
