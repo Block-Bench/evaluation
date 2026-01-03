@@ -18,9 +18,7 @@ contract HashCollision {
         require(msg.value > 0, "Deposit amount must be greater than zero");
 
         bytes32 hash = createHash(_string1, _string2);
-        // createHash(AAA, BBB) -> AAABBB
-        // createHash(AA, ABBB) -> AAABBB
-        // Check if the hash already exists in the balances mapping
+
         require(balances[hash] == 0, "Hash collision detected");
 
         balances[hash] = msg.value;

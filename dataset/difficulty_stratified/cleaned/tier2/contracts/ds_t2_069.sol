@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.4.19;
 
-contract OpenAddressLottery{
-    struct SeedComponents{
+contract OpenAddressLottery {
+    struct SeedComponents {
         uint component1;
         uint component2;
         uint component3;
@@ -14,69 +14,88 @@ contract OpenAddressLottery{
     uint private lastReseed; //last reseed - used to automatically reseed the contract every 1000 blocks
     uint LuckyNumber = 7; //if the number of an address equals 7, it wins
 
-    mapping (address => bool) winner; //keeping track of addresses that have already won
+    mapping(address => bool) winner; //keeping track of addresses that have already won
 
     function OpenAddressLottery() {
         owner = msg.sender;
-        reseed(SeedComponents((uint)(block.coinbase), block.difficulty, block.gaslimit, block.timestamp)); //generate a quality random seed
+        reseed(
+            SeedComponents(
+                (uint)(block.coinbase),
+                block.difficulty,
+                block.gaslimit,
+                block.timestamp
+            )
+        );
     }
 
     function participate() payable {
-        if(msg.value<0.1 ether)
-            return; //verify ticket price
+        if (msg.value < 0.1 ether) return; //verify ticket price
 
         // make sure he hasn't won already
         require(winner[msg.sender] == false);
 
-        if(luckyNumberOfAddress(msg.sender) == LuckyNumber){ //check if it equals 7
+        if (luckyNumberOfAddress(msg.sender) == LuckyNumber) {
+            //check if it equals 7
             winner[msg.sender] = true; // every address can only win once
 
-            uint win=msg.value*7; //win = 7 times the ticket price
+            uint win = msg.value * 7; //win = 7 times the ticket price
 
-            if(win>this.balance) //if the balance isnt sufficient...
-                win=this.balance; //...send everything we've got
+            if (win > this.balance)
+                //if the balance isnt sufficient...
+                win = this.balance; //...send everything we've got
             msg.sender.transfer(win);
         }
 
-        if(block.number-lastReseed>1000) //reseed if needed
-            reseed(SeedComponents((uint)(block.coinbase), block.difficulty, block.gaslimit, block.timestamp)); //generate a quality random seed
+        if (block.number - lastReseed > 1000)
+            //reseed if needed
+            reseed(
+                SeedComponents(
+                    (uint)(block.coinbase),
+                    block.difficulty,
+                    block.gaslimit,
+                    block.timestamp
+                )
+            );
     }
 
-    function luckyNumberOfAddress(address addr) constant returns(uint n){
+    function luckyNumberOfAddress(address addr) constant returns (uint n) {
         // calculate the number of current address - 1 in 8 chance
         n = uint(keccak256(uint(addr), secretSeed)[0]) % 8;
     }
 
     function reseed(SeedComponents components) internal {
-        secretSeed = uint256(keccak256(
-            components.component1,
-            components.component2,
-            components.component3,
-            components.component4
-        )); //hash the incoming parameters and use the hash to (re)initialize the seed
+        secretSeed = uint256(
+            keccak256(
+                components.component1,
+                components.component2,
+                components.component3,
+                components.component4
+            )
+        ); //hash the incoming parameters and use the hash to (re)initialize the seed
         lastReseed = block.number;
     }
 
     function kill() {
-        require(msg.sender==owner);
+        require(msg.sender == owner);
 
         selfdestruct(msg.sender);
     }
 
-    function forceReseed() { //reseed initiated by the owner - for testing purposes
-        require(msg.sender==owner);
+    function forceReseed() {
+        require(msg.sender == owner);
         SeedComponents s;
         s.component1 = uint(msg.sender);
         s.component2 = uint256(block.blockhash(block.number - 1));
-        s.component3 = block.difficulty*(uint)(block.coinbase);
+        s.component3 = block.difficulty * (uint)(block.coinbase);
         s.component4 = tx.gasprice * 7;
 
         reseed(s); //reseed
     }
 
-    function () payable { //if someone sends money without any function call, just assume he wanted to participate
-        if(msg.value>=0.1 ether && msg.sender!=owner) //owner can't participate, he can only fund the jackpot
+    function() payable {
+        //if someone sends money without any function call, just assume he wanted to participate
+        if (msg.value >= 0.1 ether && msg.sender != owner)
+            //owner can't participate, he can only fund the jackpot
             participate();
     }
-
 }

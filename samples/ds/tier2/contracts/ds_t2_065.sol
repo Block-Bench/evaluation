@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.4.16;
 
-contract EthTxOrderDependenceMinimal {
+contract MinimalResolve {
     address public owner;
     bool public claimed;
     uint public reward;
 
-    function EthTxOrderDependenceMinimal() public {
+    function MinimalResolve() public {
         owner = msg.sender;
     }
 
     function setReward() public payable {
-        require (!claimed);
+        require(!claimed);
 
         require(msg.sender == owner);
         owner.transfer(reward);
@@ -19,7 +19,7 @@ contract EthTxOrderDependenceMinimal {
     }
 
     function claimReward(uint256 submission) {
-        require (!claimed);
+        require(!claimed);
         require(submission < 10);
         msg.sender.transfer(reward);
         claimed = true;

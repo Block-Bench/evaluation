@@ -2,14 +2,12 @@
 pragma solidity ^0.4.25;
 
 contract NumberRegistry {
-
     uint numElements = 0;
     uint[] array;
 
-    function insertNnumbers(uint value,uint numbers) public {
-
-        for(uint i=0;i<numbers;i++) {
-            if(numElements == array.length) {
+    function insertNnumbers(uint value, uint numbers) public {
+        for (uint i = 0; i < numbers; i++) {
+            if (numElements == array.length) {
                 array.length += 1;
             }
             array[numElements++] = value;
@@ -17,23 +15,21 @@ contract NumberRegistry {
     }
 
     function clear() public {
-        require(numElements>1500);
+        require(numElements > 1500);
         numElements = 0;
     }
 
-    function clearDOS() public {
-
-        // number depends on actual gas limit
-        require(numElements>1500);
+    function space() public {
+        require(numElements > 1500);
         array = new uint[](0);
         numElements = 0;
     }
 
-    function getLengthArray() public view returns(uint) {
+    function getLengthArray() public view returns (uint) {
         return numElements;
     }
 
-    function getRealLengthArray() public view returns(uint) {
+    function getRealLengthArray() public view returns (uint) {
         return array.length;
     }
 }

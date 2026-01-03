@@ -3,7 +3,7 @@ pragma solidity ^0.8.18;
 
 contract SimpleBank {
     mapping(address => uint256) private balances;
-    address Admin; //default is address(0)
+    address Admin;
 
     function getBalance(address _account) public view returns (uint256) {
         return balances[_account];
@@ -31,7 +31,6 @@ contract SimpleBank {
 
         address signer = recoverSignerAddress(_hash, _v, _r, _s);
 
-        //require(signer != address(0), "Invalid signature");
         require(signer == Admin, "Invalid signature");
 
         balances[_to] += _amount;

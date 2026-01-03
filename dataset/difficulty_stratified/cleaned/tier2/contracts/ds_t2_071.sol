@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.4.15;
 
-/// @title Ethereum Lottery Game.
-
 contract EtherLotto {
-
     // Amount of ether needed for participating in the lottery.
     uint constant TICKET_AMOUNT = 10;
 
@@ -25,19 +22,16 @@ contract EtherLotto {
     // Public function for playing lottery. Each time this function
     // is invoked, the sender has an oportunity for winning pot.
     function play() payable {
-
         // Participants must spend the required ether before playing lottery.
         assert(msg.value == TICKET_AMOUNT);
 
         // Increase pot for each participant.
         pot += msg.value;
 
-        // Compute some *almost random* value for selecting winner from current transaction.
         var random = uint(sha3(block.timestamp)) % 2;
 
         // Distribution: 50% of participants will be winners.
         if (random == 0) {
-
             // Send fee to bank account.
             bank.transfer(FEE_AMOUNT);
 
@@ -48,5 +42,4 @@ contract EtherLotto {
             pot = 0;
         }
     }
-
 }

@@ -1,152 +1,176 @@
 pragma solidity ^0.4.0;
 
- contract Lotto {
+contract Lotto {
+    uint public constant blocksPerRound = 6800;
+    // there are an infinite number of rounds (just like a real lottery that takes place every week). `blocksPerRound` decides how many blocks each round will last. 6800 is around a day.
 
-     uint constant public blocksPerRound = 6800;
-     // there are an infinite number of rounds (just like a real lottery that takes place every week). `blocksPerRound` decides how many blocks each round will last. 6800 is around a day.
+    uint public constant ticketPrice = 100000000000000000;
+    // the cost of each ticket is .1 ether.
 
-     uint constant public ticketPrice = 100000000000000000;
-     // the cost of each ticket is .1 ether.
+    uint public constant blockReward = 5000000000000000000;
 
-     uint constant public blockReward = 5000000000000000000;
+    function getBlocksPerRound() constant returns (uint) {
+        return blocksPerRound;
+    }
 
-     function getBlocksPerRound() constant returns(uint){ return blocksPerRound; }
-     function getTicketPrice() constant returns(uint){ return ticketPrice; }
-     //accessors for constants
+    function getTicketPrice() constant returns (uint) {
+        return ticketPrice;
+    }
 
-     struct Round {
-         address[] buyers;
-         uint pot;
-         uint ticketsCount;
-         mapping(uint=>bool) isCashed;
-         mapping(address=>uint) ticketsCountByBuyer;
-     }
-     mapping(uint => Round) rounds;
-     //the contract maintains a mapping of rounds. Each round maintains a list of tickets, the total amount of the pot, and whether or not the round was "cashed". "Cashing" is the act of paying out the pot to the winner.
+    //accessors for constants
 
-     function getRoundIndex() constant returns (uint){
-         //The round index tells us which round we're on. For example if we're on block 24, we're on round 2. Division in Solidity automatically rounds down, so we don't need to worry about decimals.
+    struct Round {
+        address[] buyers;
+        uint pot;
+        uint ticketsCount;
+        mapping(uint => bool) isCashed;
+        mapping(address => uint) ticketsCountByBuyer;
+    }
+    mapping(uint => Round) rounds;
 
-         return block.number/blocksPerRound;
-     }
+    //the contract maintains a mapping of rounds. Each round maintains a list of tickets, the total amount of the pot, and whether or not the round was "cashed". "Cashing" is the act of paying out the pot to the winner.
 
-     function getIsCashed(uint roundIndex,uint subpotIndex) constant returns (bool){
-         //Determine if a given.
+    function getRoundIndex() constant returns (uint) {
+        //The round index tells us which round we're on. For example if we're on block 24, we're on round 2. Division in Solidity automatically rounds down, so we don't need to worry about decimals.
 
-         return rounds[roundIndex].isCashed[subpotIndex];
-     }
+        return block.number / blocksPerRound;
+    }
 
-     function calculateWinner(uint roundIndex, uint subpotIndex) constant returns(address){
-         //note this function only calculates the winners. It does not do any state changes and therefore does not include various validitiy checks
+    function getIsCashed(
+        uint roundIndex,
+        uint subpotIndex
+    ) constant returns (bool) {
+        //Determine if a given.
 
-         var decisionBlockNumber = getDecisionBlockNumber(roundIndex,subpotIndex);
+        return rounds[roundIndex].isCashed[subpotIndex];
+    }
 
-         if(decisionBlockNumber>block.number)
-             return;
-         //We can't decided the winner if the round isn't over yet
+    function calculateWinner(
+        uint roundIndex,
+        uint subpotIndex
+    ) constant returns (address) {
+        //note this function only calculates the winners. It does not do any state changes and therefore does not include various validitiy checks
 
-         var decisionBlockHash = getHashOfBlock(decisionBlockNumber);
-         var winningTicketIndex = decisionBlockHash%rounds[roundIndex].ticketsCount;
-         //We perform a modulus of the blockhash to determine the winner
+        var decisionBlockNumber = getDecisionBlockNumber(
+            roundIndex,
+            subpotIndex
+        );
 
-         var ticketIndex = uint256(0);
+        if (decisionBlockNumber > block.number) return;
+        //We can't decided the winner if the round isn't over yet
 
-         for(var buyerIndex = 0; buyerIndex<rounds[roundIndex].buyers.length; buyerIndex++){
-             var buyer = rounds[roundIndex].buyers[buyerIndex];
-             ticketIndex+=rounds[roundIndex].ticketsCountByBuyer[buyer];
+        var decisionBlockHash = getHashOfBlock(decisionBlockNumber);
+        var winningTicketIndex = decisionBlockHash %
+            rounds[roundIndex].ticketsCount;
+        //We perform a modulus of the blockhash to determine the winner
 
-             if(ticketIndex>winningTicketIndex){
-                 return buyer;
-             }
-         }
-     }
+        var ticketIndex = uint256(0);
 
-     function getDecisionBlockNumber(uint roundIndex,uint subpotIndex) constant returns (uint){
-         return ((roundIndex+1)*blocksPerRound)+subpotIndex;
-     }
+        for (
+            var buyerIndex = 0;
+            buyerIndex < rounds[roundIndex].buyers.length;
+            buyerIndex++
+        ) {
+            var buyer = rounds[roundIndex].buyers[buyerIndex];
+            ticketIndex += rounds[roundIndex].ticketsCountByBuyer[buyer];
 
-     function getSubpotsCount(uint roundIndex) constant returns(uint){
-         var subpotsCount = rounds[roundIndex].pot/blockReward;
+            if (ticketIndex > winningTicketIndex) {
+                return buyer;
+            }
+        }
+    }
 
-         if(rounds[roundIndex].pot%blockReward>0)
-             subpotsCount++;
+    function getDecisionBlockNumber(
+        uint roundIndex,
+        uint subpotIndex
+    ) constant returns (uint) {
+        return ((roundIndex + 1) * blocksPerRound) + subpotIndex;
+    }
 
-         return subpotsCount;
-     }
+    function getSubpotsCount(uint roundIndex) constant returns (uint) {
+        var subpotsCount = rounds[roundIndex].pot / blockReward;
 
-     function getSubpot(uint roundIndex) constant returns(uint){
-         return rounds[roundIndex].pot/getSubpotsCount(roundIndex);
-     }
+        if (rounds[roundIndex].pot % blockReward > 0) subpotsCount++;
 
-     function cash(uint roundIndex, uint subpotIndex){
+        return subpotsCount;
+    }
 
-         var subpotsCount = getSubpotsCount(roundIndex);
+    function getSubpot(uint roundIndex) constant returns (uint) {
+        return rounds[roundIndex].pot / getSubpotsCount(roundIndex);
+    }
 
-         if(subpotIndex>=subpotsCount)
-             return;
+    function cash(uint roundIndex, uint subpotIndex) {
+        var subpotsCount = getSubpotsCount(roundIndex);
 
-         var decisionBlockNumber = getDecisionBlockNumber(roundIndex,subpotIndex);
+        if (subpotIndex >= subpotsCount) return;
 
-         if(decisionBlockNumber>block.number)
-             return;
+        var decisionBlockNumber = getDecisionBlockNumber(
+            roundIndex,
+            subpotIndex
+        );
 
-         if(rounds[roundIndex].isCashed[subpotIndex])
-             return;
-         //Subpots can only be cashed once. This is to prevent double payouts
+        if (decisionBlockNumber > block.number) return;
 
-         var winner = calculateWinner(roundIndex,subpotIndex);
-         var subpot = getSubpot(roundIndex);
+        if (rounds[roundIndex].isCashed[subpotIndex]) return;
+        //Subpots can only be cashed once. This is to prevent double payouts
 
-         winner.send(subpot);
+        var winner = calculateWinner(roundIndex, subpotIndex);
+        var subpot = getSubpot(roundIndex);
 
-         rounds[roundIndex].isCashed[subpotIndex] = true;
-         //Mark the round as cashed
-     }
+        winner.send(subpot);
 
-     function getHashOfBlock(uint blockIndex) constant returns(uint){
-         return uint(block.blockhash(blockIndex));
-     }
+        rounds[roundIndex].isCashed[subpotIndex] = true;
+        //Mark the round as cashed
+    }
 
-     function getBuyers(uint roundIndex,address buyer) constant returns (address[]){
-         return rounds[roundIndex].buyers;
-     }
+    function getHashOfBlock(uint blockIndex) constant returns (uint) {
+        return uint(block.blockhash(blockIndex));
+    }
 
-     function getTicketsCountByBuyer(uint roundIndex,address buyer) constant returns (uint){
-         return rounds[roundIndex].ticketsCountByBuyer[buyer];
-     }
+    function getBuyers(
+        uint roundIndex,
+        address buyer
+    ) constant returns (address[]) {
+        return rounds[roundIndex].buyers;
+    }
 
-     function getPot(uint roundIndex) constant returns(uint){
-         return rounds[roundIndex].pot;
-     }
+    function getTicketsCountByBuyer(
+        uint roundIndex,
+        address buyer
+    ) constant returns (uint) {
+        return rounds[roundIndex].ticketsCountByBuyer[buyer];
+    }
 
-     function() {
-         //this is the function that gets called when people send money to the contract.
+    function getPot(uint roundIndex) constant returns (uint) {
+        return rounds[roundIndex].pot;
+    }
 
-         var roundIndex = getRoundIndex();
-         var value = msg.value-(msg.value%ticketPrice);
+    function() {
+        //this is the function that gets called when people send money to the contract.
 
-         if(value==0) return;
+        var roundIndex = getRoundIndex();
+        var value = msg.value - (msg.value % ticketPrice);
 
-         if(value<msg.value){
-             msg.sender.send(msg.value-value);
-         }
-         //no partial tickets, send a partial refund
+        if (value == 0) return;
 
-         var ticketsCount = value/ticketPrice;
-         rounds[roundIndex].ticketsCount+=ticketsCount;
+        if (value < msg.value) {
+            msg.sender.send(msg.value - value);
+        }
+        //no partial tickets, send a partial refund
 
-         if(rounds[roundIndex].ticketsCountByBuyer[msg.sender]==0){
-             var buyersLength = rounds[roundIndex].buyers.length++;
-             rounds[roundIndex].buyers[buyersLength] = msg.sender;
-         }
+        var ticketsCount = value / ticketPrice;
+        rounds[roundIndex].ticketsCount += ticketsCount;
 
-         rounds[roundIndex].ticketsCountByBuyer[msg.sender]+=ticketsCount;
-         rounds[roundIndex].ticketsCount+=ticketsCount;
-         //keep track of the total tickets
+        if (rounds[roundIndex].ticketsCountByBuyer[msg.sender] == 0) {
+            var buyersLength = rounds[roundIndex].buyers.length++;
+            rounds[roundIndex].buyers[buyersLength] = msg.sender;
+        }
 
-         rounds[roundIndex].pot+=value;
-         //keep track of the total pot
+        rounds[roundIndex].ticketsCountByBuyer[msg.sender] += ticketsCount;
+        rounds[roundIndex].ticketsCount += ticketsCount;
+        //keep track of the total tickets
 
-     }
-
- }
+        rounds[roundIndex].pot += value;
+        //keep track of the total pot
+    }
+}
