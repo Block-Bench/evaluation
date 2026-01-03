@@ -7,10 +7,18 @@ Generates _tier_summary.json for each detector model with:
 - Classification totals
 - Type match distribution
 - Per-vulnerability-type breakdown
+
+Metrics:
+- Target Detection Rate (TDR): Rate of finding the target vulnerability
+- Lucky Guess Rate (LGR): Correct verdict but no target and no bonus findings
+- Ancillary Discovery Rate (ADR): Rate of finding bonus valid vulnerabilities
+- Invalid Finding Rate (IFR): Invalid findings / total findings
+- False Alarm Density (FAD): Avg invalid findings per sample
 """
 
 import argparse
 import json
+import statistics
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,6 +59,10 @@ def aggregate_results(judge_dir: Path, ground_truths: dict) -> dict:
     verdict_correct_count = 0
     total_findings = 0
 
+    # New metric counters
+    lucky_guess_count = 0  # Correct verdict but no target and no bonus
+    samples_with_bonus = 0  # Samples that have at least one bonus_valid finding
+
     # Classification counters - initialize all to 0
     classifications = {cat: 0 for cat in CLASSIFICATION_CATEGORIES}
     type_matches = {cat: 0 for cat in TYPE_MATCH_CATEGORIES}
@@ -69,6 +81,9 @@ def aggregate_results(judge_dir: Path, ground_truths: dict) -> dict:
             "target_found_count": 0,
             "verdict_correct_count": 0,
             "total_findings": 0,
+            "lucky_guess_count": 0,
+            "samples_with_bonus": 0,
+            "invalid_findings": 0,  # Track per-type for FAD
             "classifications": {cat: 0 for cat in CLASSIFICATION_CATEGORIES},
             "type_matches": {cat: 0 for cat in TYPE_MATCH_CATEGORIES},
             "quality_scores": {"rcir": [], "ava": [], "fsv": []},
@@ -150,6 +165,10 @@ def aggregate_results(judge_dir: Path, ground_truths: dict) -> dict:
         total_findings += len(findings)
         by_vuln_type[vuln_type]["total_findings"] += len(findings)
 
+        # Track per-sample counts for new metrics
+        sample_bonus_count = 0
+        sample_invalid_count = 0
+
         for finding in findings:
             classification = finding.get("classification", "unknown")
             # Normalize classification names
@@ -165,29 +184,51 @@ def aggregate_results(judge_dir: Path, ground_truths: dict) -> dict:
             elif classification_lower in ["bonus_valid"]:
                 classifications["bonus_valid"] += 1
                 by_vuln_type[vuln_type]["classifications"]["bonus_valid"] += 1
+                sample_bonus_count += 1
             elif classification_lower in ["hallucinated", "invalid"]:
                 # Map HALLUCINATED -> INVALID for consistency with traditional tools
                 classifications["invalid"] += 1
                 by_vuln_type[vuln_type]["classifications"]["invalid"] += 1
+                sample_invalid_count += 1
             elif classification_lower in ["mischaracterized"]:
                 classifications["mischaracterized"] += 1
                 by_vuln_type[vuln_type]["classifications"]["mischaracterized"] += 1
+                sample_invalid_count += 1
             elif classification_lower in ["design_choice"]:
                 classifications["design_choice"] += 1
                 by_vuln_type[vuln_type]["classifications"]["design_choice"] += 1
+                sample_invalid_count += 1
             elif classification_lower in ["out_of_scope"]:
                 classifications["out_of_scope"] += 1
                 by_vuln_type[vuln_type]["classifications"]["out_of_scope"] += 1
+                sample_invalid_count += 1
             elif classification_lower in ["security_theater"]:
                 classifications["security_theater"] += 1
                 by_vuln_type[vuln_type]["classifications"]["security_theater"] += 1
+                sample_invalid_count += 1
             elif classification_lower in ["informational"]:
                 classifications["informational"] += 1
                 by_vuln_type[vuln_type]["classifications"]["informational"] += 1
+                sample_invalid_count += 1
             else:
                 # Unknown classifications go to invalid
                 classifications["invalid"] += 1
                 by_vuln_type[vuln_type]["classifications"]["invalid"] += 1
+                sample_invalid_count += 1
+
+        # Track samples with bonus findings (for ADR)
+        if sample_bonus_count > 0:
+            samples_with_bonus += 1
+            by_vuln_type[vuln_type]["samples_with_bonus"] += 1
+
+        # Track invalid findings per type (for FAD calculation)
+        by_vuln_type[vuln_type]["invalid_findings"] += sample_invalid_count
+
+        # Lucky Guess: correct verdict (vulnerable) but no target and no bonus
+        # Note: All tier1 samples are vulnerable, so verdict_correct means said_vulnerable=True
+        if verdict_correct and not target_found and sample_bonus_count == 0:
+            lucky_guess_count += 1
+            by_vuln_type[vuln_type]["lucky_guess_count"] += 1
 
         # Per vuln type sample count
         by_vuln_type[vuln_type]["total_samples"] += 1
@@ -205,6 +246,9 @@ def aggregate_results(judge_dir: Path, ground_truths: dict) -> dict:
     def safe_avg(lst):
         return sum(lst) / len(lst) if lst else None
 
+    def safe_std(lst):
+        return statistics.stdev(lst) if len(lst) > 1 else None
+
     # True positives = target_matches + partial_matches + bonus_valid
     true_positives = classifications["target_matches"] + \
                      classifications["partial_matches"] + \
@@ -219,8 +263,14 @@ def aggregate_results(judge_dir: Path, ground_truths: dict) -> dict:
                       classifications["informational"]
 
     precision = safe_div(true_positives, true_positives + false_positives)
-    recall = safe_div(target_found_count, successful_evaluations)
-    f1_score = safe_div(2 * precision * recall, precision + recall) if (precision + recall) > 0 else None
+    target_detection_rate = safe_div(target_found_count, successful_evaluations)
+    f1_score = safe_div(2 * precision * target_detection_rate, precision + target_detection_rate) if (precision + target_detection_rate) > 0 else None
+
+    # New metrics
+    lucky_guess_rate = safe_div(lucky_guess_count, successful_evaluations)
+    ancillary_discovery_rate = safe_div(samples_with_bonus, successful_evaluations)
+    invalid_finding_rate = safe_div(false_positives, total_findings)
+    false_alarm_density = safe_div(false_positives, successful_evaluations)
 
     # Build by_vulnerability_type with computed metrics
     by_vuln_type_output = {}
@@ -242,15 +292,24 @@ def aggregate_results(judge_dir: Path, ground_truths: dict) -> dict:
                 data["classifications"]["informational"]
 
         vt_precision = safe_div(vt_tp, vt_tp + vt_fp)
-        vt_recall = safe_div(vt_found, vt_total)
-        vt_f1 = safe_div(2 * vt_precision * vt_recall, vt_precision + vt_recall) if (vt_precision + vt_recall) > 0 else None
+        vt_tdr = safe_div(vt_found, vt_total)
+        vt_f1 = safe_div(2 * vt_precision * vt_tdr, vt_precision + vt_tdr) if (vt_precision + vt_tdr) > 0 else None
+
+        # Per-type new metrics
+        vt_lgr = safe_div(data["lucky_guess_count"], vt_total)
+        vt_adr = safe_div(data["samples_with_bonus"], vt_total)
+        vt_ifr = safe_div(vt_fp, vt_findings) if vt_findings > 0 else 0.0
+        vt_fad = safe_div(vt_fp, vt_total)
 
         by_vuln_type_output[vtype] = {
             "total_samples": vt_total,
             "target_found_count": vt_found,
-            "target_found_rate": safe_div(vt_found, vt_total),
-            "recall": safe_div(vt_found, vt_total),
-            "miss_rate": 1.0 - safe_div(vt_found, vt_total),
+            "target_detection_rate": vt_tdr,
+            "miss_rate": 1.0 - vt_tdr,
+            "lucky_guess_count": data["lucky_guess_count"],
+            "lucky_guess_rate": vt_lgr,
+            "samples_with_bonus": data["samples_with_bonus"],
+            "ancillary_discovery_rate": vt_adr,
             "verdict_correct_count": vt_correct,
             "verdict_accuracy": safe_div(vt_correct, vt_total),
             "total_findings": vt_findings,
@@ -258,7 +317,8 @@ def aggregate_results(judge_dir: Path, ground_truths: dict) -> dict:
             "true_positives": vt_tp,
             "false_positives": vt_fp,
             "precision": vt_precision,
-            "fp_rate": safe_div(vt_fp, vt_findings) if vt_findings > 0 else 0.0,
+            "invalid_finding_rate": vt_ifr,
+            "false_alarm_density": vt_fad,
             "f1_score": vt_f1,
             "classifications": data["classifications"],
             "type_match_distribution": data["type_matches"],
@@ -266,9 +326,10 @@ def aggregate_results(judge_dir: Path, ground_truths: dict) -> dict:
                 "avg_rcir": safe_avg(data["quality_scores"]["rcir"]),
                 "avg_ava": safe_avg(data["quality_scores"]["ava"]),
                 "avg_fsv": safe_avg(data["quality_scores"]["fsv"]),
-                "rcir_count": len(data["quality_scores"]["rcir"]),
-                "ava_count": len(data["quality_scores"]["ava"]),
-                "fsv_count": len(data["quality_scores"]["fsv"])
+                "std_rcir": safe_std(data["quality_scores"]["rcir"]),
+                "std_ava": safe_std(data["quality_scores"]["ava"]),
+                "std_fsv": safe_std(data["quality_scores"]["fsv"]),
+                "count": len(data["quality_scores"]["rcir"])
             }
         }
 
@@ -280,9 +341,12 @@ def aggregate_results(judge_dir: Path, ground_truths: dict) -> dict:
         },
         "detection_metrics": {
             "target_found_count": target_found_count,
-            "target_found_rate": safe_div(target_found_count, successful_evaluations),
-            "recall": safe_div(target_found_count, successful_evaluations),
-            "miss_rate": 1.0 - safe_div(target_found_count, successful_evaluations),
+            "target_detection_rate": target_detection_rate,
+            "miss_rate": 1.0 - target_detection_rate,
+            "lucky_guess_count": lucky_guess_count,
+            "lucky_guess_rate": lucky_guess_rate,
+            "samples_with_bonus": samples_with_bonus,
+            "ancillary_discovery_rate": ancillary_discovery_rate,
             "verdict_correct_count": verdict_correct_count,
             "verdict_accuracy": safe_div(verdict_correct_count, successful_evaluations),
             "total_findings": total_findings,
@@ -290,16 +354,18 @@ def aggregate_results(judge_dir: Path, ground_truths: dict) -> dict:
             "true_positives": true_positives,
             "false_positives": false_positives,
             "precision": precision,
-            "fp_rate": safe_div(false_positives, total_findings) if total_findings > 0 else 0.0,
+            "invalid_finding_rate": invalid_finding_rate,
+            "false_alarm_density": false_alarm_density,
             "f1_score": f1_score
         },
         "quality_scores": {
             "avg_rcir": safe_avg(quality_scores["rcir"]),
             "avg_ava": safe_avg(quality_scores["ava"]),
             "avg_fsv": safe_avg(quality_scores["fsv"]),
-            "rcir_count": len(quality_scores["rcir"]),
-            "ava_count": len(quality_scores["ava"]),
-            "fsv_count": len(quality_scores["fsv"])
+            "std_rcir": safe_std(quality_scores["rcir"]),
+            "std_ava": safe_std(quality_scores["ava"]),
+            "std_fsv": safe_std(quality_scores["fsv"]),
+            "count": len(quality_scores["rcir"])
         },
         "classification_totals": classifications,
         "type_match_distribution": type_matches,
@@ -368,16 +434,17 @@ def main():
             json.dump(summary, f, indent=2)
 
         print(f"  Saved: {output_file}")
-        print(f"  Target found: {results['detection_metrics']['target_found_count']}/{results['sample_counts']['successful_evaluations']} "
-              f"({results['detection_metrics']['target_found_rate']:.1%})")
+        dm = results['detection_metrics']
+        print(f"  TDR: {dm['target_found_count']}/{results['sample_counts']['successful_evaluations']} ({dm['target_detection_rate']:.1%})")
+        print(f"  LGR: {dm['lucky_guess_rate']:.1%} | ADR: {dm['ancillary_discovery_rate']:.1%} | IFR: {dm['invalid_finding_rate']:.1%} | FAD: {dm['false_alarm_density']:.2f}")
 
         # Print per-type summary
         print(f"  By vulnerability type:")
         for vtype, metrics in sorted(results["by_vulnerability_type"].items()):
-            rate = metrics["target_found_rate"]
+            tdr = metrics["target_detection_rate"]
             total = metrics["total_samples"]
             found = metrics["target_found_count"]
-            print(f"    {vtype}: {found}/{total} ({rate:.0%})")
+            print(f"    {vtype}: {found}/{total} ({tdr:.0%})")
 
 
 if __name__ == "__main__":
