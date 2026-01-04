@@ -222,10 +222,59 @@ def call_gemini_flash(system_prompt: str, user_prompt: str) -> tuple[str, float]
     return call_openrouter(system_prompt, user_prompt, "google/gemini-3-flash-preview")
 
 
-# Judge caller mapping - only 2 judges for cost reasons
+def call_glm_47(system_prompt: str, user_prompt: str) -> tuple[str, float]:
+    """Call GLM-4.7 via OpenRouter with reasoning disabled."""
+    import requests
+    from dotenv import load_dotenv
+
+    load_dotenv(PROJECT_ROOT / ".env")
+    api_key = os.getenv("OPENROUTER_API_KEY")
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://blockbench.research",
+        "X-Title": "BlockBench"
+    }
+
+    payload = {
+        "model": "z-ai/glm-4.7",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": 0.0,
+        "max_tokens": 8192,
+        "reasoning": {"enabled": False}  # Disable reasoning to reduce cost
+    }
+
+    start_time = time.time()
+    response = requests.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers=headers,
+        json=payload,
+        timeout=300
+    )
+    latency_ms = (time.time() - start_time) * 1000
+
+    if response.status_code != 200:
+        raise Exception(f"OpenRouter API failed: {response.status_code} - {response.text[:300]}")
+
+    data = response.json()
+    return data["choices"][0]["message"]["content"], latency_ms
+
+
+def call_mimo_v2_flash(system_prompt: str, user_prompt: str) -> tuple[str, float]:
+    """Call Mimo v2 Flash via OpenRouter (free tier)."""
+    return call_openrouter(system_prompt, user_prompt, "xiaomi/mimo-v2-flash:free")
+
+
+# Judge caller mapping - 4 judges via OpenRouter
 JUDGE_CALLERS = {
     "codestral": call_codestral,
     "gemini-3-flash": call_gemini_flash,
+    "glm-4.7": call_glm_47,
+    "mimo-v2-flash": call_mimo_v2_flash,
 }
 
 
@@ -342,7 +391,7 @@ def run_judge_on_sample(
 def main():
     parser = argparse.ArgumentParser(description="Run LLM Judge on detection outputs")
     parser.add_argument("--detector", "-d", required=True, help="Detector model (e.g., deepseek-v3-2)")
-    parser.add_argument("--judge", "-j", default="codestral", choices=["codestral", "gemini-3-flash"], help="Judge model")
+    parser.add_argument("--judge", "-j", default="codestral", choices=["codestral", "gemini-3-flash", "glm-4.7", "mimo-v2-flash"], help="Judge model")
     parser.add_argument("--tier", "-t", type=int, default=1, help="Tier (1-4)")
     parser.add_argument("--sample", "-s", help="Single sample ID")
     parser.add_argument("--limit", "-l", type=int, help="Limit samples")
