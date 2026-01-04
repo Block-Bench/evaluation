@@ -2,13 +2,13 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * WISE LENDING EXPLOIT (January 2024)
-/*LN-6*/  * Loss: $460,000
-/*LN-7*/  * Attack: Share Rounding Error Through Pool State Manipulation
+/*LN-5*/  * BLUEBERRY PROTOCOL EXPLOIT (February 2024)
+/*LN-6*/  * Loss: $1.4 million
+/*LN-7*/  * Attack: Price Oracle Manipulation + Liquidation Bypass
 /*LN-8*/  *
-/*LN-9*/  * Wise Lending is a lending protocol with deposit shares. Attackers manipulated
-/*LN-10*/  * the pool state by setting pseudoTotalPool to 2 wei and totalDepositShares to 1 wei,
-/*LN-11*/  * then exploited rounding errors in share calculations to extract more tokens than deposited.
+/*LN-9*/  * Blueberry Protocol is a leveraged yield farming platform. The exploit involved
+/*LN-10*/  * manipulating collateral valuation through inflated token prices and then draining
+/*LN-11*/  * lending pools by borrowing against the manipulated collateral.
 /*LN-12*/  */
 /*LN-13*/ 
 /*LN-14*/ interface IERC20 {
@@ -25,206 +25,177 @@
 /*LN-25*/     function approve(address spender, uint256 amount) external returns (bool);
 /*LN-26*/ }
 /*LN-27*/ 
-/*LN-28*/ interface IERC721 {
-/*LN-29*/     function transferFrom(address from, address to, uint256 tokenId) external;
-/*LN-30*/ 
-/*LN-31*/     function ownerOf(uint256 tokenId) external view returns (address);
-/*LN-32*/ }
-/*LN-33*/ 
-/*LN-34*/ contract WiseLending {
-/*LN-35*/     struct PoolData {
-/*LN-36*/         uint256 pseudoTotalPool;
-/*LN-37*/         uint256 totalDepositShares;
-/*LN-38*/         uint256 totalBorrowShares;
-/*LN-39*/         uint256 collateralFactor;
-/*LN-40*/     }
-/*LN-41*/ 
-/*LN-42*/     mapping(address => PoolData) public lendingPoolData;
-/*LN-43*/     mapping(uint256 => mapping(address => uint256)) public userLendingShares;
-/*LN-44*/     mapping(uint256 => mapping(address => uint256)) public userBorrowShares;
+/*LN-28*/ interface IPriceOracle {
+/*LN-29*/     function getPrice(address token) external view returns (uint256);
+/*LN-30*/ }
+/*LN-31*/ 
+/*LN-32*/ contract BlueberryLending {
+/*LN-33*/     struct Market {
+/*LN-34*/         bool isListed;
+/*LN-35*/         uint256 collateralFactor;
+/*LN-36*/         mapping(address => uint256) accountCollateral;
+/*LN-37*/         mapping(address => uint256) accountBorrows;
+/*LN-38*/     }
+/*LN-39*/ 
+/*LN-40*/     mapping(address => Market) public markets;
+/*LN-41*/     IPriceOracle public oracle;
+/*LN-42*/ 
+/*LN-43*/     uint256 public constant COLLATERAL_FACTOR = 75;
+/*LN-44*/     uint256 public constant BASIS_POINTS = 100;
 /*LN-45*/ 
-/*LN-46*/     IERC721 public positionNFTs;
-/*LN-47*/     uint256 public nftIdCounter;
-/*LN-48*/ 
-/*LN-49*/     /**
-/*LN-50*/      * @notice Mint position NFT
-/*LN-51*/      */
-/*LN-52*/     function mintPosition() external returns (uint256) {
-/*LN-53*/         uint256 nftId = ++nftIdCounter;
-/*LN-54*/         return nftId;
-/*LN-55*/     }
-/*LN-56*/ 
-/*LN-57*/     /**
-/*LN-58*/      * @notice Deposit exact amount of tokens
-/*LN-59*/      * @dev VULNERABLE: Share calculation with rounding errors
-/*LN-60*/      */
-/*LN-61*/     function depositExactAmount(
-/*LN-62*/         uint256 _nftId,
-/*LN-63*/         address _poolToken,
-/*LN-64*/         uint256 _amount
-/*LN-65*/     ) external returns (uint256 shareAmount) {
-/*LN-66*/         IERC20(_poolToken).transferFrom(msg.sender, address(this), _amount);
-/*LN-67*/ 
-/*LN-68*/         PoolData storage pool = lendingPoolData[_poolToken];
+/*LN-46*/     /**
+/*LN-47*/      * @notice Enter markets to use as collateral
+/*LN-48*/      */
+/*LN-49*/     function enterMarkets(
+/*LN-50*/         address[] calldata vTokens
+/*LN-51*/     ) external returns (uint256[] memory) {
+/*LN-52*/         uint256[] memory results = new uint256[](vTokens.length);
+/*LN-53*/         for (uint256 i = 0; i < vTokens.length; i++) {
+/*LN-54*/             markets[vTokens[i]].isListed = true;
+/*LN-55*/             results[i] = 0;
+/*LN-56*/         }
+/*LN-57*/         return results;
+/*LN-58*/     }
+/*LN-59*/ 
+/*LN-60*/     /**
+/*LN-61*/      * @notice Mint collateral tokens
+/*LN-62*/      * @dev VULNERABLE: Relies on manipulable oracle price
+/*LN-63*/      */
+/*LN-64*/     function mint(address token, uint256 amount) external returns (uint256) {
+/*LN-65*/         IERC20(token).transferFrom(msg.sender, address(this), amount);
+/*LN-66*/ 
+/*LN-67*/         // VULNERABILITY 1: Price from potentially manipulable oracle
+/*LN-68*/         uint256 price = oracle.getPrice(token);
 /*LN-69*/ 
-/*LN-70*/         // VULNERABILITY 1: When pseudoTotalPool and totalDepositShares are very small
-/*LN-71*/         // (e.g., 2 wei and 1 wei), rounding errors become significant
-/*LN-72*/ 
-/*LN-73*/         if (pool.totalDepositShares == 0) {
-/*LN-74*/             shareAmount = _amount;
-/*LN-75*/             pool.totalDepositShares = _amount;
-/*LN-76*/         } else {
-/*LN-77*/             // VULNERABILITY 2: Integer division rounding
-/*LN-78*/             // shareAmount = (_amount * totalDepositShares) / pseudoTotalPool
-/*LN-79*/             // When pseudoTotalPool = 2, totalDepositShares = 1:
-/*LN-80*/             // Large deposits get rounded down significantly
-/*LN-81*/             shareAmount =
-/*LN-82*/                 (_amount * pool.totalDepositShares) /
-/*LN-83*/                 pool.pseudoTotalPool;
-/*LN-84*/             pool.totalDepositShares += shareAmount;
-/*LN-85*/         }
-/*LN-86*/ 
-/*LN-87*/         pool.pseudoTotalPool += _amount;
-/*LN-88*/         userLendingShares[_nftId][_poolToken] += shareAmount;
-/*LN-89*/ 
-/*LN-90*/         return shareAmount;
-/*LN-91*/     }
-/*LN-92*/ 
-/*LN-93*/     /**
-/*LN-94*/      * @notice Withdraw exact shares amount
-/*LN-95*/      * @dev VULNERABLE: Withdrawal returns more tokens than deposited due to rounding
-/*LN-96*/      */
-/*LN-97*/     function withdrawExactShares(
-/*LN-98*/         uint256 _nftId,
-/*LN-99*/         address _poolToken,
-/*LN-100*/         uint256 _shares
-/*LN-101*/     ) external returns (uint256 withdrawAmount) {
-/*LN-102*/         require(
-/*LN-103*/             userLendingShares[_nftId][_poolToken] >= _shares,
-/*LN-104*/             "Insufficient shares"
-/*LN-105*/         );
+/*LN-70*/         // VULNERABILITY 2: No validation of price reasonableness
+/*LN-71*/         // No checks for dramatic price changes
+/*LN-72*/         // No TWAP or external price validation
+/*LN-73*/ 
+/*LN-74*/         markets[token].accountCollateral[msg.sender] += amount;
+/*LN-75*/         return 0;
+/*LN-76*/     }
+/*LN-77*/ 
+/*LN-78*/     /**
+/*LN-79*/      * @notice Borrow tokens against collateral
+/*LN-80*/      * @dev VULNERABLE: Borrow calculation uses manipulated collateral values
+/*LN-81*/      */
+/*LN-82*/     function borrow(
+/*LN-83*/         address borrowToken,
+/*LN-84*/         uint256 borrowAmount
+/*LN-85*/     ) external returns (uint256) {
+/*LN-86*/         // VULNERABILITY 3: Calculate collateral value using manipulated prices
+/*LN-87*/         uint256 totalCollateralValue = 0;
+/*LN-88*/ 
+/*LN-89*/         // Sum up all collateral value (would iterate through user's collateral)
+/*LN-90*/         // Using manipulated oracle prices
+/*LN-91*/ 
+/*LN-92*/         uint256 borrowPrice = oracle.getPrice(borrowToken);
+/*LN-93*/         uint256 borrowValue = (borrowAmount * borrowPrice) / 1e18;
+/*LN-94*/ 
+/*LN-95*/         uint256 maxBorrowValue = (totalCollateralValue * COLLATERAL_FACTOR) /
+/*LN-96*/             BASIS_POINTS;
+/*LN-97*/ 
+/*LN-98*/         // VULNERABILITY 4: Allows over-borrowing due to inflated collateral values
+/*LN-99*/         require(borrowValue <= maxBorrowValue, "Insufficient collateral");
+/*LN-100*/ 
+/*LN-101*/         markets[borrowToken].accountBorrows[msg.sender] += borrowAmount;
+/*LN-102*/         IERC20(borrowToken).transfer(msg.sender, borrowAmount);
+/*LN-103*/ 
+/*LN-104*/         return 0;
+/*LN-105*/     }
 /*LN-106*/ 
-/*LN-107*/         PoolData storage pool = lendingPoolData[_poolToken];
-/*LN-108*/ 
-/*LN-109*/         // VULNERABILITY 3: Reverse calculation amplifies rounding errors
-/*LN-110*/         // withdrawAmount = (_shares * pseudoTotalPool) / totalDepositShares
-/*LN-111*/         // When pool state is manipulated (2 wei / 1 wei ratio):
-/*LN-112*/         // Withdrawing 1 share returns 2 wei worth of tokens
-/*LN-113*/         // But depositor received fewer shares due to rounding down
-/*LN-114*/ 
-/*LN-115*/         withdrawAmount =
-/*LN-116*/             (_shares * pool.pseudoTotalPool) /
-/*LN-117*/             pool.totalDepositShares;
-/*LN-118*/ 
-/*LN-119*/         userLendingShares[_nftId][_poolToken] -= _shares;
-/*LN-120*/         pool.totalDepositShares -= _shares;
-/*LN-121*/         pool.pseudoTotalPool -= withdrawAmount;
-/*LN-122*/ 
-/*LN-123*/         IERC20(_poolToken).transfer(msg.sender, withdrawAmount);
+/*LN-107*/     /**
+/*LN-108*/      * @notice Liquidate undercollateralized position
+/*LN-109*/      */
+/*LN-110*/     function liquidate(
+/*LN-111*/         address borrower,
+/*LN-112*/         address repayToken,
+/*LN-113*/         uint256 repayAmount,
+/*LN-114*/         address collateralToken
+/*LN-115*/     ) external {
+/*LN-116*/         // Liquidation logic (simplified)
+/*LN-117*/         // Would check if borrower is undercollateralized
+/*LN-118*/         // But vulnerable to same price manipulation issues
+/*LN-119*/     }
+/*LN-120*/ }
+/*LN-121*/ 
+/*LN-122*/ contract ManipulableOracle is IPriceOracle {
+/*LN-123*/     mapping(address => uint256) public prices;
 /*LN-124*/ 
-/*LN-125*/         return withdrawAmount;
-/*LN-126*/     }
-/*LN-127*/ 
-/*LN-128*/     /**
-/*LN-129*/      * @notice Withdraw exact amount of tokens
-/*LN-130*/      * @dev Also vulnerable to same rounding issues
-/*LN-131*/      */
-/*LN-132*/     function withdrawExactAmount(
-/*LN-133*/         uint256 _nftId,
-/*LN-134*/         address _poolToken,
-/*LN-135*/         uint256 _withdrawAmount
-/*LN-136*/     ) external returns (uint256 shareBurned) {
-/*LN-137*/         PoolData storage pool = lendingPoolData[_poolToken];
-/*LN-138*/ 
-/*LN-139*/         // VULNERABILITY 4: Calculating shares to burn has rounding issues
-/*LN-140*/         shareBurned =
-/*LN-141*/             (_withdrawAmount * pool.totalDepositShares) /
-/*LN-142*/             pool.pseudoTotalPool;
-/*LN-143*/ 
-/*LN-144*/         require(
-/*LN-145*/             userLendingShares[_nftId][_poolToken] >= shareBurned,
-/*LN-146*/             "Insufficient shares"
-/*LN-147*/         );
-/*LN-148*/ 
-/*LN-149*/         userLendingShares[_nftId][_poolToken] -= shareBurned;
-/*LN-150*/         pool.totalDepositShares -= shareBurned;
-/*LN-151*/         pool.pseudoTotalPool -= _withdrawAmount;
-/*LN-152*/ 
-/*LN-153*/         IERC20(_poolToken).transfer(msg.sender, _withdrawAmount);
-/*LN-154*/ 
-/*LN-155*/         return shareBurned;
-/*LN-156*/     }
-/*LN-157*/ 
-/*LN-158*/     /**
-/*LN-159*/      * @notice Get position lending shares
-/*LN-160*/      */
-/*LN-161*/     function getPositionLendingShares(
-/*LN-162*/         uint256 _nftId,
-/*LN-163*/         address _poolToken
-/*LN-164*/     ) external view returns (uint256) {
-/*LN-165*/         return userLendingShares[_nftId][_poolToken];
-/*LN-166*/     }
-/*LN-167*/ 
-/*LN-168*/     /**
-/*LN-169*/      * @notice Get total pool balance
-/*LN-170*/      */
-/*LN-171*/     function getTotalPool(address _poolToken) external view returns (uint256) {
-/*LN-172*/         return lendingPoolData[_poolToken].pseudoTotalPool;
-/*LN-173*/     }
-/*LN-174*/ }
-/*LN-175*/ 
-/*LN-176*/ /**
-/*LN-177*/  * EXPLOIT SCENARIO:
+/*LN-125*/     /**
+/*LN-126*/      * @notice Get token price
+/*LN-127*/      * @dev VULNERABLE: Price can be manipulated via DEX trades
+/*LN-128*/      */
+/*LN-129*/     function getPrice(address token) external view override returns (uint256) {
+/*LN-130*/         // VULNERABILITY 5: Price derived from low-liquidity DEX pools
+/*LN-131*/         // Attacker can use flashloans to manipulate DEX price
+/*LN-132*/         // Then oracle reads manipulated price
+/*LN-133*/         // No circuit breakers or sanity checks
+/*LN-134*/ 
+/*LN-135*/         return prices[token];
+/*LN-136*/     }
+/*LN-137*/ 
+/*LN-138*/     function setPrice(address token, uint256 price) external {
+/*LN-139*/         prices[token] = price;
+/*LN-140*/     }
+/*LN-141*/ }
+/*LN-142*/ 
+/*LN-143*/ /**
+/*LN-144*/  * EXPLOIT SCENARIO:
+/*LN-145*/  *
+/*LN-146*/  * 1. Attacker obtains flashloan from Balancer:
+/*LN-147*/  *    - Borrows 1000 WETH
+/*LN-148*/  *
+/*LN-149*/  * 2. Price manipulation phase:
+/*LN-150*/  *    - Target low-liquidity token pairs (e.g., OHM/WETH)
+/*LN-151*/  *    - Execute large buy of OHM using flashloaned WETH
+/*LN-152*/  *    - OHM price artificially inflated on DEX
+/*LN-153*/  *
+/*LN-154*/  * 3. Oracle reads manipulated price:
+/*LN-155*/  *    - Blueberry oracle queries DEX for OHM price
+/*LN-156*/  *    - Reports inflated price (e.g., 2-3x normal)
+/*LN-157*/  *    - No TWAP or external validation
+/*LN-158*/  *
+/*LN-159*/  * 4. Deposit collateral at inflated price:
+/*LN-160*/  *    - Attacker mints bOHM (Blueberry OHM) tokens
+/*LN-161*/  *    - Small amount of OHM now worth much more due to manipulation
+/*LN-162*/  *    - Enter markets to use as collateral
+/*LN-163*/  *
+/*LN-164*/  * 5. Borrow maximum assets:
+/*LN-165*/  *    - Borrow WETH, USDC, WBTC against inflated collateral
+/*LN-166*/  *    - Can borrow far more than real collateral value
+/*LN-167*/  *    - Extract $1.4M worth of assets from lending pools
+/*LN-168*/  *
+/*LN-169*/  * 6. Price restoration:
+/*LN-170*/  *    - Sell OHM back for WETH to restore price
+/*LN-171*/  *    - Repay Balancer flashloan
+/*LN-172*/  *    - Price returns to normal
+/*LN-173*/  *
+/*LN-174*/  * 7. Profit extraction:
+/*LN-175*/  *    - Keep borrowed assets ($1.4M)
+/*LN-176*/  *    - Abandon inflated collateral position
+/*LN-177*/  *    - Position now severely undercollateralized but attacker already extracted value
 /*LN-178*/  *
-/*LN-179*/  * 1. Attacker prepares pool state manipulation:
-/*LN-180*/  *    - Mint position NFT #8
-/*LN-181*/  *    - Make small deposits to establish position
-/*LN-182*/  *    - Withdraw most shares, leaving pool in bad state:
-/*LN-183*/  *      * pseudoTotalPool = 2 wei
-/*LN-184*/  *      * totalDepositShares = 1 wei
-/*LN-185*/  *      * Ratio = 2:1 (2 tokens per share)
-/*LN-186*/  *
-/*LN-187*/  * 2. Transfer position NFT to exploit contract:
-/*LN-188*/  *    - Position #8 now has favorable pool state set up
-/*LN-189*/  *
-/*LN-190*/  * 3. Deposit large amount (520 Pendle LP tokens):
-/*LN-191*/  *    - Approve and deposit into LP wrapper
-/*LN-192*/  *    - Deposit LP tokens into Wise Lending
-/*LN-193*/  *    - Share calculation: shares = (amount * 1) / 2
-/*LN-194*/  *    - Due to division rounding, receives fewer shares than deserved
-/*LN-195*/  *    - Example: 520 tokens → 260 shares (should be ~520)
-/*LN-196*/  *
-/*LN-197*/  * 4. Withdraw shares immediately:
-/*LN-198*/  *    - Call withdrawExactShares with received share amount
-/*LN-199*/  *    - Withdrawal calculation: amount = (260 * pseudoTotalPool) / 1
-/*LN-200*/  *    - Due to manipulated 2:1 ratio, gets 2x tokens back
-/*LN-201*/  *    - Receives 520+ tokens from 260 shares
-/*LN-202*/  *
-/*LN-203*/  * 5. Repeat exploit multiple times:
-/*LN-204*/  *    - Use helper contracts to compound the effect
-/*LN-205*/  *    - Each iteration extracts more value due to rounding
-/*LN-206*/  *    - Pool state degrades further with each cycle
-/*LN-207*/  *
-/*LN-208*/  * 6. Final profit extraction:
-/*LN-209*/  *    - Convert Pendle LP back to underlying assets
-/*LN-210*/  *    - Drain $460K total from manipulated rounding
-/*LN-211*/  *
-/*LN-212*/  * Root Causes:
-/*LN-213*/  * - Unbounded share/pool ratio manipulation
-/*LN-214*/  * - Integer division rounding without minimum checks
-/*LN-215*/  * - No minimum pool size enforcement
-/*LN-216*/  * - Missing invariant checks (share value should not exceed deposits)
-/*LN-217*/  * - No limits on share:pool ratio
-/*LN-218*/  * - Lack of precision in calculations (should use higher decimals)
-/*LN-219*/  *
-/*LN-220*/  * Fix:
-/*LN-221*/  * - Enforce minimum pool size (e.g., 1e18 wei minimum)
-/*LN-222*/  * - Add invariant checks: withdrawAmount <= depositAmount
-/*LN-223*/  * - Implement share:pool ratio bounds checking
-/*LN-224*/  * - Use higher precision calculations (e.g., 1e27 instead of 1e18)
-/*LN-225*/  * - Add rounding direction checks (always favor protocol)
-/*LN-226*/  * - Implement circuit breakers for unusual share calculations
-/*LN-227*/  * - Add withdrawal delays after deposits
-/*LN-228*/  * - Monitor for rapid deposit/withdrawal cycles
-/*LN-229*/  */
-/*LN-230*/ 
+/*LN-179*/  * Root Causes:
+/*LN-180*/  * - Oracle reliance on manipulable DEX spot prices
+/*LN-181*/  * - Insufficient liquidity in pricing DEX pools
+/*LN-182*/  * - No Time-Weighted Average Price (TWAP) implementation
+/*LN-183*/  * - Missing external price feed validation (Chainlink)
+/*LN-184*/  * - No circuit breakers for rapid price movements
+/*LN-185*/  * - Lack of price deviation checks between sources
+/*LN-186*/  * - Missing borrow limits during volatile periods
+/*LN-187*/  * - Insufficient collateral liquidation protection
+/*LN-188*/  *
+/*LN-189*/  * Fix:
+/*LN-190*/  * - Implement TWAP oracles with multi-block averaging
+/*LN-191*/  * - Use Chainlink or other external price feeds as primary source
+/*LN-192*/  * - Add minimum liquidity requirements for pricing sources
+/*LN-193*/  * - Implement circuit breakers for >X% price deviation
+/*LN-194*/  * - Add price staleness checks and update frequency limits
+/*LN-195*/  * - Require multiple independent price sources with deviation checks
+/*LN-196*/  * - Implement gradual collateral factor adjustments
+/*LN-197*/  * - Add borrow caps per asset to limit exposure
+/*LN-198*/  * - Implement emergency pause for suspicious price movements
+/*LN-199*/  * - Add liquidation buffer zones and time delays
+/*LN-200*/  */
+/*LN-201*/ 

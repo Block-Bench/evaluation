@@ -2,186 +2,141 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * BEDROCK DEFI EXPLOIT (September 2024)
-/*LN-6*/  * Loss: $2 million
-/*LN-7*/  * Attack: Price Manipulation via Improper Exchange Rate Calculation
+/*LN-5*/  * SENECA PROTOCOL EXPLOIT (February 2024)
+/*LN-6*/  * Loss: $6.4 million
+/*LN-7*/  * Attack: Arbitrary Call via performOperations Function
 /*LN-8*/  *
-/*LN-9*/  * Bedrock DeFi is a liquid staking platform for uniBTC (wrapped BTC on Ethereum).
-/*LN-10*/  * The exploit involved minting uniBTC by depositing ETH at a manipulated exchange rate,
-/*LN-11*/  * receiving far more uniBTC than the deposited ETH value warranted.
-/*LN-12*/  */
-/*LN-13*/ 
-/*LN-14*/ interface IERC20 {
-/*LN-15*/     function transfer(address to, uint256 amount) external returns (bool);
-/*LN-16*/ 
-/*LN-17*/     function transferFrom(
-/*LN-18*/         address from,
-/*LN-19*/         address to,
-/*LN-20*/         uint256 amount
-/*LN-21*/     ) external returns (bool);
-/*LN-22*/ 
-/*LN-23*/     function balanceOf(address account) external view returns (uint256);
-/*LN-24*/ 
-/*LN-25*/     function approve(address spender, uint256 amount) external returns (bool);
-/*LN-26*/ }
-/*LN-27*/ 
-/*LN-28*/ interface IUniswapV3Router {
-/*LN-29*/     struct ExactInputSingleParams {
-/*LN-30*/         address tokenIn;
-/*LN-31*/         address tokenOut;
-/*LN-32*/         uint24 fee;
-/*LN-33*/         address recipient;
-/*LN-34*/         uint256 deadline;
-/*LN-35*/         uint256 amountIn;
-/*LN-36*/         uint256 amountOutMinimum;
-/*LN-37*/         uint160 sqrtPriceLimitX96;
-/*LN-38*/     }
-/*LN-39*/ 
-/*LN-40*/     function exactInputSingle(
-/*LN-41*/         ExactInputSingleParams calldata params
-/*LN-42*/     ) external payable returns (uint256 amountOut);
-/*LN-43*/ }
-/*LN-44*/ 
-/*LN-45*/ contract BedrockVault {
-/*LN-46*/     IERC20 public immutable uniBTC;
-/*LN-47*/     IERC20 public immutable WBTC;
-/*LN-48*/     IUniswapV3Router public immutable router;
-/*LN-49*/ 
-/*LN-50*/     uint256 public totalETHDeposited;
-/*LN-51*/     uint256 public totalUniBTCMinted;
-/*LN-52*/ 
-/*LN-53*/     constructor(address _uniBTC, address _wbtc, address _router) {
-/*LN-54*/         uniBTC = IERC20(_uniBTC);
-/*LN-55*/         WBTC = IERC20(_wbtc);
-/*LN-56*/         router = IUniswapV3Router(_router);
-/*LN-57*/     }
-/*LN-58*/ 
-/*LN-59*/     /**
-/*LN-60*/      * @notice Mint uniBTC by depositing ETH
-/*LN-61*/      * @dev VULNERABILITY: Incorrect exchange rate calculation
-/*LN-62*/      */
-/*LN-63*/     function mint() external payable {
-/*LN-64*/         require(msg.value > 0, "No ETH sent");
-/*LN-65*/ 
-/*LN-66*/         // VULNERABILITY 1: Assumes 1 ETH = 1 BTC exchange rate
-/*LN-67*/         // Completely ignores actual market prices
-/*LN-68*/         // ETH is worth ~15-20x less than BTC
-/*LN-69*/ 
-/*LN-70*/         uint256 uniBTCAmount = msg.value;
-/*LN-71*/ 
-/*LN-72*/         // VULNERABILITY 2: No price oracle validation
-/*LN-73*/         // Should check:
-/*LN-74*/         // - Current ETH/BTC price ratio
-/*LN-75*/         // - Use Chainlink or other oracle
-/*LN-76*/         // - Validate exchange rate is reasonable
-/*LN-77*/ 
-/*LN-78*/         // VULNERABILITY 3: No slippage protection
-/*LN-79*/         // User can mint at fixed 1:1 ratio regardless of market conditions
-/*LN-80*/ 
-/*LN-81*/         totalETHDeposited += msg.value;
-/*LN-82*/         totalUniBTCMinted += uniBTCAmount;
-/*LN-83*/ 
-/*LN-84*/         // VULNERABILITY 4: Mints BTC-pegged token for ETH at wrong ratio
-/*LN-85*/         // User deposits 1 ETH (~$3000)
-/*LN-86*/         // Gets 1 uniBTC (~$60000 value)
-/*LN-87*/         // 20x value extraction
-/*LN-88*/ 
-/*LN-89*/         // Transfer uniBTC to user
-/*LN-90*/         uniBTC.transfer(msg.sender, uniBTCAmount);
-/*LN-91*/     }
-/*LN-92*/ 
-/*LN-93*/     /**
-/*LN-94*/      * @notice Redeem ETH by burning uniBTC
-/*LN-95*/      */
-/*LN-96*/     function redeem(uint256 amount) external {
-/*LN-97*/         require(amount > 0, "No amount specified");
-/*LN-98*/         require(uniBTC.balanceOf(msg.sender) >= amount, "Insufficient balance");
-/*LN-99*/ 
-/*LN-100*/         // VULNERABILITY 5: Reverse operation also uses wrong exchange rate
-/*LN-101*/         // Would allow draining ETH at incorrect ratio
-/*LN-102*/ 
-/*LN-103*/         uniBTC.transferFrom(msg.sender, address(this), amount);
-/*LN-104*/ 
-/*LN-105*/         uint256 ethAmount = amount;
-/*LN-106*/         require(address(this).balance >= ethAmount, "Insufficient ETH");
-/*LN-107*/ 
-/*LN-108*/         payable(msg.sender).transfer(ethAmount);
-/*LN-109*/     }
-/*LN-110*/ 
-/*LN-111*/     /**
-/*LN-112*/      * @notice Get current exchange rate
-/*LN-113*/      * @dev Should return ETH per uniBTC, but returns 1:1
-/*LN-114*/      */
-/*LN-115*/     function getExchangeRate() external pure returns (uint256) {
-/*LN-116*/         // VULNERABILITY 6: Hardcoded 1:1 rate
-/*LN-117*/         // Should dynamically calculate based on:
-/*LN-118*/         // - Pool reserves
-/*LN-119*/         // - External oracle prices
-/*LN-120*/         // - Total assets vs total supply
-/*LN-121*/         return 1e18;
-/*LN-122*/     }
-/*LN-123*/ 
-/*LN-124*/     receive() external payable {}
-/*LN-125*/ }
-/*LN-126*/ 
-/*LN-127*/ /**
-/*LN-128*/  * EXPLOIT SCENARIO:
+/*LN-9*/  * Seneca Protocol (Chamber) allowed users to execute operations on their vaults.
+/*LN-10*/  * The performOperations function accepted user-controlled target addresses and
+/*LN-11*/  * calldata, enabling attackers to call transferFrom on any token where users
+/*LN-12*/  * had given approvals to the Chamber contract.
+/*LN-13*/  */
+/*LN-14*/ 
+/*LN-15*/ interface IERC20 {
+/*LN-16*/     function transfer(address to, uint256 amount) external returns (bool);
+/*LN-17*/ 
+/*LN-18*/     function transferFrom(
+/*LN-19*/         address from,
+/*LN-20*/         address to,
+/*LN-21*/         uint256 amount
+/*LN-22*/     ) external returns (bool);
+/*LN-23*/ 
+/*LN-24*/     function balanceOf(address account) external view returns (uint256);
+/*LN-25*/ 
+/*LN-26*/     function approve(address spender, uint256 amount) external returns (bool);
+/*LN-27*/ }
+/*LN-28*/ 
+/*LN-29*/ contract SenecaChamber {
+/*LN-30*/     uint8 public constant OPERATION_CALL = 30;
+/*LN-31*/     uint8 public constant OPERATION_DELEGATECALL = 31;
+/*LN-32*/ 
+/*LN-33*/     mapping(address => bool) public vaultOwners;
+/*LN-34*/ 
+/*LN-35*/     /**
+/*LN-36*/      * @notice Execute multiple operations on the vault
+/*LN-37*/      * @dev VULNERABILITY: Accepts arbitrary addresses and calldata
+/*LN-38*/      */
+/*LN-39*/     function performOperations(
+/*LN-40*/         uint8[] memory actions,
+/*LN-41*/         uint256[] memory values,
+/*LN-42*/         bytes[] memory datas
+/*LN-43*/     ) external payable returns (uint256 value1, uint256 value2) {
+/*LN-44*/         require(
+/*LN-45*/             actions.length == values.length && values.length == datas.length,
+/*LN-46*/             "Length mismatch"
+/*LN-47*/         );
+/*LN-48*/ 
+/*LN-49*/         for (uint256 i = 0; i < actions.length; i++) {
+/*LN-50*/             if (actions[i] == OPERATION_CALL) {
+/*LN-51*/                 // VULNERABILITY 1: User-controlled target address and calldata
+/*LN-52*/                 // Decode target from user-provided data
+/*LN-53*/                 (address target, bytes memory callData, , , ) = abi.decode(
+/*LN-54*/                     datas[i],
+/*LN-55*/                     (address, bytes, uint256, uint256, uint256)
+/*LN-56*/                 );
+/*LN-57*/ 
+/*LN-58*/                 // VULNERABILITY 2: No whitelist of allowed target contracts
+/*LN-59*/                 // Can call any address including token contracts
+/*LN-60*/ 
+/*LN-61*/                 // VULNERABILITY 3: No validation of callData contents
+/*LN-62*/                 // Attacker can encode transferFrom() calls
+/*LN-63*/ 
+/*LN-64*/                 // VULNERABILITY 4: Arbitrary external call
+/*LN-65*/                 // msg.sender becomes Chamber contract which has user approvals
+/*LN-66*/                 (bool success, ) = target.call{value: values[i]}(callData);
+/*LN-67*/                 require(success, "Call failed");
+/*LN-68*/             }
+/*LN-69*/         }
+/*LN-70*/ 
+/*LN-71*/         return (0, 0);
+/*LN-72*/     }
+/*LN-73*/ }
+/*LN-74*/ 
+/*LN-75*/ /**
+/*LN-76*/  * EXPLOIT SCENARIO:
+/*LN-77*/  *
+/*LN-78*/  * 1. Attacker identifies victim with token approval:
+/*LN-79*/  *    - Victim: 0x9CBF099ff424979439dFBa03F00B5961784c06ce
+/*LN-80*/  *    - Has approved Chamber contract for Pendle Principal Tokens
+/*LN-81*/  *    - Token balance: Large amount of valuable tokens
+/*LN-82*/  *
+/*LN-83*/  * 2. Attacker crafts malicious operation data:
+/*LN-84*/  *    - Action: OPERATION_CALL (30)
+/*LN-85*/  *    - Target: PendlePrincipalToken contract address
+/*LN-86*/  *    - CallData: transferFrom(victim, attacker, victimBalance)
+/*LN-87*/  *    - Encode as: abi.encode(tokenAddress, callData, 0, 0, 0)
+/*LN-88*/  *
+/*LN-89*/  * 3. Attacker calls performOperations():
+/*LN-90*/  *    ```solidity
+/*LN-91*/  *    uint8[] memory actions = [OPERATION_CALL];
+/*LN-92*/  *    uint256[] memory values = [0];
+/*LN-93*/  *    bytes memory callData = abi.encodeWithSignature(
+/*LN-94*/  *        "transferFrom(address,address,uint256)",
+/*LN-95*/  *        victim,
+/*LN-96*/  *        attacker,
+/*LN-97*/  *        victimBalance
+/*LN-98*/  *    );
+/*LN-99*/  *    bytes memory data = abi.encode(tokenAddress, callData, 0, 0, 0);
+/*LN-100*/  *    bytes[] memory datas = [data];
+/*LN-101*/  *
+/*LN-102*/  *    chamber.performOperations(actions, values, datas);
+/*LN-103*/  *    ```
+/*LN-104*/  *
+/*LN-105*/  * 4. Chamber executes the malicious call:
+/*LN-106*/  *    - Decodes target (token contract) and callData from datas
+/*LN-107*/  *    - Makes external call: token.call(callData)
+/*LN-108*/  *    - msg.sender is Chamber contract
+/*LN-109*/  *
+/*LN-110*/  * 5. Token contract processes transferFrom:
+/*LN-111*/  *    - Checks if Chamber (msg.sender) has approval from victim
+/*LN-112*/  *    - Approval exists because victim approved Chamber
+/*LN-113*/  *    - Transfers tokens from victim to attacker
+/*LN-114*/  *
+/*LN-115*/  * 6. Attacker receives stolen tokens:
+/*LN-116*/  *    - Gets victim's entire token balance
+/*LN-117*/  *    - Repeat for multiple victims
+/*LN-118*/  *    - Total stolen: $6.4M
+/*LN-119*/  *
+/*LN-120*/  * Root Causes:
+/*LN-121*/  * - User-controlled target address in performOperations
+/*LN-122*/  * - User-controlled calldata without validation
+/*LN-123*/  * - No whitelist of approved target contracts
+/*LN-124*/  * - Arbitrary external calls allowed
+/*LN-125*/  * - Users gave unlimited approvals to Chamber
+/*LN-126*/  * - No function selector validation
+/*LN-127*/  * - Missing access controls on operation types
+/*LN-128*/  * - No validation that operations benefit vault owner
 /*LN-129*/  *
-/*LN-130*/  * 1. Attacker obtains ETH flashloan:
-/*LN-131*/  *    - Borrows 30,800 ETH from Balancer
-/*LN-132*/  *    - Cost: ~$100M at ETH prices
-/*LN-133*/  *
-/*LN-134*/  * 2. Mint uniBTC at 1:1 ratio:
-/*LN-135*/  *    - Calls mint() with 30,800 ETH
-/*LN-136*/  *    - Contract incorrectly assumes 1 ETH = 1 BTC
-/*LN-137*/  *    - Receives 30,800 uniBTC tokens
-/*LN-138*/  *    - Real value: 30,800 BTC * $65,000 = ~$2B
-/*LN-139*/  *    - Paid: 30,800 ETH * $3,000 = ~$92M
-/*LN-140*/  *    - Immediate 20x value gain
-/*LN-141*/  *
-/*LN-142*/  * 3. Swap uniBTC for WBTC on Uniswap V3:
-/*LN-143*/  *    - uniBTC/WBTC pool exists on Uniswap
-/*LN-144*/  *    - Swap 30,800 uniBTC for WBTC
-/*LN-145*/  *    - Due to pool liquidity limits, receives ~30 WBTC
-/*LN-146*/  *    - Still profitable: 30 WBTC = ~$2M
-/*LN-147*/  *
-/*LN-148*/  * 4. Swap WBTC back to ETH:
-/*LN-149*/  *    - Convert 30 WBTC to ETH via Uniswap
-/*LN-150*/  *    - Receives ETH to repay flashloan
-/*LN-151*/  *
-/*LN-152*/  * 5. Repay flashloan:
-/*LN-153*/  *    - Return 30,800 ETH to Balancer
-/*LN-154*/  *    - Keep profit: ~$2M in remaining assets
-/*LN-155*/  *
-/*LN-156*/  * 6. Profit extraction:
-/*LN-157*/  *    - Net profit after fees: $1.7-2M
-/*LN-158*/  *    - Entire attack in single transaction
-/*LN-159*/  *
-/*LN-160*/  * Root Causes:
-/*LN-161*/  * - Hardcoded 1:1 ETH:BTC exchange rate
-/*LN-162*/  * - No price oracle integration (Chainlink, etc.)
-/*LN-163*/  * - Missing exchange rate validation
-/*LN-164*/  * - No consideration of actual asset values
-/*LN-165*/  * - Lack of market price checks
-/*LN-166*/  * - Missing slippage protection
-/*LN-167*/  * - No liquidity checks before minting
-/*LN-168*/  * - Insufficient testing of exchange rate logic
-/*LN-169*/  *
-/*LN-170*/  * Fix:
-/*LN-171*/  * - Integrate Chainlink price feeds for ETH/BTC ratio
-/*LN-172*/  * - Calculate proper exchange rate:
-/*LN-173*/  *   ```solidity
-/*LN-174*/  *   uint256 ethPrice = oracle.getPrice(ETH);
-/*LN-175*/  *   uint256 btcPrice = oracle.getPrice(BTC);
-/*LN-176*/  *   uint256 uniBTCAmount = (msg.value * ethPrice) / btcPrice;
-/*LN-177*/  *   ```
-/*LN-178*/  * - Add minimum/maximum exchange rate bounds
-/*LN-179*/  * - Implement slippage protection for mints
-/*LN-180*/  * - Add circuit breakers for unusual exchange rates
-/*LN-181*/  * - Require multiple oracle sources for price validation
-/*LN-182*/  * - Add time-weighted price checks
-/*LN-183*/  * - Implement mint/redeem fees to discourage arbitrage
-/*LN-184*/  * - Add liquidity depth checks before large mints
-/*LN-185*/  * - Implement emergency pause functionality
-/*LN-186*/  */
-/*LN-187*/ 
+/*LN-130*/  * Fix:
+/*LN-131*/  * - Whitelist allowed target contract addresses
+/*LN-132*/  * - Whitelist allowed function selectors
+/*LN-133*/  * - Never allow transferFrom calls on arbitrary tokens
+/*LN-134*/  * - Validate operations only affect caller's own assets
+/*LN-135*/  * - Implement approval scoping (Permit2 pattern)
+/*LN-136*/  * - Add operation type restrictions per user role
+/*LN-137*/  * - Require explicit confirmation for token transfers
+/*LN-138*/  * - Monitor for suspicious operation patterns
+/*LN-139*/  * - Implement pause mechanism
+/*LN-140*/  * - Add maximum transfer amounts per operation
+/*LN-141*/  */
+/*LN-142*/ 

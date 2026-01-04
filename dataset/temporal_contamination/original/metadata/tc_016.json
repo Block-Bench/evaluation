@@ -1,36 +1,47 @@
 {
-  "id": "bzx_protocol_2020",
-  "exploit_name": "bZx Protocol",
-  "date": "2020-09-14",
+  "id": "qubit_bridge_2022_01",
+  "exploit_name": "Qubit Bridge Zero Address Bypass",
+  "date": "2022-01-27",
   "blockchain": "ethereum",
-  "amount_stolen_usd": "8000000",
-  "amount_stolen_crypto": "Various",
-  "vulnerability_type": "reentrancy",
-  "attack_type": "transfer_callback_manipulation",
+  "amount_lost_usd": "80000000",
+  "vulnerability_type": "validation_bypass",
   "difficulty": 3,
-  "impact": "high",
-  "description": "Transfer callback manipulation allowing state inconsistency. The transfer function updated balances then called _notifyTransfer which triggered callbacks, allowing repeated transfers with stale state calculations.",
-  "root_cause": "Token transfer function called external contract during state update. Callback occurred after balance updates but before finalization, creating state inconsistency exploitable through repeated self-transfers.",
-  "attack_scenario": "Attacker minted tokens, then transferred to self 4 times in loop. Each transfer triggered callback with inconsistent state. After iterations, token balance inflated. Burned inflated tokens back to ETH for profit.",
-  "vulnerable_contract": "bzx_protocol.sol",
-  "vulnerable_function": "transfer",
-  "vulnerable_lines": [88, 109],
-  "fix_description": "Add reentrancy guard to transfer function. Remove callbacks from transfer entirely, or ensure all state updates complete before any external calls. Use CEI pattern strictly.",
   "tags": [
-    "reentrancy",
-    "callback-manipulation",
-    "token-transfer",
-    "state-inconsistency",
-    "bzx"
+    "bridge",
+    "validation",
+    "zero_address",
+    "cross_chain",
+    "access_control",
+    "ethereum",
+    "bsc"
   ],
+  "description": "The Qubit Bridge failed to validate that the token contract address was not zero before processing deposits. An attacker exploited this by passing address(0) as the token contract. Since calling address(0) does not revert in the EVM, no tokens were actually transferred, but the bridge still emitted deposit events. The destination chain handler saw these events and minted tokens without real collateral backing, allowing the attacker to drain $80M.",
+  "attack_scenario": "1) Attacker identified or created a resourceID that mapped to address(0) in the bridge handler. 2) Called deposit() with this resourceID and large amount. 3) Handler attempted transferFrom on address(0), which succeeded without transferring anything. 4) Bridge emitted deposit event. 5) BSC handler received event and minted tokens to attacker. 6) Attacker repeated the exploit multiple times to extract $80M worth of tokens without providing any real collateral.",
+  "vulnerable_contract": {
+    "name": "QBridgeHandler",
+    "functions": [
+      {
+        "name": "deposit",
+        "vulnerability": "Missing validation that tokenContract != address(0)"
+      },
+      {
+        "name": "setResource",
+        "vulnerability": "Allows setting tokenAddress to address(0) without validation"
+      }
+    ]
+  },
+  "root_cause": "The bridge handler did not validate that the token contract address was not zero. Calls to address(0) do not revert in the EVM, so the transferFrom call succeeded silently without moving any tokens. However, the deposit event was still emitted, causing the destination chain to mint unbacked tokens.",
+  "vulnerable_lines": [95],
+  "fix": "Add explicit validation: require(tokenContract != address(0), 'Invalid token'). Also verify that tokenContract is in the whitelist and that the transferFrom actually succeeded by checking balance changes or return values.",
   "references": [
-    "https://etherscan.io/tx/0x85dc2a433fd9eaadaf56fd8156c956da23fc17e5ef83955c7e2c4c37efa20bb5",
-    "https://twitter.com/0xCommodity/status/1305354469354303488"
+    "https://twitter.com/QubitFin/status/1486892916055601154",
+    "https://certik.medium.com/qubit-bridge-collapse-exploited-to-the-tune-of-80-million-a7ab9068e1a0",
+    "https://medium.com/quillhash/decoding-qubit-bridge-hack-d14cd2a5fb5f"
   ],
-  "historical_significance": "One of multiple bZx exploits in 2020. Showed danger of callbacks in token transfers. Led to simpler transfer implementations in DeFi protocols.",
-  "compiler_version": "0.8.0",
-  "is_pre_cutoff": true,
-  "cutoff_date": "2024-01-01",
+  "temporal_category": "pre_cutoff",
+  "variant_type": "original",
+  "checks_effects_interactions_violated": false,
+  "involves_external_calls": true,
   "contract_file": "contracts/tc_016.sol",
   "subset": "annotated",
   "original_subset": "temporal_contamination"

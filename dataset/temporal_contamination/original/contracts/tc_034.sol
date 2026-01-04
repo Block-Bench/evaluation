@@ -2,13 +2,13 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * GAMMA STRATEGIES EXPLOIT (January 2024)
-/*LN-6*/  * Loss: $6.1 million
-/*LN-7*/  * Attack: Liquidity Management Deposit/Withdrawal Manipulation
+/*LN-5*/  * UWU LEND EXPLOIT (June 2024)
+/*LN-6*/  * Loss: $19.3 million
+/*LN-7*/  * Attack: Oracle Price Manipulation via Curve Pool Manipulation
 /*LN-8*/  *
-/*LN-9*/  * Gamma Strategies managed liquidity positions on Uniswap V3/Algebra pools.
-/*LN-10*/  * Attackers manipulated the deposit/withdrawal process through price manipulation
-/*LN-11*/  * and exploited the vault's liquidity management to drain funds.
+/*LN-9*/  * UwU Lend is an Aave V2 fork lending protocol. The exploit involved manipulating
+/*LN-10*/  * the price oracle for sUSDE (staked USDe) by draining liquidity from Curve pools,
+/*LN-11*/  * causing the oracle to report incorrect prices, then borrowing against inflated collateral.
 /*LN-12*/  */
 /*LN-13*/ 
 /*LN-14*/ interface IERC20 {
@@ -25,186 +25,204 @@
 /*LN-25*/     function approve(address spender, uint256 amount) external returns (bool);
 /*LN-26*/ }
 /*LN-27*/ 
-/*LN-28*/ interface IUniswapV3Pool {
-/*LN-29*/     function swap(
-/*LN-30*/         address recipient,
-/*LN-31*/         bool zeroForOne,
-/*LN-32*/         int256 amountSpecified,
-/*LN-33*/         uint160 sqrtPriceLimitX96,
-/*LN-34*/         bytes calldata data
-/*LN-35*/     ) external returns (int256 amount0, int256 amount1);
+/*LN-28*/ interface IAaveOracle {
+/*LN-29*/     function getAssetPrice(address asset) external view returns (uint256);
+/*LN-30*/ 
+/*LN-31*/     function setAssetSources(
+/*LN-32*/         address[] calldata assets,
+/*LN-33*/         address[] calldata sources
+/*LN-34*/     ) external;
+/*LN-35*/ }
 /*LN-36*/ 
-/*LN-37*/     function flash(
-/*LN-38*/         address recipient,
-/*LN-39*/         uint256 amount0,
-/*LN-40*/         uint256 amount1,
-/*LN-41*/         bytes calldata data
-/*LN-42*/     ) external;
-/*LN-43*/ }
+/*LN-37*/ interface ICurvePool {
+/*LN-38*/     function exchange(
+/*LN-39*/         int128 i,
+/*LN-40*/         int128 j,
+/*LN-41*/         uint256 dx,
+/*LN-42*/         uint256 min_dy
+/*LN-43*/     ) external returns (uint256);
 /*LN-44*/ 
-/*LN-45*/ contract GammaHypervisor {
-/*LN-46*/     IERC20 public token0;
-/*LN-47*/     IERC20 public token1;
-/*LN-48*/     IUniswapV3Pool public pool;
-/*LN-49*/ 
-/*LN-50*/     uint256 public totalSupply;
-/*LN-51*/     mapping(address => uint256) public balanceOf;
-/*LN-52*/ 
-/*LN-53*/     struct Position {
-/*LN-54*/         uint128 liquidity;
-/*LN-55*/         int24 tickLower;
-/*LN-56*/         int24 tickUpper;
-/*LN-57*/     }
-/*LN-58*/ 
-/*LN-59*/     Position public basePosition;
-/*LN-60*/     Position public limitPosition;
+/*LN-45*/     function get_dy(
+/*LN-46*/         int128 i,
+/*LN-47*/         int128 j,
+/*LN-48*/         uint256 dx
+/*LN-49*/     ) external view returns (uint256);
+/*LN-50*/ 
+/*LN-51*/     function balances(uint256 i) external view returns (uint256);
+/*LN-52*/ }
+/*LN-53*/ 
+/*LN-54*/ interface ILendingPool {
+/*LN-55*/     function deposit(
+/*LN-56*/         address asset,
+/*LN-57*/         uint256 amount,
+/*LN-58*/         address onBehalfOf,
+/*LN-59*/         uint16 referralCode
+/*LN-60*/     ) external;
 /*LN-61*/ 
-/*LN-62*/     /**
-/*LN-63*/      * @notice Deposit tokens and receive vault shares
-/*LN-64*/      * @dev VULNERABLE: Deposits can be manipulated through price changes
-/*LN-65*/      */
-/*LN-66*/     function deposit(
-/*LN-67*/         uint256 deposit0,
-/*LN-68*/         uint256 deposit1,
-/*LN-69*/         address to
-/*LN-70*/     ) external returns (uint256 shares) {
-/*LN-71*/         // VULNERABILITY 1: Share calculation based on current pool state
-/*LN-72*/         // Price manipulation affects share issuance
-/*LN-73*/ 
-/*LN-74*/         // Get current pool reserves (simplified)
-/*LN-75*/         uint256 total0 = token0.balanceOf(address(this));
-/*LN-76*/         uint256 total1 = token1.balanceOf(address(this));
-/*LN-77*/ 
-/*LN-78*/         // Transfer tokens from user
-/*LN-79*/         token0.transferFrom(msg.sender, address(this), deposit0);
-/*LN-80*/         token1.transferFrom(msg.sender, address(this), deposit1);
-/*LN-81*/ 
-/*LN-82*/         // VULNERABILITY 2: No slippage protection on share calculation
-/*LN-83*/         // Attacker can manipulate price before deposit to get more shares
-/*LN-84*/         if (totalSupply == 0) {
-/*LN-85*/             shares = deposit0 + deposit1;
-/*LN-86*/         } else {
-/*LN-87*/             // Calculate shares based on current value
-/*LN-88*/             uint256 amount0Current = total0 + deposit0;
-/*LN-89*/             uint256 amount1Current = total1 + deposit1;
-/*LN-90*/ 
-/*LN-91*/             shares = (totalSupply * (deposit0 + deposit1)) / (total0 + total1);
-/*LN-92*/         }
-/*LN-93*/ 
-/*LN-94*/         // VULNERABILITY 3: No check if deposits are balanced according to pool ratio
-/*LN-95*/         // Allows depositing unbalanced amounts at manipulated prices
+/*LN-62*/     function borrow(
+/*LN-63*/         address asset,
+/*LN-64*/         uint256 amount,
+/*LN-65*/         uint256 interestRateMode,
+/*LN-66*/         uint16 referralCode,
+/*LN-67*/         address onBehalfOf
+/*LN-68*/     ) external;
+/*LN-69*/ 
+/*LN-70*/     function withdraw(
+/*LN-71*/         address asset,
+/*LN-72*/         uint256 amount,
+/*LN-73*/         address to
+/*LN-74*/     ) external returns (uint256);
+/*LN-75*/ }
+/*LN-76*/ 
+/*LN-77*/ contract UwuLendingPool is ILendingPool {
+/*LN-78*/     IAaveOracle public oracle;
+/*LN-79*/     mapping(address => uint256) public deposits;
+/*LN-80*/     mapping(address => uint256) public borrows;
+/*LN-81*/     uint256 public constant LTV = 8500;
+/*LN-82*/     uint256 public constant BASIS_POINTS = 10000;
+/*LN-83*/ 
+/*LN-84*/     /**
+/*LN-85*/      * @notice Deposit collateral into pool
+/*LN-86*/      */
+/*LN-87*/     function deposit(
+/*LN-88*/         address asset,
+/*LN-89*/         uint256 amount,
+/*LN-90*/         address onBehalfOf,
+/*LN-91*/         uint16 referralCode
+/*LN-92*/     ) external override {
+/*LN-93*/         IERC20(asset).transferFrom(msg.sender, address(this), amount);
+/*LN-94*/         deposits[onBehalfOf] += amount;
+/*LN-95*/     }
 /*LN-96*/ 
-/*LN-97*/         balanceOf[to] += shares;
-/*LN-98*/         totalSupply += shares;
-/*LN-99*/ 
-/*LN-100*/         // Add liquidity to pool positions (simplified)
-/*LN-101*/         _addLiquidity(deposit0, deposit1);
-/*LN-102*/     }
-/*LN-103*/ 
-/*LN-104*/     /**
-/*LN-105*/      * @notice Withdraw tokens by burning shares
-/*LN-106*/      * @dev VULNERABLE: Withdrawals affected by manipulated pool state
-/*LN-107*/      */
-/*LN-108*/     function withdraw(
-/*LN-109*/         uint256 shares,
-/*LN-110*/         address to
-/*LN-111*/     ) external returns (uint256 amount0, uint256 amount1) {
-/*LN-112*/         require(balanceOf[msg.sender] >= shares, "Insufficient balance");
-/*LN-113*/ 
-/*LN-114*/         // VULNERABILITY 4: Withdrawal amounts based on current manipulated state
-/*LN-115*/         // Attacker can withdraw more value after price manipulation
-/*LN-116*/ 
-/*LN-117*/         uint256 total0 = token0.balanceOf(address(this));
-/*LN-118*/         uint256 total1 = token1.balanceOf(address(this));
+/*LN-97*/     /**
+/*LN-98*/      * @notice Borrow assets from pool
+/*LN-99*/      * @dev VULNERABLE: Uses manipulable oracle price
+/*LN-100*/      */
+/*LN-101*/     function borrow(
+/*LN-102*/         address asset,
+/*LN-103*/         uint256 amount,
+/*LN-104*/         uint256 interestRateMode,
+/*LN-105*/         uint16 referralCode,
+/*LN-106*/         address onBehalfOf
+/*LN-107*/     ) external override {
+/*LN-108*/         // VULNERABILITY 1: Oracle price can be manipulated via Curve pool drainage
+/*LN-109*/         uint256 collateralPrice = oracle.getAssetPrice(msg.sender);
+/*LN-110*/         uint256 borrowPrice = oracle.getAssetPrice(asset);
+/*LN-111*/ 
+/*LN-112*/         // VULNERABILITY 2: No price freshness check
+/*LN-113*/         // No validation if price has changed dramatically
+/*LN-114*/         // No circuit breaker for unusual price movements
+/*LN-115*/ 
+/*LN-116*/         uint256 collateralValue = (deposits[msg.sender] * collateralPrice) /
+/*LN-117*/             1e18;
+/*LN-118*/         uint256 maxBorrow = (collateralValue * LTV) / BASIS_POINTS;
 /*LN-119*/ 
-/*LN-120*/         // Calculate withdrawal amounts proportional to shares
-/*LN-121*/         amount0 = (shares * total0) / totalSupply;
-/*LN-122*/         amount1 = (shares * total1) / totalSupply;
-/*LN-123*/ 
-/*LN-124*/         balanceOf[msg.sender] -= shares;
-/*LN-125*/         totalSupply -= shares;
-/*LN-126*/ 
-/*LN-127*/         // Transfer tokens to user
-/*LN-128*/         token0.transfer(to, amount0);
-/*LN-129*/         token1.transfer(to, amount1);
-/*LN-130*/     }
-/*LN-131*/ 
-/*LN-132*/     /**
-/*LN-133*/      * @notice Rebalance liquidity positions
-/*LN-134*/      * @dev VULNERABLE: Can be called during price manipulation
-/*LN-135*/      */
-/*LN-136*/     function rebalance() external {
-/*LN-137*/         // VULNERABILITY 5: Rebalancing during manipulated price locks in bad state
-/*LN-138*/         // No protection against sandwich attacks during rebalance
-/*LN-139*/ 
-/*LN-140*/         _removeLiquidity(basePosition.liquidity);
-/*LN-141*/ 
-/*LN-142*/         // Recalculate position ranges based on current price
-/*LN-143*/         // This happens at manipulated price point
-/*LN-144*/ 
-/*LN-145*/         _addLiquidity(
-/*LN-146*/             token0.balanceOf(address(this)),
-/*LN-147*/             token1.balanceOf(address(this))
-/*LN-148*/         );
+/*LN-120*/         uint256 borrowValue = (amount * borrowPrice) / 1e18;
+/*LN-121*/ 
+/*LN-122*/         // VULNERABILITY 3: Health factor calculated with manipulated price
+/*LN-123*/         require(borrowValue <= maxBorrow, "Insufficient collateral");
+/*LN-124*/ 
+/*LN-125*/         borrows[msg.sender] += amount;
+/*LN-126*/         IERC20(asset).transfer(onBehalfOf, amount);
+/*LN-127*/     }
+/*LN-128*/ 
+/*LN-129*/     /**
+/*LN-130*/      * @notice Withdraw collateral
+/*LN-131*/      */
+/*LN-132*/     function withdraw(
+/*LN-133*/         address asset,
+/*LN-134*/         uint256 amount,
+/*LN-135*/         address to
+/*LN-136*/     ) external override returns (uint256) {
+/*LN-137*/         require(deposits[msg.sender] >= amount, "Insufficient balance");
+/*LN-138*/         deposits[msg.sender] -= amount;
+/*LN-139*/         IERC20(asset).transfer(to, amount);
+/*LN-140*/         return amount;
+/*LN-141*/     }
+/*LN-142*/ }
+/*LN-143*/ 
+/*LN-144*/ contract CurveOracle {
+/*LN-145*/     ICurvePool public curvePool;
+/*LN-146*/ 
+/*LN-147*/     constructor(address _pool) {
+/*LN-148*/         curvePool = _pool;
 /*LN-149*/     }
 /*LN-150*/ 
-/*LN-151*/     function _addLiquidity(uint256 amount0, uint256 amount1) internal {
-/*LN-152*/         // Simplified liquidity addition
-/*LN-153*/     }
-/*LN-154*/ 
-/*LN-155*/     function _removeLiquidity(uint128 liquidity) internal {
-/*LN-156*/         // Simplified liquidity removal
-/*LN-157*/     }
-/*LN-158*/ }
-/*LN-159*/ 
-/*LN-160*/ /**
-/*LN-161*/  * EXPLOIT SCENARIO:
-/*LN-162*/  *
-/*LN-163*/  * 1. Attacker obtains large flashloans:
-/*LN-164*/  *    - 3000 USDT from Uniswap V3
-/*LN-165*/  *    - 2000 USDCe from Balancer
-/*LN-166*/  *
-/*LN-167*/  * 2. Price manipulation phase 1:
-/*LN-168*/  *    - Swap large amounts to manipulate Algebra pool price
-/*LN-169*/  *    - Execute 15 iterations of swaps through the pool
-/*LN-170*/  *    - Price moves significantly from true value
-/*LN-171*/  *
-/*LN-172*/  * 3. Interact with Gamma Hypervisor during manipulation:
-/*LN-173*/  *    - Deposit tokens at manipulated price
-/*LN-174*/  *    - Receive inflated share amounts due to incorrect valuation
-/*LN-175*/  *    - Or withdraw at manipulated price for better token amounts
-/*LN-176*/  *
-/*LN-177*/  * 4. Price manipulation phase 2:
-/*LN-178*/  *    - Trigger rebalance operations during manipulation
-/*LN-179*/  *    - Gamma vault rebalances at incorrect price
-/*LN-180*/  *    - Locks in losses for the vault
-/*LN-181*/  *
-/*LN-182*/  * 5. Restore price and withdraw:
-/*LN-183*/  *    - Perform reverse swaps to restore pool price
-/*LN-184*/  *    - Withdraw from Gamma at corrected price
-/*LN-185*/  *    - Profit from the price discrepancy
-/*LN-186*/  *
-/*LN-187*/  * 6. Repay flashloans and keep profit:
-/*LN-188*/  *    - Return borrowed tokens
-/*LN-189*/  *    - Extract $6.1M profit in ETH
-/*LN-190*/  *
-/*LN-191*/  * Root Causes:
-/*LN-192*/  * - No slippage protection on deposits/withdrawals
-/*LN-193*/  * - Share calculation vulnerable to price manipulation
-/*LN-194*/  * - Missing oracle for true token prices
-/*LN-195*/  * - No time-weighted average price (TWAP) usage
-/*LN-196*/  * - Rebalancing can be triggered during manipulation
-/*LN-197*/  * - No sandwich attack protection
-/*LN-198*/  * - Missing deposit/withdrawal cooldown periods
-/*LN-199*/  *
-/*LN-200*/  * Fix:
-/*LN-201*/  * - Implement TWAP oracles for price checks
-/*LN-202*/  * - Add slippage limits on deposits/withdrawals
-/*LN-203*/  * - Require balanced deposits according to true pool ratio
-/*LN-204*/  * - Add cooldown between deposits and withdrawals
-/*LN-205*/  * - Implement maximum deposit/withdrawal per block
-/*LN-206*/  * - Add circuit breakers for large price movements
-/*LN-207*/  * - Use Chainlink or other external oracles
-/*LN-208*/  * - Implement deposit/withdrawal fees to discourage attacks
-/*LN-209*/  */
-/*LN-210*/ 
+/*LN-151*/     /**
+/*LN-152*/      * @notice Get asset price from Curve pool
+/*LN-153*/      * @dev VULNERABLE: Price derived from manipulable Curve pool
+/*LN-154*/      */
+/*LN-155*/     function getAssetPrice(address asset) external view returns (uint256) {
+/*LN-156*/         // VULNERABILITY 4: Price based on Curve pool state
+/*LN-157*/         // Attacker can drain pool to manipulate price
+/*LN-158*/         // No TWAP (Time-Weighted Average Price)
+/*LN-159*/         // No external price validation
+/*LN-160*/ 
+/*LN-161*/         uint256 balance0 = curvePool.balances(0);
+/*LN-162*/         uint256 balance1 = curvePool.balances(1);
+/*LN-163*/ 
+/*LN-164*/         // VULNERABILITY 5: Spot price calculation
+/*LN-165*/         // Easily manipulated by large swaps or liquidity removal
+/*LN-166*/         uint256 price = (balance1 * 1e18) / balance0;
+/*LN-167*/ 
+/*LN-168*/         return price;
+/*LN-169*/     }
+/*LN-170*/ }
+/*LN-171*/ 
+/*LN-172*/ /**
+/*LN-173*/  * EXPLOIT SCENARIO:
+/*LN-174*/  *
+/*LN-175*/  * 1. Attacker obtains massive flashloans:
+/*LN-176*/  *    - Borrows from Aave V3, Balancer, Spark, MorphoBlue, MakerDAO
+/*LN-177*/  *    - Total: Billions in stablecoins and ETH
+/*LN-178*/  *
+/*LN-179*/  * 2. Price manipulation phase - drain Curve pools:
+/*LN-180*/  *    - Target: sUSDE/USDe, USDe/DAI, USDe/crvUSD pools
+/*LN-181*/  *    - Execute large swaps to remove USDe liquidity
+/*LN-182*/  *    - Imbalance the pools to inflate sUSDE price
+/*LN-183*/  *
+/*LN-184*/  * 3. Oracle reports manipulated price:
+/*LN-185*/  *    - UwU Lend oracle reads from manipulated Curve pools
+/*LN-186*/  *    - sUSDE price artificially inflated (e.g., 2x real value)
+/*LN-187*/  *    - No TWAP or external validation to detect manipulation
+/*LN-188*/  *
+/*LN-189*/  * 4. Deposit collateral into UwU Lend:
+/*LN-190*/  *    - Deposit sUSDE at inflated price
+/*LN-191*/  *    - Collateral appears worth 2x real value
+/*LN-192*/  *    - Health factor calculated with manipulated price
+/*LN-193*/  *
+/*LN-194*/  * 5. Borrow maximum assets:
+/*LN-195*/  *    - Borrow WETH, DAI, USDC, WBTC at 85% LTV
+/*LN-196*/  *    - Can borrow 1.7x actual collateral value due to manipulation
+/*LN-197*/  *    - Extract $19.3M worth of assets
+/*LN-198*/  *
+/*LN-199*/  * 6. Price restoration:
+/*LN-200*/  *    - Reverse swaps in Curve pools
+/*LN-201*/  *    - Price returns to normal
+/*LN-202*/  *    - Attacker's position now undercollateralized
+/*LN-203*/  *
+/*LN-204*/  * 7. Profit extraction:
+/*LN-205*/  *    - Keep borrowed assets ($19.3M)
+/*LN-206*/  *    - Abandon collateral position
+/*LN-207*/  *    - Repay flashloans with profits
+/*LN-208*/  *
+/*LN-209*/  * Root Causes:
+/*LN-210*/  * - Oracle reliance on manipulable Curve pool prices
+/*LN-211*/  * - No Time-Weighted Average Price (TWAP) implementation
+/*LN-212*/  * - Lack of external price feed validation (Chainlink, etc.)
+/*LN-213*/  * - No circuit breakers for dramatic price movements
+/*LN-214*/  * - Insufficient liquidity in Curve pools for price stability
+/*LN-215*/  * - No borrow caps or limits during volatile periods
+/*LN-216*/  * - Missing price deviation checks between sources
+/*LN-217*/  *
+/*LN-218*/  * Fix:
+/*LN-219*/  * - Implement TWAP oracles (multi-block price averaging)
+/*LN-220*/  * - Use Chainlink or other external price feeds as primary source
+/*LN-221*/  * - Add deviation checks between multiple price sources
+/*LN-222*/  * - Implement circuit breakers for >X% price movement
+/*LN-223*/  * - Add borrow caps that limit exposure during volatility
+/*LN-224*/  * - Require minimum liquidity depth in pricing pools
+/*LN-225*/  * - Implement gradual price updates, not instant spot prices
+/*LN-226*/  * - Add emergency pause functionality for suspicious activity
+/*LN-227*/  */
+/*LN-228*/ 

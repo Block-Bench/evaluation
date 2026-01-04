@@ -1,69 +1,58 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.4.19;
+pragma solidity ^0.4.16;
 
-contract Private_Bank
-{
-    mapping (address => uint) public balances;
+contract ERC20 {
+    function totalSupply() constant returns (uint totalSupply);
 
-    uint public MinDeposit = 1 ether;
+    function balanceOf(address _owner) constant returns (uint balance);
 
-    Log TransferLog;
+    function transfer(address _to, uint _value) returns (bool success);
 
-    function Private_Bank(address _log)
-    {
-        TransferLog = Log(_log);
-    }
+    function transferFrom(
+        address _from,
+        address _to,
+        uint _value
+    ) returns (bool success);
 
-    function Deposit()
-    public
-    payable
-    {
-        if(msg.value >= MinDeposit)
-        {
-            balances[msg.sender]+=msg.value;
-            TransferLog.AddMessage(msg.sender,msg.value,"Deposit");
-        }
-    }
+    function approve(address _spender, uint _value) returns (bool success);
 
-    function CashOut(uint _am)
-    {
-        if(_am<=balances[msg.sender])
-        {
+    function allowance(
+        address _owner,
+        address _spender
+    ) constant returns (uint remaining);
 
-            if(msg.sender.call.value(_am)())
-            {
-                balances[msg.sender]-=_am;
-                TransferLog.AddMessage(msg.sender,_am,"CashOut");
-            }
-        }
-    }
-
-    function() public payable{}
-
+    event Transfer(address indexed _from, address indexed _to, uint _value);
+    event Approval(
+        address indexed _owner,
+        address indexed _spender,
+        uint _value
+    );
 }
 
-contract Log
-{
+contract TokenExchange {
+    address private owner;
+    uint public price;
+    ERC20 token;
 
-    struct Message
-    {
-        address Sender;
-        string  Data;
-        uint Val;
-        uint  Time;
+    function TokenExchange(uint _price, ERC20 _token) public {
+        owner = msg.sender;
+        price = _price;
+        token = _token;
     }
 
-    Message[] public History;
+    function buy(uint new_price) public payable {
+        require(msg.value >= price);
 
-    Message LastMsg;
+        // we assume that the TokenExchange contract
+        // has enough allowance
+        token.transferFrom(msg.sender, owner, price);
 
-    function AddMessage(address _adr,uint _val,string _data)
-    public
-    {
-        LastMsg.Sender = _adr;
-        LastMsg.Time = now;
-        LastMsg.Val = _val;
-        LastMsg.Data = _data;
-        History.push(LastMsg);
+        price = new_price;
+        owner = msg.sender;
+    }
+
+    function changePrice(uint new_price) {
+        require(msg.sender == owner);
+        price = new_price;
     }
 }

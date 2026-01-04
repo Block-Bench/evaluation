@@ -1,70 +1,42 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import "forge-std/Test.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract ContractTest is Test {
-    SimpleBank SimpleBankContract;
-    SimpleBankB SimpleBankContractB;
+contract BasicERC721 is ERC721, Ownable {
+    constructor() ERC721("MyNFT", "MNFT") {}
 
-    function setUp() public {
-        SimpleBankContract = new SimpleBank();
-        SimpleBankContractB = new SimpleBankB();
+    function transferFrom(
+        address from,
+        address to,
+        uint256 tokenId
+    ) public override {
+        _transfer(from, to, tokenId);
     }
 
-    function testTransferFail() public {
-        SimpleBankContract.deposit{value: 1 ether}();
-        assertEq(SimpleBankContract.getBalance(), 1 ether);
-        vm.expectRevert();
-        SimpleBankContract.withdraw(1 ether);
-    }
-
-    function testCall() public {
-        SimpleBankContractB.deposit{value: 1 ether}();
-        assertEq(SimpleBankContractB.getBalance(), 1 ether);
-        SimpleBankContractB.withdraw(1 ether);
-    }
-
-    receive() external payable {
-        //just a example for out of gas
-        SimpleBankContract.deposit{value: 1 ether}();
+    function safeMint(address to, uint256 tokenId) public onlyOwner {
+        _safeMint(to, tokenId);
     }
 }
 
-contract SimpleBank {
-    mapping(address => uint) private balances;
+contract ERC721B is ERC721, Ownable {
+    constructor() ERC721("MyNFT", "MNFT") {}
 
-    function deposit() public payable {
-        balances[msg.sender] += msg.value;
+    function transferFrom(
+        address from,
+        address to,
+        uint256 tokenId
+    ) public override {
+        require(
+            _isApprovedOrOwner(_msgSender(), tokenId),
+            "ERC721: caller is not token owner or approved"
+        );
+
+        _transfer(from, to, tokenId);
     }
 
-    function getBalance() public view returns (uint) {
-        return balances[msg.sender];
-    }
-
-    function withdraw(uint amount) public {
-        require(balances[msg.sender] >= amount);
-        balances[msg.sender] -= amount;
-        // the issue is here
-        payable(msg.sender).transfer(amount);
-    }
-}
-
-contract SimpleBankB {
-    mapping(address => uint) private balances;
-
-    function deposit() public payable {
-        balances[msg.sender] += msg.value;
-    }
-
-    function getBalance() public view returns (uint) {
-        return balances[msg.sender];
-    }
-
-    function withdraw(uint amount) public {
-        require(balances[msg.sender] >= amount);
-        balances[msg.sender] -= amount;
-        (bool success, ) = payable(msg.sender).call{value: amount}("");
-        require(success, " Transfer of ETH Failed");
+    function safeMint(address to, uint256 tokenId) public onlyOwner {
+        _safeMint(to, tokenId);
     }
 }

@@ -1,36 +1,36 @@
 {
-  "id": "hundred_finance_2022_03",
-  "exploit_name": "Hundred Finance Reentrancy",
-  "date": "2022-03-15",
-  "blockchain": "gnosis",
-  "amount_lost_usd": "6000000",
-  "vulnerability_type": "reentrancy",
-  "difficulty": 4,
+  "id": "bvaults_safemoon_2021_05",
+  "exploit_name": "BVaults SafeMoon Drain",
+  "date": "2021-05-30",
+  "blockchain": "binance_smart_chain",
+  "amount_lost_usd": "8500000",
+  "vulnerability_type": "accounting_error",
+  "difficulty": 3,
   "tags": [
-    "reentrancy",
-    "erc667",
-    "compound_fork",
-    "token_hooks",
-    "gnosis"
+    "deflationary_token",
+    "transfer_fee",
+    "vault",
+    "bsc",
+    "accounting"
   ],
-  "description": "Hundred Finance (Compound fork) was exploited via ERC667 token hooks reentrancy. ERC667 tokens call recipient contracts during transfers. The borrow function transferred tokens before fully updating state, allowing attackers to re-enter and borrow multiple times with the same collateral.",
-  "attack_scenario": "1) Flash loan ERC667 tokens. 2) Call borrow() to initiate loan. 3) During token transfer, ERC667 hook calls back to attacker contract. 4) Attacker re-enters borrow() before first borrow state update completes. 5) Multiple borrows executed with same collateral. 6) Drained $6M from multiple markets on Gnosis chain.",
-  "root_cause": "Compound fork didn't account for ERC667 token hooks that allow reentrancy during transfers. The borrow function violated checks-effects-interactions by transferring tokens before completing state updates, enabling multiple borrows within one transaction.",
-  "vulnerable_lines": [43],
-  "fix": "Use reentrancy guards (OpenZeppelin ReentrancyGuard). Follow checks-effects-interactions pattern strictly. Update all state before external calls/transfers. Consider blocking ERC667/ERC777 tokens with hooks.",
+  "description": "BVaults didn't account for deflationary tokens (like SafeMoon) that burn a percentage on transfer. The vault credited users for the full deposit amount but only received a reduced amount after fees, allowing withdrawals that drained more than deposited.",
+  "attack_scenario": "1) Deflationary token charges 10% fee on transfers. 2) Attacker deposits 100 tokens. 3) Vault receives only 90 tokens (10% burned as fee). 4) Vault credits attacker's account with full 100 tokens. 5) Attacker withdraws 100 tokens. 6) Vault sends 100 but only had 90 plus other users' funds. 7) Repeated deposits/withdrawals to drain $8.5M.",
+  "root_cause": "Vault assumed tokens received equal amount transferred. Didn't check actual balance increase before/after transfer. Deflationary tokens with transfer fees caused accounting mismatch between credited amounts and actual holdings.",
+  "vulnerable_lines": [60],
+  "fix": "Check actual balance change: balBefore = token.balanceOf(address(this)); token.transferFrom(...); balAfter = token.balanceOf(address(this)); received = balAfter - balBefore; deposits[user] += received;",
   "references": [
-    "https://twitter.com/HundredFinance/status/1503551732143849477"
+    "https://twitter.com/CertiKAlert/status/1398977818532528128"
   ],
   "temporal_category": "pre_cutoff",
   "variant_type": "original",
-  "checks_effects_interactions_violated": true,
+  "checks_effects_interactions_violated": false,
   "involves_external_calls": true,
   "vulnerable_contract": {
-    "name": "HundredFinanceMarket",
+    "name": "VulnerableVault",
     "functions": [
       {
-        "name": "borrow",
-        "vulnerability": "Transfers tokens before state updates, vulnerable to ERC667 reentrancy"
+        "name": "deposit",
+        "vulnerability": "Doesn't check actual balance increase, credits full amount despite transfer fees"
       }
     ]
   },

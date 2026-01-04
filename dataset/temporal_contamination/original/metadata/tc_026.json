@@ -1,36 +1,41 @@
 {
-  "id": "anyswap_2022_01",
-  "exploit_name": "Anyswap Permit Bypass",
-  "date": "2022-01-18",
-  "blockchain": "ethereum",
-  "amount_lost_usd": "8000000",
-  "vulnerability_type": "signature_verification",
-  "difficulty": 3,
+  "id": "belt_finance_2021_05",
+  "exploit_name": "Belt Finance Strategy Exploit",
+  "date": "2021-05-30",
+  "blockchain": "binance_smart_chain",
+  "amount_lost_usd": "6200000",
+  "vulnerability_type": "price_oracle_manipulation",
+  "difficulty": 4,
   "tags": [
-    "bridge",
-    "permit",
-    "signature",
-    "eip2612",
-    "cross_chain"
+    "vault",
+    "strategy",
+    "oracle",
+    "flash_loan",
+    "bsc",
+    "share_price"
   ],
-  "description": "Anyswap bridge's anySwapOutUnderlyingWithPermit function had incomplete validation of EIP-2612 permit signatures. The function proceeded with token transfers even when permit validation failed, allowing attackers to bridge tokens without proper authorization.",
-  "attack_scenario": "1) Attacker called anySwapOutUnderlyingWithPermit with victim's token address. 2) Passed invalid permit signature (v=0, r=0, s=0). 3) Permit validation failed silently. 4) Function continued executing anyway. 5) Tokens were burned/locked and bridged to destination chain. 6) Repeated to drain $8M worth of WETH and other tokens.",
-  "root_cause": "The permit validation used try-catch that swallowed failures without reverting. The function proceeded with token operations regardless of whether the permit succeeded, effectively bypassing authorization checks entirely.",
-  "vulnerable_lines": [37, 42],
-  "fix": "Require permit to succeed: remove try-catch or explicitly check return value. Alternatively, require existing approval if permit fails. Never proceed with token operations without verified authorization.",
+  "description": "Belt Finance vault strategies used manipulatable price oracles for calculating share values. Attackers flash-loaned to manipulate oracle prices, deposited when price was low (getting more shares), then withdrew after price recovered, extracting more value than deposited.",
+  "attack_scenario": "1) Flash loan large amounts to manipulate price oracle down. 2) Deposit to vault when price is artificially low. 3) Share calculation: sharesAdded = (amount * totalShares) / (pool * price), so low price = more shares. 4) Release flash loan, price recovers. 5) Withdraw with inflated share count. 6) Withdrawal amount = (shares * pool * price) / totalShares, high price = more tokens. 7) Profit $6.2M from price manipulation cycle.",
+  "root_cause": "Vault share pricing relied on oracle that could be manipulated within single transaction. No TWAP or manipulation resistance. Share calculations used instantaneous price values vulnerable to flash loan attacks.",
+  "vulnerable_lines": [41, 56],
+  "fix": "Use TWAP oracles resistant to single-block manipulation. Implement share price manipulation checks. Add deposit/withdraw delays. Use multiple independent oracle sources. Cap maximum share price changes per block.",
   "references": [
-    "https://twitter.com/AnyswapNetwork/status/1483420010546745344"
+    "https://twitter.com/BeltFi/status/1398905355499020288"
   ],
   "temporal_category": "pre_cutoff",
   "variant_type": "original",
   "checks_effects_interactions_violated": false,
   "involves_external_calls": true,
   "vulnerable_contract": {
-    "name": "AnyswapRouter",
+    "name": "BeltStrategy",
     "functions": [
       {
-        "name": "anySwapOutUnderlyingWithPermit",
-        "vulnerability": "Proceeds with transfers even when permit validation fails"
+        "name": "deposit",
+        "vulnerability": "Uses manipulatable oracle price for share calculation"
+      },
+      {
+        "name": "withdraw",
+        "vulnerability": "Uses manipulatable price for withdrawal amount"
       }
     ]
   },

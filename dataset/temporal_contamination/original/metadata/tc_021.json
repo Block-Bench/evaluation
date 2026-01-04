@@ -1,41 +1,42 @@
 {
-  "id": "dodo_reinit_2021_03",
-  "exploit_name": "DODO Reinitialization",
-  "date": "2021-03-09",
+  "id": "inverse_finance_2022_04",
+  "exploit_name": "Inverse Finance Oracle Manipulation",
+  "date": "2022-04-02",
   "blockchain": "ethereum",
-  "amount_lost_usd": "3800000",
-  "vulnerability_type": "reinitialization",
-  "difficulty": 3,
+  "amount_lost_usd": "15600000",
+  "vulnerability_type": "price_oracle_manipulation",
+  "difficulty": 4,
   "tags": [
-    "initialization",
-    "access_control",
-    "dodo",
-    "defi",
-    "amm",
-    "maintainer_hijack"
+    "oracle",
+    "curve",
+    "flash_loan",
+    "lp_tokens",
+    "price_manipulation",
+    "yearn",
+    "lending"
   ],
-  "description": "DODO's liquidity pool contract had an init() function that could be called multiple times without proper access control or initialization guard. An attacker called init() again after deployment, setting themselves as the maintainer (fee recipient) and hijacking accumulated fees. The vulnerability allowed manipulation of critical pool parameters post-deployment.",
-  "attack_scenario": "1) Attacker identified DODO pool contracts without proper initialization locks. 2) Called init() with attacker-controlled parameters, setting maintainer address to attacker. 3) Since maintainer receives all swap fees, attacker could claim accumulated fees via claimFees(). 4) All future swap fees also redirected to attacker. 5) In some cases, could manipulate baseBalance/quoteBalance for profitable swaps. 6) Drained $3.8M from affected pools.",
+  "description": "Inverse Finance accepted Yearn Curve 3crypto LP tokens as collateral, with pricing from an oracle that read Curve's get_virtual_price(). An attacker used flash loans to add massive liquidity to the Curve pool, temporarily inflating the virtual_price. This allowed borrowing far more than the collateral's true value, as the oracle reported the manipulated inflated price.",
+  "attack_scenario": "1) Flash loan 2700 WBTC from Aave. 2) Add 2677.5 WBTC + 22,500 USDT to Curve 3crypto pool. 3) Massive liquidity addition inflates Curve virtual_price from $1.00 to ~$1.50. 4) Deposit yvCrv3Crypto tokens as collateral. 5) Oracle reads inflated price, valuing collateral 50% higher than true worth. 6) Borrow maximum DOLA based on inflated collateral value (80% of $1.50 = $1.20 per token vs should be $0.80). 7) Remove liquidity from Curve, price normalizes. 8) Repay flash loan, keep overborrowed $15.6M DOLA.",
   "vulnerable_contract": {
-    "name": "DODOPool",
+    "name": "InverseLending + SimplifiedOracle",
     "functions": [
       {
-        "name": "init",
-        "vulnerability": "Missing initialization guard allowing multiple calls to hijack maintainer role"
+        "name": "getPrice",
+        "vulnerability": "Reads Curve virtual_price directly without TWAP or manipulation resistance"
       },
       {
-        "name": "claimFees",
-        "vulnerability": "Only checks msg.sender == maintainer, but maintainer can be changed via reinitialization"
+        "name": "borrow",
+        "vulnerability": "Relies on manipulatable oracle price for collateral valuation"
       }
     ]
   },
-  "root_cause": "The init() function lacked proper initialization protection (missing `require(!isInitialized)` check). This allowed attackers to call the initialization function again after deployment, overwriting critical parameters like the maintainer address and hijacking fee collection rights.",
-  "vulnerable_lines": [68],
-  "fix": "Add initialization guard: `require(!initialized, 'Already initialized')` at the start of init(). Better approach: use OpenZeppelin's Initializable pattern with the `initializer` modifier which prevents reinitialization. For upgradeable contracts, use `initializer` and `reinitializer(version)` modifiers appropriately.",
+  "root_cause": "The price oracle for Yearn Curve 3crypto LP tokens relied on Curve's get_virtual_price() which reflects current pool state. Flash loan attackers added massive liquidity in one transaction, inflating virtual_price. The oracle had no time-weighted averaging or manipulation resistance, so it reported the inflated price, allowing massive overborrowing.",
+  "vulnerable_lines": [63, 121],
+  "fix": "Implement time-weighted average price (TWAP) oracles. Use exponential moving averages (EMA) for price feeds. Add minimum delays between price updates. Use multiple independent oracle sources (e.g., Chainlink + Curve). Implement manipulation-resistant LP token pricing formulas that account for potential imbalances.",
   "references": [
-    "https://blog.dodoex.io/dodo-pool-incident-postmortem-with-a-little-help-from-our-friends-327e66872d42",
-    "https://twitter.com/DODOexchange/status/1369478893390807040",
-    "https://medium.com/dodoex/dodo-security-incident-analysis-8fbbb7448e8c"
+    "https://www.inverse.finance/blog-posts/incident-update-april-2nd",
+    "https://twitter.com/InverseFinance/status/1510345809791537158",
+    "https://blocksecteam.medium.com/the-analysis-of-inverse-finance-security-incident-404c6c0d8f7"
   ],
   "temporal_category": "pre_cutoff",
   "variant_type": "original",

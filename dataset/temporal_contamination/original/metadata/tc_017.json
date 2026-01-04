@@ -1,36 +1,47 @@
 {
-  "id": "pickle_finance_2020",
-  "exploit_name": "Pickle Finance",
-  "date": "2020-11-21",
+  "id": "warp_finance_2020_12",
+  "exploit_name": "Warp Finance LP Token Price Manipulation",
+  "date": "2020-12-17",
   "blockchain": "ethereum",
-  "amount_stolen_usd": "20000000",
-  "amount_stolen_crypto": "~20M DAI",
-  "vulnerability_type": "access_control",
-  "attack_type": "arbitrary_call_exploit",
+  "amount_lost_usd": "7700000",
+  "vulnerability_type": "price_oracle_manipulation",
   "difficulty": 4,
-  "impact": "critical",
-  "description": "Arbitrary external call vulnerability in controller's swap function. The swapExactJarForJar function accepted user-provided target addresses and calldata, making unchecked external calls that drained strategy funds.",
-  "root_cause": "Controller allowed arbitrary external calls with user-provided targets and data without validation. Strategy functions like withdrawAll() lacked access control checks, allowing controller to call them on behalf of attacker.",
-  "attack_scenario": "Attacker created fake jar contracts, called swapExactJarForJar with malicious targets pointing to real strategies and calldata encoding withdrawAll(). Controller executed these calls, draining strategies.",
-  "vulnerable_contract": "pickle_finance.sol",
-  "vulnerable_function": "swapExactJarForJar",
-  "vulnerable_lines": [92],
-  "fix_description": "Remove arbitrary call functionality. Implement specific swap logic directly. Add access control to all strategy functions (require msg.sender == controller). If arbitrary calls needed, use strict whitelisting of targets and function selectors.",
   "tags": [
-    "arbitrary-call",
-    "access-control",
-    "missing-authorization",
-    "privilege-escalation",
-    "pickle"
+    "flash_loan",
+    "lp_tokens",
+    "uniswap",
+    "price_manipulation",
+    "oracle",
+    "collateral_valuation",
+    "defi_lending"
   ],
+  "description": "Warp Finance allowed users to deposit Uniswap LP tokens as collateral and borrow stablecoins. The protocol calculated LP token value using current pool reserves without protection against flash loan manipulation. An attacker used flash loans to massively imbalance a Uniswap pool, inflating the calculated value of their LP tokens, then borrowed far more than their collateral's true worth.",
+  "attack_scenario": "1) Flash loan 5M DAI. 2) Swap DAI -> ETH in Uniswap pool, heavily imbalancing reserves (6M DAI, 100 ETH). 3) LP token value calculation uses manipulated reserves, showing inflated value. 4) Deposit LP tokens as collateral in Warp Finance. 5) Borrow maximum stablecoins based on inflated collateral valuation (2-3x more than true value). 6) Swap back to rebalance pool. 7) Repay flash loan. 8) Keep overborrowed funds. Loss: $7.7M.",
+  "vulnerable_contract": {
+    "name": "WarpVault",
+    "functions": [
+      {
+        "name": "getLPTokenValue",
+        "vulnerability": "Uses instantaneous pool reserves to calculate LP token value, vulnerable to flash loan manipulation"
+      },
+      {
+        "name": "borrow",
+        "vulnerability": "Relies on manipulatable LP token valuation to determine borrowing capacity"
+      }
+    ]
+  },
+  "root_cause": "LP token value was calculated directly from current Uniswap pool reserves without using time-weighted average prices (TWAP) or external oracles. Flash loan attackers could temporarily manipulate pool reserves within a single transaction, inflating the perceived value of LP tokens and overborrowing against them.",
+  "vulnerable_lines": [112],
+  "fix": "Use Uniswap V2/V3 TWAP oracles for price feeds instead of instantaneous reserves. Implement manipulation-resistant LP token valuation formulas (such as Alpha Homora V2's fair LP pricing). Use external price oracles like Chainlink for asset prices. Consider requiring multi-block delays for large collateral value increases.",
   "references": [
-    "https://etherscan.io/tx/0xe72d4e7ba9b5af0cf2a8cfb1e30fd9f388df0ab3da79790be842bfbed11087b0",
-    "https://github.com/banteg/evil-jar"
+    "https://peckshield.medium.com/warpfinance-incident-root-cause-analysis-581a7f0e2437",
+    "https://twitter.com/BlockSecTeam/status/1339854628309852160",
+    "https://medium.com/warpfinance/warp-finance-post-mortem-summary-3rd-dec-2020-7a898fda0d5c"
   ],
-  "historical_significance": "Major DeFi hack demonstrating danger of arbitrary external calls. Led to widespread removal of generic call functionality in protocols. Established pattern of strict function whitelisting.",
-  "compiler_version": "0.8.0",
-  "is_pre_cutoff": true,
-  "cutoff_date": "2024-01-01",
+  "temporal_category": "pre_cutoff",
+  "variant_type": "original",
+  "checks_effects_interactions_violated": false,
+  "involves_external_calls": true,
   "contract_file": "contracts/tc_017.sol",
   "subset": "annotated",
   "original_subset": "temporal_contamination"

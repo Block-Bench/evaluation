@@ -2,14 +2,14 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * SHEZMU EXPLOIT (September 2024)
-/*LN-6*/  * Loss: $4.9 million
-/*LN-7*/  * Attack: Missing Access Control on Mint Function
+/*LN-5*/  * DELTAPRIME EXPLOIT (November 2024)
+/*LN-6*/  * Loss: $4.75 million (note: second incident, total ~$6M)
+/*LN-7*/  * Attack: Private Key Compromise + Malicious Contract Injection
 /*LN-8*/  *
-/*LN-9*/  * Shezmu is a CDP (Collateralized Debt Position) protocol. The collateral
-/*LN-10*/  * token contract had a publicly accessible mint() function with no access
-/*LN-11*/  * control, allowing anyone to mint unlimited collateral tokens and borrow
-/*LN-12*/  * against them to drain the vault.
+/*LN-9*/  * DeltaPrime is a cross-margin lending protocol. Attackers compromised a
+/*LN-10*/  * privileged private key that could upgrade proxy contracts. They upgraded
+/*LN-11*/  * a pool contract to inject malicious code, then manipulated reward claiming
+/*LN-12*/  * to drain funds through fake pair contracts.
 /*LN-13*/  */
 /*LN-14*/ 
 /*LN-15*/ interface IERC20 {
@@ -26,189 +26,156 @@
 /*LN-26*/     function approve(address spender, uint256 amount) external returns (bool);
 /*LN-27*/ }
 /*LN-28*/ 
-/*LN-29*/ contract ShezmuCollateralToken is IERC20 {
-/*LN-30*/     string public name = "Shezmu Collateral Token";
-/*LN-31*/     string public symbol = "SCT";
-/*LN-32*/     uint8 public decimals = 18;
-/*LN-33*/ 
-/*LN-34*/     mapping(address => uint256) public balanceOf;
-/*LN-35*/     mapping(address => mapping(address => uint256)) public allowance;
-/*LN-36*/     uint256 public totalSupply;
-/*LN-37*/ 
-/*LN-38*/     /**
-/*LN-39*/      * @notice Mint new collateral tokens
-/*LN-40*/      * @dev VULNERABILITY: No access control - anyone can call this
-/*LN-41*/      */
-/*LN-42*/     function mint(address to, uint256 amount) external {
-/*LN-43*/         // VULNERABILITY 1: Missing access control modifier
-/*LN-44*/         // Should have: require(msg.sender == owner, "Only owner");
-/*LN-45*/         // or: require(hasRole(MINTER_ROLE, msg.sender), "Not authorized");
-/*LN-46*/ 
-/*LN-47*/         // VULNERABILITY 2: No minting limits
-/*LN-48*/         // Can mint type(uint128).max worth of tokens
-/*LN-49*/ 
-/*LN-50*/         balanceOf[to] += amount;
-/*LN-51*/         totalSupply += amount;
+/*LN-29*/ interface ISmartLoan {
+/*LN-30*/     function swapDebtParaSwap(
+/*LN-31*/         bytes32 _fromAsset,
+/*LN-32*/         bytes32 _toAsset,
+/*LN-33*/         uint256 _repayAmount,
+/*LN-34*/         uint256 _borrowAmount,
+/*LN-35*/         bytes4 selector,
+/*LN-36*/         bytes memory data
+/*LN-37*/     ) external;
+/*LN-38*/ 
+/*LN-39*/     function claimReward(address pair, uint256[] calldata ids) external;
+/*LN-40*/ }
+/*LN-41*/ 
+/*LN-42*/ contract SmartLoansFactory {
+/*LN-43*/     address public admin;
+/*LN-44*/ 
+/*LN-45*/     constructor() {
+/*LN-46*/         admin = msg.sender;
+/*LN-47*/     }
+/*LN-48*/ 
+/*LN-49*/     function createLoan() external returns (address) {
+/*LN-50*/         SmartLoan loan = new SmartLoan();
+/*LN-51*/         return address(loan);
 /*LN-52*/     }
 /*LN-53*/ 
-/*LN-54*/     function transfer(
-/*LN-55*/         address to,
-/*LN-56*/         uint256 amount
-/*LN-57*/     ) external override returns (bool) {
-/*LN-58*/         require(balanceOf[msg.sender] >= amount, "Insufficient balance");
-/*LN-59*/         balanceOf[msg.sender] -= amount;
-/*LN-60*/         balanceOf[to] += amount;
-/*LN-61*/         return true;
-/*LN-62*/     }
-/*LN-63*/ 
-/*LN-64*/     function transferFrom(
-/*LN-65*/         address from,
-/*LN-66*/         address to,
-/*LN-67*/         uint256 amount
-/*LN-68*/     ) external override returns (bool) {
-/*LN-69*/         require(balanceOf[from] >= amount, "Insufficient balance");
-/*LN-70*/         require(
-/*LN-71*/             allowance[from][msg.sender] >= amount,
-/*LN-72*/             "Insufficient allowance"
-/*LN-73*/         );
-/*LN-74*/         balanceOf[from] -= amount;
-/*LN-75*/         balanceOf[to] += amount;
-/*LN-76*/         allowance[from][msg.sender] -= amount;
-/*LN-77*/         return true;
-/*LN-78*/     }
+/*LN-54*/     /**
+/*LN-55*/      * @notice Upgrade a pool contract
+/*LN-56*/      * @dev VULNERABILITY: Private key for this function was compromised
+/*LN-57*/      */
+/*LN-58*/     function upgradePool(
+/*LN-59*/         address poolProxy,
+/*LN-60*/         address newImplementation
+/*LN-61*/     ) external {
+/*LN-62*/         // VULNERABILITY 1: Single private key controls upgrades
+/*LN-63*/         // No multi-sig requirement
+/*LN-64*/         // No timelock delay
+/*LN-65*/         require(msg.sender == admin, "Not admin");
+/*LN-66*/ 
+/*LN-67*/         // VULNERABILITY 2: Can upgrade to arbitrary malicious implementation
+/*LN-68*/         // No validation of new implementation code
+/*LN-69*/         // Attacker uploaded malicious implementation
+/*LN-70*/ 
+/*LN-71*/         // Upgrade the proxy to point to new implementation
+/*LN-72*/         // (Simplified - actual upgrade uses proxy pattern)
+/*LN-73*/     }
+/*LN-74*/ }
+/*LN-75*/ 
+/*LN-76*/ contract SmartLoan is ISmartLoan {
+/*LN-77*/     mapping(bytes32 => uint256) public deposits;
+/*LN-78*/     mapping(bytes32 => uint256) public debts;
 /*LN-79*/ 
-/*LN-80*/     function approve(
-/*LN-81*/         address spender,
-/*LN-82*/         uint256 amount
-/*LN-83*/     ) external override returns (bool) {
-/*LN-84*/         allowance[msg.sender][spender] = amount;
-/*LN-85*/         return true;
-/*LN-86*/     }
-/*LN-87*/ }
-/*LN-88*/ 
-/*LN-89*/ contract ShezmuVault {
-/*LN-90*/     IERC20 public collateralToken;
-/*LN-91*/     IERC20 public shezUSD;
-/*LN-92*/ 
-/*LN-93*/     mapping(address => uint256) public collateralBalance;
-/*LN-94*/     mapping(address => uint256) public debtBalance;
-/*LN-95*/ 
-/*LN-96*/     uint256 public constant COLLATERAL_RATIO = 150;
-/*LN-97*/     uint256 public constant BASIS_POINTS = 100;
-/*LN-98*/ 
-/*LN-99*/     constructor(address _collateralToken, address _shezUSD) {
-/*LN-100*/         collateralToken = IERC20(_collateralToken);
-/*LN-101*/         shezUSD = IERC20(_shezUSD);
-/*LN-102*/     }
-/*LN-103*/ 
-/*LN-104*/     /**
-/*LN-105*/      * @notice Add collateral to vault
-/*LN-106*/      */
-/*LN-107*/     function addCollateral(uint256 amount) external {
-/*LN-108*/         collateralToken.transferFrom(msg.sender, address(this), amount);
-/*LN-109*/         collateralBalance[msg.sender] += amount;
-/*LN-110*/     }
-/*LN-111*/ 
-/*LN-112*/     /**
-/*LN-113*/      * @notice Borrow ShezUSD against collateral
-/*LN-114*/      * @dev VULNERABLE: Allows borrowing if collateral exists, even if minted without authorization
-/*LN-115*/      */
-/*LN-116*/     function borrow(uint256 amount) external {
-/*LN-117*/         // VULNERABILITY 3: Accepts any collateral, including illegitimately minted tokens
-/*LN-118*/         // No way to validate if collateral was minted through proper channels
-/*LN-119*/ 
-/*LN-120*/         uint256 maxBorrow = (collateralBalance[msg.sender] * BASIS_POINTS) /
-/*LN-121*/             COLLATERAL_RATIO;
-/*LN-122*/ 
-/*LN-123*/         require(
-/*LN-124*/             debtBalance[msg.sender] + amount <= maxBorrow,
-/*LN-125*/             "Insufficient collateral"
-/*LN-126*/         );
-/*LN-127*/ 
-/*LN-128*/         debtBalance[msg.sender] += amount;
-/*LN-129*/ 
-/*LN-130*/         // VULNERABILITY 4: Drains real ShezUSD from vault
-/*LN-131*/         // Attacker gets real value using fake collateral
-/*LN-132*/         shezUSD.transfer(msg.sender, amount);
-/*LN-133*/     }
-/*LN-134*/ 
-/*LN-135*/     function repay(uint256 amount) external {
-/*LN-136*/         require(debtBalance[msg.sender] >= amount, "Excessive repayment");
-/*LN-137*/         shezUSD.transferFrom(msg.sender, address(this), amount);
-/*LN-138*/         debtBalance[msg.sender] -= amount;
-/*LN-139*/     }
-/*LN-140*/ 
-/*LN-141*/     function withdrawCollateral(uint256 amount) external {
-/*LN-142*/         require(
-/*LN-143*/             collateralBalance[msg.sender] >= amount,
-/*LN-144*/             "Insufficient collateral"
-/*LN-145*/         );
-/*LN-146*/         uint256 remainingCollateral = collateralBalance[msg.sender] - amount;
-/*LN-147*/         uint256 maxDebt = (remainingCollateral * BASIS_POINTS) /
-/*LN-148*/             COLLATERAL_RATIO;
-/*LN-149*/         require(
-/*LN-150*/             debtBalance[msg.sender] <= maxDebt,
-/*LN-151*/             "Would be undercollateralized"
-/*LN-152*/         );
-/*LN-153*/ 
-/*LN-154*/         collateralBalance[msg.sender] -= amount;
-/*LN-155*/         collateralToken.transfer(msg.sender, amount);
-/*LN-156*/     }
-/*LN-157*/ }
-/*LN-158*/ 
-/*LN-159*/ /**
-/*LN-160*/  * EXPLOIT SCENARIO:
-/*LN-161*/  *
-/*LN-162*/  * 1. Attacker discovers mint() function has no access control:
-/*LN-163*/  *    - Anyone can call ShezmuCollateralToken.mint()
-/*LN-164*/  *    - No owner check, no role requirement
-/*LN-165*/  *    - Can mint unlimited amounts
-/*LN-166*/  *
-/*LN-167*/  * 2. Attacker mints maximum collateral tokens:
-/*LN-168*/  *    - Calls mint(attackerAddress, type(uint128).max - 1)
-/*LN-169*/  *    - Receives ~1.7e38 collateral tokens
-/*LN-170*/  *    - Cost: Only gas fees
-/*LN-171*/  *
-/*LN-172*/  * 3. Approve vault to use collateral:
-/*LN-173*/  *    - Approve ShezmuVault to spend collateral tokens
-/*LN-174*/  *
-/*LN-175*/  * 4. Deposit minted collateral into vault:
-/*LN-176*/  *    - Call addCollateral(type(uint128).max - 1)
-/*LN-177*/  *    - Vault accepts the illegitimately minted collateral
-/*LN-178*/  *    - No validation of token origin
-/*LN-179*/  *
-/*LN-180*/  * 5. Borrow maximum ShezUSD:
-/*LN-181*/  *    - Calculate max borrow based on collateral ratio (150%)
-/*LN-182*/  *    - Borrow ~$4.9M worth of ShezUSD
-/*LN-183*/  *    - Vault transfers real ShezUSD tokens
-/*LN-184*/  *
-/*LN-185*/  * 6. Extract profits:
-/*LN-186*/  *    - Transfer borrowed ShezUSD to attacker wallet
-/*LN-187*/  *    - Abandon collateral position (worthless fake tokens)
-/*LN-188*/  *    - Convert ShezUSD to other assets
-/*LN-189*/  *
-/*LN-190*/  * Root Causes:
-/*LN-191*/  * - Missing access control on mint() function
-/*LN-192*/  * - No owner/admin role check
-/*LN-193*/  * - No minting permissions system
-/*LN-194*/  * - Vault accepts any token as collateral without validation
-/*LN-195*/  * - No way to distinguish legitimately minted vs fake collateral
-/*LN-196*/  * - Missing pause functionality
-/*LN-197*/  *
-/*LN-198*/  * Fix:
-/*LN-199*/  * - Add access control to mint():
-/*LN-200*/  *   ```solidity
-/*LN-201*/  *   modifier onlyOwner() {
-/*LN-202*/  *       require(msg.sender == owner, "Not authorized");
-/*LN-203*/  *       _;
-/*LN-204*/  *   }
-/*LN-205*/  *   function mint(address to, uint256 amount) external onlyOwner {
-/*LN-206*/  *   ```
-/*LN-207*/  * - Implement role-based access control (OpenZeppelin AccessControl)
-/*LN-208*/  * - Add minting limits and rate limiting
-/*LN-209*/  * - Implement supply caps
-/*LN-210*/  * - Add circuit breakers for unusual minting activity
-/*LN-211*/  * - Require multi-sig for minting operations
-/*LN-212*/  * - Monitor for large mints and pause if detected
-/*LN-213*/  */
-/*LN-214*/ 
+/*LN-80*/     /**
+/*LN-81*/      * @notice Swap debt between assets via ParaSwap
+/*LN-82*/      * @dev VULNERABLE: Can be exploited after malicious upgrade
+/*LN-83*/      */
+/*LN-84*/     function swapDebtParaSwap(
+/*LN-85*/         bytes32 _fromAsset,
+/*LN-86*/         bytes32 _toAsset,
+/*LN-87*/         uint256 _repayAmount,
+/*LN-88*/         uint256 _borrowAmount,
+/*LN-89*/         bytes4 selector,
+/*LN-90*/         bytes memory data
+/*LN-91*/     ) external override {
+/*LN-92*/         // VULNERABILITY 3: After malicious upgrade, this function can be manipulated
+/*LN-93*/         // Attacker's upgraded version allows arbitrary external calls
+/*LN-94*/         // Simplified swap logic
+/*LN-95*/         // In exploit: made calls to malicious contracts
+/*LN-96*/     }
+/*LN-97*/ 
+/*LN-98*/     /**
+/*LN-99*/      * @notice Claim rewards from staking pairs
+/*LN-100*/      * @dev VULNERABILITY 4: Accepts user-controlled pair address
+/*LN-101*/      */
+/*LN-102*/     function claimReward(
+/*LN-103*/         address pair,
+/*LN-104*/         uint256[] calldata ids
+/*LN-105*/     ) external override {
+/*LN-106*/         // VULNERABILITY 5: No validation of pair contract address
+/*LN-107*/         // Attacker can provide malicious fake pair contract
+/*LN-108*/ 
+/*LN-109*/         // VULNERABILITY 6: Arbitrary external call to user-provided address
+/*LN-110*/         // Call to pair contract to claim rewards
+/*LN-111*/         (bool success, ) = pair.call(
+/*LN-112*/             abi.encodeWithSignature("claimRewards(address)", msg.sender)
+/*LN-113*/         );
+/*LN-114*/ 
+/*LN-115*/         // Malicious pair contract can manipulate balances and drain funds
+/*LN-116*/     }
+/*LN-117*/ }
+/*LN-118*/ 
+/*LN-119*/ /**
+/*LN-120*/  * EXPLOIT SCENARIO:
+/*LN-121*/  *
+/*LN-122*/  * 1. Attacker compromises admin private key:
+/*LN-123*/  *    - Through phishing, malware, or other means
+/*LN-124*/  *    - Gains control of upgrade functionality
+/*LN-125*/  *    - Can now upgrade any pool contract
+/*LN-126*/  *
+/*LN-127*/  * 2. Attacker prepares malicious implementation:
+/*LN-128*/  *    - Creates contract with backdoor functions
+/*LN-129*/  *    - Includes functions to manipulate balances
+/*LN-130*/  *    - Allows calling arbitrary external addresses
+/*LN-131*/  *
+/*LN-132*/  * 3. Attacker upgrades pool contract:
+/*LN-133*/  *    - Uses compromised key to call upgradePool()
+/*LN-134*/  *    - Points proxy to malicious implementation
+/*LN-135*/  *    - No timelock delay allows immediate execution
+/*LN-136*/  *
+/*LN-137*/  * 4. Attacker creates smart loan position:
+/*LN-138*/  *    - Calls createLoan() to get loan contract
+/*LN-139*/  *    - Contract now uses malicious upgraded code
+/*LN-140*/  *
+/*LN-141*/  * 5. Attacker obtains massive flashloan:
+/*LN-142*/  *    - Borrows all available WETH from Balancer
+/*LN-143*/  *    - Amount: Protocol's entire liquidity
+/*LN-144*/  *
+/*LN-145*/  * 6. Attacker wraps ETH and manipulates position:
+/*LN-146*/  *    - Deposits flashloaned WETH
+/*LN-147*/  *    - Uses malicious swapDebtParaSwap() to manipulate balances
+/*LN-148*/  *
+/*LN-149*/  * 7. Attacker calls claimReward with fake pair:
+/*LN-150*/  *    - Creates malicious pair contract
+/*LN-151*/  *    - Pair contract's claimRewards() manipulates loan state
+/*LN-152*/  *    - Inflates attacker's balance artificially
+/*LN-153*/  *
+/*LN-154*/  * 8. Attacker withdraws inflated balance:
+/*LN-155*/  *    - Extracts $4.75M in real WETH
+/*LN-156*/  *    - Repays flashloan
+/*LN-157*/  *    - Keeps profit
+/*LN-158*/  *
+/*LN-159*/  * Root Causes:
+/*LN-160*/  * - Private key compromise (single point of failure)
+/*LN-161*/  * - No multi-sig requirement for upgrades
+/*LN-162*/  * - Missing timelock on upgrade function
+/*LN-163*/  * - Lack of upgrade safeguards and validation
+/*LN-164*/  * - No monitoring of upgrade transactions
+/*LN-165*/  * - User-controlled addresses in claimReward()
+/*LN-166*/  * - Arbitrary external calls without validation
+/*LN-167*/  * - Insufficient access control on sensitive functions
+/*LN-168*/  *
+/*LN-169*/  * Fix:
+/*LN-170*/  * - Implement multi-sig for all admin functions
+/*LN-171*/  * - Add timelock delay (24-48 hours) for upgrades
+/*LN-172*/  * - Use hardware security modules (HSMs) for keys
+/*LN-173*/  * - Implement upgrade validation and review process
+/*LN-174*/  * - Whitelist allowed pair contract addresses
+/*LN-175*/  * - Add circuit breakers for unusual transactions
+/*LN-176*/  * - Monitor for upgrade transactions and pause if detected
+/*LN-177*/  * - Implement two-step upgrade with verification period
+/*LN-178*/  * - Use decentralized governance for upgrades
+/*LN-179*/  * - Regular security audits and key rotation
+/*LN-180*/  */
+/*LN-181*/ 

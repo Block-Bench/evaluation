@@ -2,60 +2,75 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * ANYSWAP EXPLOIT (January 2022)
-/*LN-6*/  * Attack: Permit Signature Bypass
-/*LN-7*/  * Loss: $8 million
+/*LN-5*/  * BELT FINANCE EXPLOIT (May 2021)
+/*LN-6*/  * Attack: Strategy Vault Price Manipulation  
+/*LN-7*/  * Loss: $6.2 million
 /*LN-8*/  * 
-/*LN-9*/  * Anyswap's anySwapOutUnderlyingWithPermit() function had incomplete
-/*LN-10*/  * validation of permit signatures, allowing arbitrary token transfers.
+/*LN-9*/  * Belt Finance vault strategies relied on manipulatable price oracles
+/*LN-10*/  * for calculating share values during deposits/withdrawals.
 /*LN-11*/  */
 /*LN-12*/ 
-/*LN-13*/ interface IERC20Permit {
-/*LN-14*/     function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external;
-/*LN-15*/ }
-/*LN-16*/ 
-/*LN-17*/ contract AnyswapRouter {
-/*LN-18*/     
-/*LN-19*/     function anySwapOutUnderlyingWithPermit(
-/*LN-20*/         address from,
-/*LN-21*/         address token,
-/*LN-22*/         address to,
-/*LN-23*/         uint256 amount,
-/*LN-24*/         uint256 deadline,
-/*LN-25*/         uint8 v,
-/*LN-26*/         bytes32 r,
-/*LN-27*/         bytes32 s,
-/*LN-28*/         uint256 toChainID
-/*LN-29*/     ) external {
-/*LN-30*/         
-/*LN-31*/         // VULNERABLE: Permit validation incomplete or missing
-/*LN-32*/         // Should validate signature matches 'from' address
-/*LN-33*/         // Attacker can pass invalid v,r,s and still succeed
-/*LN-34*/         
-/*LN-35*/         if (v != 0 || r != bytes32(0) || s != bytes32(0)) {
-/*LN-36*/             // Attempt permit but don't check if it succeeds
-/*LN-37*/             try IERC20Permit(token).permit(from, address(this), amount, deadline, v, r, s) {} catch {}
-/*LN-38*/         }
-/*LN-39*/         
-/*LN-40*/         // VULNERABILITY: Proceeds even if permit failed!
-/*LN-41*/         // Transfers token without proper authorization
-/*LN-42*/         _anySwapOut(from, token, to, amount, toChainID);
-/*LN-43*/     }
-/*LN-44*/     
-/*LN-45*/     function _anySwapOut(address from, address token, address to, uint256 amount, uint256 toChainID) internal {
-/*LN-46*/         // Bridge logic - burns or locks tokens
-/*LN-47*/         // Since permit wasn't validated, attacker can drain tokens
-/*LN-48*/     }
-/*LN-49*/ }
-/*LN-50*/ 
-/*LN-51*/ /**
-/*LN-52*/  * EXPLOIT:
-/*LN-53*/  * 1. Call anySwapOutUnderlyingWithPermit with victim's token address
-/*LN-54*/  * 2. Pass invalid v,r,s signature (e.g., all zeros)  
-/*LN-55*/  * 3. Permit fails but function continues
-/*LN-56*/  * 4. Tokens transferred/bridged anyway
-/*LN-57*/  * 5. Repeat to drain $8M
-/*LN-58*/  * 
-/*LN-59*/  * Fix: Require valid permit or existing approval, don't proceed on failure
-/*LN-60*/  */
-/*LN-61*/ 
+/*LN-13*/ interface IERC20 {
+/*LN-14*/     function balanceOf(address account) external view returns (uint256);
+/*LN-15*/     function transfer(address to, uint256 amount) external returns (bool);
+/*LN-16*/ }
+/*LN-17*/ 
+/*LN-18*/ interface IPriceOracle {
+/*LN-19*/     function getPrice(address token) external view returns (uint256);
+/*LN-20*/ }
+/*LN-21*/ 
+/*LN-22*/ contract BeltStrategy {
+/*LN-23*/     address public wantToken;
+/*LN-24*/     address public oracle;
+/*LN-25*/     uint256 public totalShares;
+/*LN-26*/     
+/*LN-27*/     mapping(address => uint256) public shares;
+/*LN-28*/     
+/*LN-29*/     constructor(address _want, address _oracle) {
+/*LN-30*/         wantToken = _want;
+/*LN-31*/         oracle = _oracle;
+/*LN-32*/     }
+/*LN-33*/     
+/*LN-34*/     function deposit(uint256 amount) external returns (uint256 sharesAdded) {
+/*LN-35*/         uint256 pool = IERC20(wantToken).balanceOf(address(this));
+/*LN-36*/         
+/*LN-37*/         if (totalShares == 0) {
+/*LN-38*/             sharesAdded = amount;
+/*LN-39*/         } else {
+/*LN-40*/             // VULNERABLE: Price from oracle can be manipulated
+/*LN-41*/             uint256 price = IPriceOracle(oracle).getPrice(wantToken);
+/*LN-42*/             sharesAdded = (amount * totalShares * 1e18) / (pool * price);
+/*LN-43*/         }
+/*LN-44*/         
+/*LN-45*/         shares[msg.sender] += sharesAdded;
+/*LN-46*/         totalShares += sharesAdded;
+/*LN-47*/         
+/*LN-48*/         IERC20(wantToken).transferFrom(msg.sender, address(this), amount);
+/*LN-49*/         return sharesAdded;
+/*LN-50*/     }
+/*LN-51*/     
+/*LN-52*/     function withdraw(uint256 sharesAmount) external {
+/*LN-53*/         uint256 pool = IERC20(wantToken).balanceOf(address(this));
+/*LN-54*/         
+/*LN-55*/         // VULNERABLE: Uses manipulated price
+/*LN-56*/         uint256 price = IPriceOracle(oracle).getPrice(wantToken);
+/*LN-57*/         uint256 amount = (sharesAmount * pool * price) / (totalShares * 1e18);
+/*LN-58*/         
+/*LN-59*/         shares[msg.sender] -= sharesAmount;
+/*LN-60*/         totalShares -= sharesAmount;
+/*LN-61*/         
+/*LN-62*/         IERC20(wantToken).transfer(msg.sender, amount);
+/*LN-63*/     }
+/*LN-64*/ }
+/*LN-65*/ 
+/*LN-66*/ /**
+/*LN-67*/  * EXPLOIT:
+/*LN-68*/  * 1. Flash loan to manipulate oracle price down
+/*LN-69*/  * 2. Deposit when price is low (get more shares)
+/*LN-70*/  * 3. Manipulate price back up
+/*LN-71*/  * 4. Withdraw with inflated share value  
+/*LN-72*/  * 5. Profit $6.2M from price manipulation
+/*LN-73*/  * 
+/*LN-74*/  * Fix: Use TWAP oracles, manipulation-resistant pricing
+/*LN-75*/  */
+/*LN-76*/ 

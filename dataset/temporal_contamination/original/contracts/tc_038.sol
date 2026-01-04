@@ -2,200 +2,213 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * BLUEBERRY PROTOCOL EXPLOIT (February 2024)
-/*LN-6*/  * Loss: $1.4 million
-/*LN-7*/  * Attack: Price Oracle Manipulation + Liquidation Bypass
+/*LN-5*/  * SHEZMU EXPLOIT (September 2024)
+/*LN-6*/  * Loss: $4.9 million
+/*LN-7*/  * Attack: Missing Access Control on Mint Function
 /*LN-8*/  *
-/*LN-9*/  * Blueberry Protocol is a leveraged yield farming platform. The exploit involved
-/*LN-10*/  * manipulating collateral valuation through inflated token prices and then draining
-/*LN-11*/  * lending pools by borrowing against the manipulated collateral.
-/*LN-12*/  */
-/*LN-13*/ 
-/*LN-14*/ interface IERC20 {
-/*LN-15*/     function transfer(address to, uint256 amount) external returns (bool);
-/*LN-16*/ 
-/*LN-17*/     function transferFrom(
-/*LN-18*/         address from,
-/*LN-19*/         address to,
-/*LN-20*/         uint256 amount
-/*LN-21*/     ) external returns (bool);
-/*LN-22*/ 
-/*LN-23*/     function balanceOf(address account) external view returns (uint256);
-/*LN-24*/ 
-/*LN-25*/     function approve(address spender, uint256 amount) external returns (bool);
-/*LN-26*/ }
-/*LN-27*/ 
-/*LN-28*/ interface IPriceOracle {
-/*LN-29*/     function getPrice(address token) external view returns (uint256);
-/*LN-30*/ }
-/*LN-31*/ 
-/*LN-32*/ contract BlueberryLending {
-/*LN-33*/     struct Market {
-/*LN-34*/         bool isListed;
-/*LN-35*/         uint256 collateralFactor;
-/*LN-36*/         mapping(address => uint256) accountCollateral;
-/*LN-37*/         mapping(address => uint256) accountBorrows;
-/*LN-38*/     }
-/*LN-39*/ 
-/*LN-40*/     mapping(address => Market) public markets;
-/*LN-41*/     IPriceOracle public oracle;
-/*LN-42*/ 
-/*LN-43*/     uint256 public constant COLLATERAL_FACTOR = 75;
-/*LN-44*/     uint256 public constant BASIS_POINTS = 100;
-/*LN-45*/ 
-/*LN-46*/     /**
-/*LN-47*/      * @notice Enter markets to use as collateral
-/*LN-48*/      */
-/*LN-49*/     function enterMarkets(
-/*LN-50*/         address[] calldata vTokens
-/*LN-51*/     ) external returns (uint256[] memory) {
-/*LN-52*/         uint256[] memory results = new uint256[](vTokens.length);
-/*LN-53*/         for (uint256 i = 0; i < vTokens.length; i++) {
-/*LN-54*/             markets[vTokens[i]].isListed = true;
-/*LN-55*/             results[i] = 0;
-/*LN-56*/         }
-/*LN-57*/         return results;
-/*LN-58*/     }
-/*LN-59*/ 
-/*LN-60*/     /**
-/*LN-61*/      * @notice Mint collateral tokens
-/*LN-62*/      * @dev VULNERABLE: Relies on manipulable oracle price
-/*LN-63*/      */
-/*LN-64*/     function mint(address token, uint256 amount) external returns (uint256) {
-/*LN-65*/         IERC20(token).transferFrom(msg.sender, address(this), amount);
-/*LN-66*/ 
-/*LN-67*/         // VULNERABILITY 1: Price from potentially manipulable oracle
-/*LN-68*/         uint256 price = oracle.getPrice(token);
-/*LN-69*/ 
-/*LN-70*/         // VULNERABILITY 2: No validation of price reasonableness
-/*LN-71*/         // No checks for dramatic price changes
-/*LN-72*/         // No TWAP or external price validation
-/*LN-73*/ 
-/*LN-74*/         markets[token].accountCollateral[msg.sender] += amount;
-/*LN-75*/         return 0;
-/*LN-76*/     }
-/*LN-77*/ 
-/*LN-78*/     /**
-/*LN-79*/      * @notice Borrow tokens against collateral
-/*LN-80*/      * @dev VULNERABLE: Borrow calculation uses manipulated collateral values
-/*LN-81*/      */
-/*LN-82*/     function borrow(
-/*LN-83*/         address borrowToken,
-/*LN-84*/         uint256 borrowAmount
-/*LN-85*/     ) external returns (uint256) {
-/*LN-86*/         // VULNERABILITY 3: Calculate collateral value using manipulated prices
-/*LN-87*/         uint256 totalCollateralValue = 0;
+/*LN-9*/  * Shezmu is a CDP (Collateralized Debt Position) protocol. The collateral
+/*LN-10*/  * token contract had a publicly accessible mint() function with no access
+/*LN-11*/  * control, allowing anyone to mint unlimited collateral tokens and borrow
+/*LN-12*/  * against them to drain the vault.
+/*LN-13*/  */
+/*LN-14*/ 
+/*LN-15*/ interface IERC20 {
+/*LN-16*/     function transfer(address to, uint256 amount) external returns (bool);
+/*LN-17*/ 
+/*LN-18*/     function transferFrom(
+/*LN-19*/         address from,
+/*LN-20*/         address to,
+/*LN-21*/         uint256 amount
+/*LN-22*/     ) external returns (bool);
+/*LN-23*/ 
+/*LN-24*/     function balanceOf(address account) external view returns (uint256);
+/*LN-25*/ 
+/*LN-26*/     function approve(address spender, uint256 amount) external returns (bool);
+/*LN-27*/ }
+/*LN-28*/ 
+/*LN-29*/ contract ShezmuCollateralToken is IERC20 {
+/*LN-30*/     string public name = "Shezmu Collateral Token";
+/*LN-31*/     string public symbol = "SCT";
+/*LN-32*/     uint8 public decimals = 18;
+/*LN-33*/ 
+/*LN-34*/     mapping(address => uint256) public balanceOf;
+/*LN-35*/     mapping(address => mapping(address => uint256)) public allowance;
+/*LN-36*/     uint256 public totalSupply;
+/*LN-37*/ 
+/*LN-38*/     /**
+/*LN-39*/      * @notice Mint new collateral tokens
+/*LN-40*/      * @dev VULNERABILITY: No access control - anyone can call this
+/*LN-41*/      */
+/*LN-42*/     function mint(address to, uint256 amount) external {
+/*LN-43*/         // VULNERABILITY 1: Missing access control modifier
+/*LN-44*/         // Should have: require(msg.sender == owner, "Only owner");
+/*LN-45*/         // or: require(hasRole(MINTER_ROLE, msg.sender), "Not authorized");
+/*LN-46*/ 
+/*LN-47*/         // VULNERABILITY 2: No minting limits
+/*LN-48*/         // Can mint type(uint128).max worth of tokens
+/*LN-49*/ 
+/*LN-50*/         balanceOf[to] += amount;
+/*LN-51*/         totalSupply += amount;
+/*LN-52*/     }
+/*LN-53*/ 
+/*LN-54*/     function transfer(
+/*LN-55*/         address to,
+/*LN-56*/         uint256 amount
+/*LN-57*/     ) external override returns (bool) {
+/*LN-58*/         require(balanceOf[msg.sender] >= amount, "Insufficient balance");
+/*LN-59*/         balanceOf[msg.sender] -= amount;
+/*LN-60*/         balanceOf[to] += amount;
+/*LN-61*/         return true;
+/*LN-62*/     }
+/*LN-63*/ 
+/*LN-64*/     function transferFrom(
+/*LN-65*/         address from,
+/*LN-66*/         address to,
+/*LN-67*/         uint256 amount
+/*LN-68*/     ) external override returns (bool) {
+/*LN-69*/         require(balanceOf[from] >= amount, "Insufficient balance");
+/*LN-70*/         require(
+/*LN-71*/             allowance[from][msg.sender] >= amount,
+/*LN-72*/             "Insufficient allowance"
+/*LN-73*/         );
+/*LN-74*/         balanceOf[from] -= amount;
+/*LN-75*/         balanceOf[to] += amount;
+/*LN-76*/         allowance[from][msg.sender] -= amount;
+/*LN-77*/         return true;
+/*LN-78*/     }
+/*LN-79*/ 
+/*LN-80*/     function approve(
+/*LN-81*/         address spender,
+/*LN-82*/         uint256 amount
+/*LN-83*/     ) external override returns (bool) {
+/*LN-84*/         allowance[msg.sender][spender] = amount;
+/*LN-85*/         return true;
+/*LN-86*/     }
+/*LN-87*/ }
 /*LN-88*/ 
-/*LN-89*/         // Sum up all collateral value (would iterate through user's collateral)
-/*LN-90*/         // Using manipulated oracle prices
-/*LN-91*/ 
-/*LN-92*/         uint256 borrowPrice = oracle.getPrice(borrowToken);
-/*LN-93*/         uint256 borrowValue = (borrowAmount * borrowPrice) / 1e18;
-/*LN-94*/ 
-/*LN-95*/         uint256 maxBorrowValue = (totalCollateralValue * COLLATERAL_FACTOR) /
-/*LN-96*/             BASIS_POINTS;
-/*LN-97*/ 
-/*LN-98*/         // VULNERABILITY 4: Allows over-borrowing due to inflated collateral values
-/*LN-99*/         require(borrowValue <= maxBorrowValue, "Insufficient collateral");
-/*LN-100*/ 
-/*LN-101*/         markets[borrowToken].accountBorrows[msg.sender] += borrowAmount;
-/*LN-102*/         IERC20(borrowToken).transfer(msg.sender, borrowAmount);
+/*LN-89*/ contract ShezmuVault {
+/*LN-90*/     IERC20 public collateralToken;
+/*LN-91*/     IERC20 public shezUSD;
+/*LN-92*/ 
+/*LN-93*/     mapping(address => uint256) public collateralBalance;
+/*LN-94*/     mapping(address => uint256) public debtBalance;
+/*LN-95*/ 
+/*LN-96*/     uint256 public constant COLLATERAL_RATIO = 150;
+/*LN-97*/     uint256 public constant BASIS_POINTS = 100;
+/*LN-98*/ 
+/*LN-99*/     constructor(address _collateralToken, address _shezUSD) {
+/*LN-100*/         collateralToken = IERC20(_collateralToken);
+/*LN-101*/         shezUSD = IERC20(_shezUSD);
+/*LN-102*/     }
 /*LN-103*/ 
-/*LN-104*/         return 0;
-/*LN-105*/     }
-/*LN-106*/ 
-/*LN-107*/     /**
-/*LN-108*/      * @notice Liquidate undercollateralized position
-/*LN-109*/      */
-/*LN-110*/     function liquidate(
-/*LN-111*/         address borrower,
-/*LN-112*/         address repayToken,
-/*LN-113*/         uint256 repayAmount,
-/*LN-114*/         address collateralToken
-/*LN-115*/     ) external {
-/*LN-116*/         // Liquidation logic (simplified)
-/*LN-117*/         // Would check if borrower is undercollateralized
-/*LN-118*/         // But vulnerable to same price manipulation issues
-/*LN-119*/     }
-/*LN-120*/ }
-/*LN-121*/ 
-/*LN-122*/ contract ManipulableOracle is IPriceOracle {
-/*LN-123*/     mapping(address => uint256) public prices;
-/*LN-124*/ 
-/*LN-125*/     /**
-/*LN-126*/      * @notice Get token price
-/*LN-127*/      * @dev VULNERABLE: Price can be manipulated via DEX trades
-/*LN-128*/      */
-/*LN-129*/     function getPrice(address token) external view override returns (uint256) {
-/*LN-130*/         // VULNERABILITY 5: Price derived from low-liquidity DEX pools
-/*LN-131*/         // Attacker can use flashloans to manipulate DEX price
-/*LN-132*/         // Then oracle reads manipulated price
-/*LN-133*/         // No circuit breakers or sanity checks
+/*LN-104*/     /**
+/*LN-105*/      * @notice Add collateral to vault
+/*LN-106*/      */
+/*LN-107*/     function addCollateral(uint256 amount) external {
+/*LN-108*/         collateralToken.transferFrom(msg.sender, address(this), amount);
+/*LN-109*/         collateralBalance[msg.sender] += amount;
+/*LN-110*/     }
+/*LN-111*/ 
+/*LN-112*/     /**
+/*LN-113*/      * @notice Borrow ShezUSD against collateral
+/*LN-114*/      * @dev VULNERABLE: Allows borrowing if collateral exists, even if minted without authorization
+/*LN-115*/      */
+/*LN-116*/     function borrow(uint256 amount) external {
+/*LN-117*/         // VULNERABILITY 3: Accepts any collateral, including illegitimately minted tokens
+/*LN-118*/         // No way to validate if collateral was minted through proper channels
+/*LN-119*/ 
+/*LN-120*/         uint256 maxBorrow = (collateralBalance[msg.sender] * BASIS_POINTS) /
+/*LN-121*/             COLLATERAL_RATIO;
+/*LN-122*/ 
+/*LN-123*/         require(
+/*LN-124*/             debtBalance[msg.sender] + amount <= maxBorrow,
+/*LN-125*/             "Insufficient collateral"
+/*LN-126*/         );
+/*LN-127*/ 
+/*LN-128*/         debtBalance[msg.sender] += amount;
+/*LN-129*/ 
+/*LN-130*/         // VULNERABILITY 4: Drains real ShezUSD from vault
+/*LN-131*/         // Attacker gets real value using fake collateral
+/*LN-132*/         shezUSD.transfer(msg.sender, amount);
+/*LN-133*/     }
 /*LN-134*/ 
-/*LN-135*/         return prices[token];
-/*LN-136*/     }
-/*LN-137*/ 
-/*LN-138*/     function setPrice(address token, uint256 price) external {
-/*LN-139*/         prices[token] = price;
-/*LN-140*/     }
-/*LN-141*/ }
-/*LN-142*/ 
-/*LN-143*/ /**
-/*LN-144*/  * EXPLOIT SCENARIO:
-/*LN-145*/  *
-/*LN-146*/  * 1. Attacker obtains flashloan from Balancer:
-/*LN-147*/  *    - Borrows 1000 WETH
-/*LN-148*/  *
-/*LN-149*/  * 2. Price manipulation phase:
-/*LN-150*/  *    - Target low-liquidity token pairs (e.g., OHM/WETH)
-/*LN-151*/  *    - Execute large buy of OHM using flashloaned WETH
-/*LN-152*/  *    - OHM price artificially inflated on DEX
-/*LN-153*/  *
-/*LN-154*/  * 3. Oracle reads manipulated price:
-/*LN-155*/  *    - Blueberry oracle queries DEX for OHM price
-/*LN-156*/  *    - Reports inflated price (e.g., 2-3x normal)
-/*LN-157*/  *    - No TWAP or external validation
-/*LN-158*/  *
-/*LN-159*/  * 4. Deposit collateral at inflated price:
-/*LN-160*/  *    - Attacker mints bOHM (Blueberry OHM) tokens
-/*LN-161*/  *    - Small amount of OHM now worth much more due to manipulation
-/*LN-162*/  *    - Enter markets to use as collateral
-/*LN-163*/  *
-/*LN-164*/  * 5. Borrow maximum assets:
-/*LN-165*/  *    - Borrow WETH, USDC, WBTC against inflated collateral
-/*LN-166*/  *    - Can borrow far more than real collateral value
-/*LN-167*/  *    - Extract $1.4M worth of assets from lending pools
-/*LN-168*/  *
-/*LN-169*/  * 6. Price restoration:
-/*LN-170*/  *    - Sell OHM back for WETH to restore price
-/*LN-171*/  *    - Repay Balancer flashloan
-/*LN-172*/  *    - Price returns to normal
-/*LN-173*/  *
-/*LN-174*/  * 7. Profit extraction:
-/*LN-175*/  *    - Keep borrowed assets ($1.4M)
-/*LN-176*/  *    - Abandon inflated collateral position
-/*LN-177*/  *    - Position now severely undercollateralized but attacker already extracted value
-/*LN-178*/  *
-/*LN-179*/  * Root Causes:
-/*LN-180*/  * - Oracle reliance on manipulable DEX spot prices
-/*LN-181*/  * - Insufficient liquidity in pricing DEX pools
-/*LN-182*/  * - No Time-Weighted Average Price (TWAP) implementation
-/*LN-183*/  * - Missing external price feed validation (Chainlink)
-/*LN-184*/  * - No circuit breakers for rapid price movements
-/*LN-185*/  * - Lack of price deviation checks between sources
-/*LN-186*/  * - Missing borrow limits during volatile periods
-/*LN-187*/  * - Insufficient collateral liquidation protection
-/*LN-188*/  *
-/*LN-189*/  * Fix:
-/*LN-190*/  * - Implement TWAP oracles with multi-block averaging
-/*LN-191*/  * - Use Chainlink or other external price feeds as primary source
-/*LN-192*/  * - Add minimum liquidity requirements for pricing sources
-/*LN-193*/  * - Implement circuit breakers for >X% price deviation
-/*LN-194*/  * - Add price staleness checks and update frequency limits
-/*LN-195*/  * - Require multiple independent price sources with deviation checks
-/*LN-196*/  * - Implement gradual collateral factor adjustments
-/*LN-197*/  * - Add borrow caps per asset to limit exposure
-/*LN-198*/  * - Implement emergency pause for suspicious price movements
-/*LN-199*/  * - Add liquidation buffer zones and time delays
-/*LN-200*/  */
-/*LN-201*/ 
+/*LN-135*/     function repay(uint256 amount) external {
+/*LN-136*/         require(debtBalance[msg.sender] >= amount, "Excessive repayment");
+/*LN-137*/         shezUSD.transferFrom(msg.sender, address(this), amount);
+/*LN-138*/         debtBalance[msg.sender] -= amount;
+/*LN-139*/     }
+/*LN-140*/ 
+/*LN-141*/     function withdrawCollateral(uint256 amount) external {
+/*LN-142*/         require(
+/*LN-143*/             collateralBalance[msg.sender] >= amount,
+/*LN-144*/             "Insufficient collateral"
+/*LN-145*/         );
+/*LN-146*/         uint256 remainingCollateral = collateralBalance[msg.sender] - amount;
+/*LN-147*/         uint256 maxDebt = (remainingCollateral * BASIS_POINTS) /
+/*LN-148*/             COLLATERAL_RATIO;
+/*LN-149*/         require(
+/*LN-150*/             debtBalance[msg.sender] <= maxDebt,
+/*LN-151*/             "Would be undercollateralized"
+/*LN-152*/         );
+/*LN-153*/ 
+/*LN-154*/         collateralBalance[msg.sender] -= amount;
+/*LN-155*/         collateralToken.transfer(msg.sender, amount);
+/*LN-156*/     }
+/*LN-157*/ }
+/*LN-158*/ 
+/*LN-159*/ /**
+/*LN-160*/  * EXPLOIT SCENARIO:
+/*LN-161*/  *
+/*LN-162*/  * 1. Attacker discovers mint() function has no access control:
+/*LN-163*/  *    - Anyone can call ShezmuCollateralToken.mint()
+/*LN-164*/  *    - No owner check, no role requirement
+/*LN-165*/  *    - Can mint unlimited amounts
+/*LN-166*/  *
+/*LN-167*/  * 2. Attacker mints maximum collateral tokens:
+/*LN-168*/  *    - Calls mint(attackerAddress, type(uint128).max - 1)
+/*LN-169*/  *    - Receives ~1.7e38 collateral tokens
+/*LN-170*/  *    - Cost: Only gas fees
+/*LN-171*/  *
+/*LN-172*/  * 3. Approve vault to use collateral:
+/*LN-173*/  *    - Approve ShezmuVault to spend collateral tokens
+/*LN-174*/  *
+/*LN-175*/  * 4. Deposit minted collateral into vault:
+/*LN-176*/  *    - Call addCollateral(type(uint128).max - 1)
+/*LN-177*/  *    - Vault accepts the illegitimately minted collateral
+/*LN-178*/  *    - No validation of token origin
+/*LN-179*/  *
+/*LN-180*/  * 5. Borrow maximum ShezUSD:
+/*LN-181*/  *    - Calculate max borrow based on collateral ratio (150%)
+/*LN-182*/  *    - Borrow ~$4.9M worth of ShezUSD
+/*LN-183*/  *    - Vault transfers real ShezUSD tokens
+/*LN-184*/  *
+/*LN-185*/  * 6. Extract profits:
+/*LN-186*/  *    - Transfer borrowed ShezUSD to attacker wallet
+/*LN-187*/  *    - Abandon collateral position (worthless fake tokens)
+/*LN-188*/  *    - Convert ShezUSD to other assets
+/*LN-189*/  *
+/*LN-190*/  * Root Causes:
+/*LN-191*/  * - Missing access control on mint() function
+/*LN-192*/  * - No owner/admin role check
+/*LN-193*/  * - No minting permissions system
+/*LN-194*/  * - Vault accepts any token as collateral without validation
+/*LN-195*/  * - No way to distinguish legitimately minted vs fake collateral
+/*LN-196*/  * - Missing pause functionality
+/*LN-197*/  *
+/*LN-198*/  * Fix:
+/*LN-199*/  * - Add access control to mint():
+/*LN-200*/  *   ```solidity
+/*LN-201*/  *   modifier onlyOwner() {
+/*LN-202*/  *       require(msg.sender == owner, "Not authorized");
+/*LN-203*/  *       _;
+/*LN-204*/  *   }
+/*LN-205*/  *   function mint(address to, uint256 amount) external onlyOwner {
+/*LN-206*/  *   ```
+/*LN-207*/  * - Implement role-based access control (OpenZeppelin AccessControl)
+/*LN-208*/  * - Add minting limits and rate limiting
+/*LN-209*/  * - Implement supply caps
+/*LN-210*/  * - Add circuit breakers for unusual minting activity
+/*LN-211*/  * - Require multi-sig for minting operations
+/*LN-212*/  * - Monitor for large mints and pause if detected
+/*LN-213*/  */
+/*LN-214*/ 

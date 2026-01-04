@@ -1,41 +1,41 @@
 {
-  "id": "indexed_finance_2021_10",
-  "exploit_name": "Indexed Finance Pool Manipulation",
-  "date": "2021-10-14",
+  "id": "dodo_reinit_2021_03",
+  "exploit_name": "DODO Reinitialization",
+  "date": "2021-03-09",
   "blockchain": "ethereum",
-  "amount_lost_usd": "16000000",
-  "vulnerability_type": "pool_manipulation",
-  "difficulty": 4,
+  "amount_lost_usd": "3800000",
+  "vulnerability_type": "reinitialization",
+  "difficulty": 3,
   "tags": [
-    "flash_loan",
-    "pool_manipulation",
-    "weight_manipulation",
+    "initialization",
+    "access_control",
+    "dodo",
     "defi",
-    "index_funds",
-    "oracle_free_pricing"
+    "amm",
+    "maintainer_hijack"
   ],
-  "description": "Attacker exploited Indexed Finance's pool weight recalculation mechanism. By using flash loans to massively drain liquidity of a single token, the attacker caused the pool's internal weight calculation to become extremely skewed. The vulnerability was that token weights were updated based on instantaneous balances after each swap, rather than using time-weighted averages or external oracles.",
-  "attack_scenario": "1) Flash loan large amounts of SUSHI, UNI, and other index tokens. 2) Execute massive swaps to drain almost all of a target token (DEFI5) from the pool. 3) Pool's _updateWeights() function recalculates weights based on the new unbalanced state. 4) Target token now has extremely low weight (~1%), making it undervalued. 5) Buy back the drained token at manipulated low prices. 6) Repay flash loans and profit from price discrepancy. Loss: $16M.",
+  "description": "DODO's liquidity pool contract had an init() function that could be called multiple times without proper access control or initialization guard. An attacker called init() again after deployment, setting themselves as the maintainer (fee recipient) and hijacking accumulated fees. The vulnerability allowed manipulation of critical pool parameters post-deployment.",
+  "attack_scenario": "1) Attacker identified DODO pool contracts without proper initialization locks. 2) Called init() with attacker-controlled parameters, setting maintainer address to attacker. 3) Since maintainer receives all swap fees, attacker could claim accumulated fees via claimFees(). 4) All future swap fees also redirected to attacker. 5) In some cases, could manipulate baseBalance/quoteBalance for profitable swaps. 6) Drained $3.8M from affected pools.",
   "vulnerable_contract": {
-    "name": "IndexPool",
+    "name": "DODOPool",
     "functions": [
       {
-        "name": "_updateWeights",
-        "vulnerability": "Updates token weights based on instantaneous balances, allowing flash loan manipulation"
+        "name": "init",
+        "vulnerability": "Missing initialization guard allowing multiple calls to hijack maintainer role"
       },
       {
-        "name": "swap",
-        "vulnerability": "Calls _updateWeights() after each swap, enabling within-transaction price manipulation"
+        "name": "claimFees",
+        "vulnerability": "Only checks msg.sender == maintainer, but maintainer can be changed via reinitialization"
       }
     ]
   },
-  "root_cause": "Token weights in index pools were recalculated based on instantaneous token balances after swaps. Flash loan attackers could temporarily drain liquidity of a single token, causing weight recalculation to heavily undervalue that token, then buy it back at manipulated prices.",
-  "vulnerable_lines": [84, 139],
-  "fix": "Use time-weighted average prices (TWAP) or external price oracles instead of instantaneous balance-based weight calculations. Implement gradual weight adjustments over multiple blocks rather than immediate updates.",
+  "root_cause": "The init() function lacked proper initialization protection (missing `require(!isInitialized)` check). This allowed attackers to call the initialization function again after deployment, overwriting critical parameters like the maintainer address and hijacking fee collection rights.",
+  "vulnerable_lines": [68],
+  "fix": "Add initialization guard: `require(!initialized, 'Already initialized')` at the start of init(). Better approach: use OpenZeppelin's Initializable pattern with the `initializer` modifier which prevents reinitialization. For upgradeable contracts, use `initializer` and `reinitializer(version)` modifiers appropriately.",
   "references": [
-    "https://blocksecteam.medium.com/the-analysis-of-indexed-finance-security-incident-8a62b9799836",
-    "https://twitter.com/Mudit__Gupta/status/1448884940964188167",
-    "https://etherscan.io/tx/0x44aad3b853866468161735496a5d9cc961ce5aa872924c5d78673076b1cd95aa"
+    "https://blog.dodoex.io/dodo-pool-incident-postmortem-with-a-little-help-from-our-friends-327e66872d42",
+    "https://twitter.com/DODOexchange/status/1369478893390807040",
+    "https://medium.com/dodoex/dodo-security-incident-analysis-8fbbb7448e8c"
   ],
   "temporal_category": "pre_cutoff",
   "variant_type": "original",

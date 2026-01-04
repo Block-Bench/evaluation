@@ -2,14 +2,14 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * PRISMA FINANCE EXPLOIT (March 2024)
-/*LN-6*/  * Loss: $10 million
-/*LN-7*/  * Attack: Delegate Approval Vulnerability in MigrateTroveZap
+/*LN-5*/  * COW PROTOCOL EXPLOIT (November 2024)
+/*LN-6*/  * Loss: $166,000
+/*LN-7*/  * Attack: Unauthorized Callback Invocation + Solver Manipulation
 /*LN-8*/  *
-/*LN-9*/  * Prisma Finance is a CDP (Collateralized Debt Position) protocol similar to Liquity.
-/*LN-10*/  * The MigrateTroveZap contract had a vulnerability where it accepted user-controlled
-/*LN-11*/  * account parameters in operations, allowing attackers to manipulate other users' troves
-/*LN-12*/  * through delegate approvals.
+/*LN-9*/  * CoW Protocol is a DEX aggregator using intent-based trading with solvers.
+/*LN-10*/  * The exploit involved directly calling the uniswapV3SwapCallback function
+/*LN-11*/  * with crafted parameters, bypassing normal swap validation, and extracting
+/*LN-12*/  * funds from a solver contract.
 /*LN-13*/  */
 /*LN-14*/ 
 /*LN-15*/ interface IERC20 {
@@ -26,196 +26,146 @@
 /*LN-26*/     function approve(address spender, uint256 amount) external returns (bool);
 /*LN-27*/ }
 /*LN-28*/ 
-/*LN-29*/ interface IBorrowerOperations {
-/*LN-30*/     function setDelegateApproval(address _delegate, bool _isApproved) external;
+/*LN-29*/ interface IWETH {
+/*LN-30*/     function deposit() external payable;
 /*LN-31*/ 
-/*LN-32*/     function openTrove(
-/*LN-33*/         address troveManager,
-/*LN-34*/         address account,
-/*LN-35*/         uint256 _maxFeePercentage,
-/*LN-36*/         uint256 _collateralAmount,
-/*LN-37*/         uint256 _debtAmount,
-/*LN-38*/         address _upperHint,
-/*LN-39*/         address _lowerHint
-/*LN-40*/     ) external;
-/*LN-41*/ 
-/*LN-42*/     function closeTrove(address troveManager, address account) external;
-/*LN-43*/ }
-/*LN-44*/ 
-/*LN-45*/ interface ITroveManager {
-/*LN-46*/     function getTroveCollAndDebt(
-/*LN-47*/         address _borrower
-/*LN-48*/     ) external view returns (uint256 coll, uint256 debt);
-/*LN-49*/ 
-/*LN-50*/     function liquidate(address _borrower) external;
-/*LN-51*/ }
-/*LN-52*/ 
-/*LN-53*/ contract MigrateTroveZap {
-/*LN-54*/     IBorrowerOperations public borrowerOperations;
-/*LN-55*/     address public wstETH;
-/*LN-56*/     address public mkUSD;
-/*LN-57*/ 
-/*LN-58*/     constructor(address _borrowerOperations, address _wstETH, address _mkUSD) {
-/*LN-59*/         borrowerOperations = _borrowerOperations;
-/*LN-60*/         wstETH = _wstETH;
-/*LN-61*/         mkUSD = _mkUSD;
-/*LN-62*/     }
-/*LN-63*/ 
-/*LN-64*/     /**
-/*LN-65*/      * @notice Migrate trove from one system to another
-/*LN-66*/      * @dev VULNERABLE: User-controlled account parameter
-/*LN-67*/      */
-/*LN-68*/     function openTroveAndMigrate(
-/*LN-69*/         address troveManager,
-/*LN-70*/         address account,
-/*LN-71*/         uint256 maxFeePercentage,
-/*LN-72*/         uint256 collateralAmount,
-/*LN-73*/         uint256 debtAmount,
-/*LN-74*/         address upperHint,
-/*LN-75*/         address lowerHint
-/*LN-76*/     ) external {
-/*LN-77*/         // VULNERABILITY 1: Accepts user-controlled 'account' parameter
-/*LN-78*/         // Attacker can specify another user's address as 'account'
-/*LN-79*/         // If that user previously approved this contract as delegate, it can act on their behalf
-/*LN-80*/ 
-/*LN-81*/         // Transfer collateral from msg.sender
-/*LN-82*/         IERC20(wstETH).transferFrom(
-/*LN-83*/             msg.sender,
-/*LN-84*/             address(this),
-/*LN-85*/             collateralAmount
-/*LN-86*/         );
-/*LN-87*/ 
-/*LN-88*/         // VULNERABILITY 2: Opens trove on behalf of arbitrary 'account' address
-/*LN-89*/         // If victim approved this contract, this call succeeds
-/*LN-90*/         // Opens trove using attacker's collateral but victim's account
-/*LN-91*/         IERC20(wstETH).approve(address(borrowerOperations), collateralAmount);
-/*LN-92*/ 
-/*LN-93*/         borrowerOperations.openTrove(
-/*LN-94*/             troveManager,
-/*LN-95*/             account,
-/*LN-96*/             maxFeePercentage,
-/*LN-97*/             collateralAmount,
-/*LN-98*/             debtAmount,
-/*LN-99*/             upperHint,
-/*LN-100*/             lowerHint
-/*LN-101*/         );
-/*LN-102*/ 
-/*LN-103*/         // VULNERABILITY 3: Transfers minted debt tokens to msg.sender (attacker)
-/*LN-104*/         // Attacker gets the debt tokens while victim's account gets the debt
-/*LN-105*/         IERC20(mkUSD).transfer(msg.sender, debtAmount);
-/*LN-106*/     }
-/*LN-107*/ 
-/*LN-108*/     /**
-/*LN-109*/      * @notice Close a trove for an account
-/*LN-110*/      * @dev VULNERABLE: Can close any account's trove if delegate approved
-/*LN-111*/      */
-/*LN-112*/     function closeTroveFor(address troveManager, address account) external {
-/*LN-113*/         // VULNERABILITY 4: Can close arbitrary account's trove
-/*LN-114*/         // If attacker pays off the debt, they can force close victim's trove
-/*LN-115*/         // And extract the collateral
-/*LN-116*/ 
-/*LN-117*/         borrowerOperations.closeTrove(troveManager, account);
-/*LN-118*/     }
-/*LN-119*/ }
-/*LN-120*/ 
-/*LN-121*/ contract BorrowerOperations {
-/*LN-122*/     mapping(address => mapping(address => bool)) public delegates;
-/*LN-123*/     ITroveManager public troveManager;
-/*LN-124*/ 
-/*LN-125*/     /**
-/*LN-126*/      * @notice Set delegate approval
-/*LN-127*/      * @dev Users can approve contracts to act on their behalf
-/*LN-128*/      */
-/*LN-129*/     function setDelegateApproval(address _delegate, bool _isApproved) external {
-/*LN-130*/         delegates[msg.sender][_delegate] = _isApproved;
-/*LN-131*/     }
-/*LN-132*/ 
-/*LN-133*/     /**
-/*LN-134*/      * @notice Open a new trove
-/*LN-135*/      * @dev VULNERABLE: No check if msg.sender == account when delegate is approved
-/*LN-136*/      */
-/*LN-137*/     function openTrove(
-/*LN-138*/         address _troveManager,
-/*LN-139*/         address account,
-/*LN-140*/         uint256 _maxFeePercentage,
-/*LN-141*/         uint256 _collateralAmount,
-/*LN-142*/         uint256 _debtAmount,
-/*LN-143*/         address _upperHint,
-/*LN-144*/         address _lowerHint
-/*LN-145*/     ) external {
-/*LN-146*/         // VULNERABILITY 5: Insufficient authorization check
-/*LN-147*/         // Only checks if msg.sender is approved delegate
-/*LN-148*/         // Doesn't validate that delegate should be able to open troves on behalf of account
-/*LN-149*/         require(
-/*LN-150*/             msg.sender == account || delegates[account][msg.sender],
-/*LN-151*/             "Not authorized"
-/*LN-152*/         );
-/*LN-153*/ 
-/*LN-154*/         // Open trove logic (simplified)
-/*LN-155*/         // Creates debt position for 'account' with provided collateral
-/*LN-156*/     }
-/*LN-157*/ 
-/*LN-158*/     /**
-/*LN-159*/      * @notice Close a trove
-/*LN-160*/      */
-/*LN-161*/     function closeTrove(address _troveManager, address account) external {
-/*LN-162*/         require(
-/*LN-163*/             msg.sender == account || delegates[account][msg.sender],
-/*LN-164*/             "Not authorized"
-/*LN-165*/         );
-/*LN-166*/ 
-/*LN-167*/         // Close trove logic (simplified)
-/*LN-168*/     }
-/*LN-169*/ }
-/*LN-170*/ 
-/*LN-171*/ /**
-/*LN-172*/  * EXPLOIT SCENARIO:
-/*LN-173*/  *
-/*LN-174*/  * 1. Attacker identifies victims who approved MigrateTroveZap as delegate:
-/*LN-175*/  *    - Many users approved zap contracts for convenience
-/*LN-176*/  *    - These approvals were intended for legitimate migrations
-/*LN-177*/  *
-/*LN-178*/  * 2. Attacker obtains flashloan (~1800 wstETH):
-/*LN-179*/  *    - Borrows collateral to fund the attack
-/*LN-180*/  *
-/*LN-181*/  * 3. Attacker calls openTroveAndMigrate():
-/*LN-182*/  *    - Passes victim's address as 'account' parameter
-/*LN-183*/  *    - Provides attacker's collateral (from flashloan)
-/*LN-184*/  *    - Mints maximum debt (mkUSD) against victim's account
-/*LN-185*/  *
-/*LN-186*/  * 4. Zap contract opens trove on victim's behalf:
-/*LN-187*/  *    - Uses delegate approval to authorize the operation
-/*LN-188*/  *    - Opens trove with attacker's collateral but victim's account
-/*LN-189*/  *    - Mints debt tokens to attacker (msg.sender)
-/*LN-190*/  *
-/*LN-191*/  * 5. Attacker receives minted debt tokens:
-/*LN-192*/  *    - Gets full amount of mkUSD (debt tokens)
-/*LN-193*/  *    - Victim's account now has debt obligation
-/*LN-194*/  *
-/*LN-195*/  * 6. Attacker closes their own position:
-/*LN-196*/  *    - Can pay off debt or manipulate price to liquidate
-/*LN-197*/  *    - Extracts collateral if profitable
-/*LN-198*/  *
-/*LN-199*/  * 7. Repeat for multiple victims:
-/*LN-200*/  *    - Drain $10M across multiple accounts
-/*LN-201*/  *    - Repay flashloan with profits
-/*LN-202*/  *
-/*LN-203*/  * Root Causes:
-/*LN-204*/  * - User-controlled account parameter in zap contract
-/*LN-205*/  * - Overly permissive delegate approval system
-/*LN-206*/  * - No distinction between different types of delegate permissions
-/*LN-207*/  * - Missing msg.sender validation for sensitive operations
-/*LN-208*/  * - Zap contract had unnecessary privileges
-/*LN-209*/  * - No time-bounded or scope-limited approvals
-/*LN-210*/  *
-/*LN-211*/  * Fix:
-/*LN-212*/  * - Always validate account == msg.sender for critical operations
-/*LN-213*/  * - Implement granular permission system (specific operation approvals)
-/*LN-214*/  * - Add time-bounded approvals with expiration
-/*LN-215*/  * - Scope delegate permissions to specific operations
-/*LN-216*/  * - Require explicit confirmation for debt-creating operations
-/*LN-217*/  * - Implement maximum debt limits per delegation
-/*LN-218*/  * - Add circuit breakers for unusual delegation patterns
-/*LN-219*/  * - Revoke all existing delegate approvals and require re-approval
-/*LN-220*/  */
-/*LN-221*/ 
+/*LN-32*/     function withdraw(uint256 amount) external;
+/*LN-33*/ 
+/*LN-34*/     function balanceOf(address account) external view returns (uint256);
+/*LN-35*/ }
+/*LN-36*/ 
+/*LN-37*/ contract CowSolver {
+/*LN-38*/     IWETH public immutable WETH;
+/*LN-39*/     address public immutable settlement;
+/*LN-40*/ 
+/*LN-41*/     constructor(address _weth, address _settlement) {
+/*LN-42*/         WETH = IWETH(_weth);
+/*LN-43*/         settlement = _settlement;
+/*LN-44*/     }
+/*LN-45*/ 
+/*LN-46*/     /**
+/*LN-47*/      * @notice Uniswap V3 swap callback
+/*LN-48*/      * @dev VULNERABILITY: Can be called directly by anyone, not just Uniswap pool
+/*LN-49*/      */
+/*LN-50*/     function uniswapV3SwapCallback(
+/*LN-51*/         int256 amount0Delta,
+/*LN-52*/         int256 amount1Delta,
+/*LN-53*/         bytes calldata data
+/*LN-54*/     ) external payable {
+/*LN-55*/         // VULNERABILITY 1: No validation that msg.sender is a legitimate Uniswap V3 pool
+/*LN-56*/         // Anyone can call this function directly with arbitrary parameters
+/*LN-57*/         // Should verify: require(msg.sender == expectedPool, "Unauthorized callback");
+/*LN-58*/ 
+/*LN-59*/         // Decode callback data
+/*LN-60*/         (
+/*LN-61*/             uint256 price,
+/*LN-62*/             address solver,
+/*LN-63*/             address tokenIn,
+/*LN-64*/             address recipient
+/*LN-65*/         ) = abi.decode(data, (uint256, address, address, address));
+/*LN-66*/ 
+/*LN-67*/         // VULNERABILITY 2: Trusts user-provided 'solver' address in calldata
+/*LN-68*/         // Attacker can specify their own address as solver
+/*LN-69*/         // Contract will transfer tokens to attacker-controlled address
+/*LN-70*/ 
+/*LN-71*/         // VULNERABILITY 3: Trusts user-provided 'recipient' address
+/*LN-72*/         // Attacker controls where funds ultimately go
+/*LN-73*/ 
+/*LN-74*/         // VULNERABILITY 4: No validation of swap amounts or prices
+/*LN-75*/         // amount0Delta and amount1Delta controlled by attacker
+/*LN-76*/         // Can specify amounts that drain the contract
+/*LN-77*/ 
+/*LN-78*/         // Calculate payment amount based on manipulated parameters
+/*LN-79*/         uint256 amountToPay;
+/*LN-80*/         if (amount0Delta > 0) {
+/*LN-81*/             amountToPay = uint256(amount0Delta);
+/*LN-82*/         } else {
+/*LN-83*/             amountToPay = uint256(amount1Delta);
+/*LN-84*/         }
+/*LN-85*/ 
+/*LN-86*/         // VULNERABILITY 5: Transfers tokens without verifying legitimate swap occurred
+/*LN-87*/         // No check that a real Uniswap swap initiated this callback
+/*LN-88*/         // Attacker gets tokens without providing anything in return
+/*LN-89*/ 
+/*LN-90*/         if (tokenIn == address(WETH)) {
+/*LN-91*/             WETH.withdraw(amountToPay);
+/*LN-92*/             payable(recipient).transfer(amountToPay);
+/*LN-93*/         } else {
+/*LN-94*/             IERC20(tokenIn).transfer(recipient, amountToPay);
+/*LN-95*/         }
+/*LN-96*/     }
+/*LN-97*/ 
+/*LN-98*/     /**
+/*LN-99*/      * @notice Execute settlement (normal flow)
+/*LN-100*/      * @dev This is how the function SHOULD be called, through proper settlement
+/*LN-101*/      */
+/*LN-102*/     function executeSettlement(bytes calldata settlementData) external {
+/*LN-103*/         require(msg.sender == settlement, "Only settlement");
+/*LN-104*/         // Normal settlement logic...
+/*LN-105*/     }
+/*LN-106*/ 
+/*LN-107*/     receive() external payable {}
+/*LN-108*/ }
+/*LN-109*/ 
+/*LN-110*/ /**
+/*LN-111*/  * EXPLOIT SCENARIO:
+/*LN-112*/  *
+/*LN-113*/  * 1. Attacker identifies vulnerable CowSolver contract:
+/*LN-114*/  *    - Contract: 0xA58cA3013Ed560594557f02420ed77e154De0109
+/*LN-115*/  *    - Has uniswapV3SwapCallback function exposed
+/*LN-116*/  *    - No msg.sender validation on callback
+/*LN-117*/  *
+/*LN-118*/  * 2. Attacker crafts malicious callback data:
+/*LN-119*/  *    - amount0Delta: -1978613680814188858940 (negative, expects to receive)
+/*LN-120*/  *    - amount1Delta: 5373296932158610028 (positive, solver should pay)
+/*LN-121*/  *    - data contains:
+/*LN-122*/  *      * price: 1976408883179648193852
+/*LN-123*/  *      * solver: attacker's address
+/*LN-124*/  *      * tokenIn: WETH address
+/*LN-125*/  *      * recipient: attacker's address
+/*LN-126*/  *
+/*LN-127*/  * 3. Attacker directly calls uniswapV3SwapCallback():
+/*LN-128*/  *    - Calls solver contract's callback function directly
+/*LN-129*/  *    - NOT through a real Uniswap V3 pool swap
+/*LN-130*/  *    - Bypasses all normal swap validation
+/*LN-131*/  *
+/*LN-132*/  * 4. Solver contract processes malicious callback:
+/*LN-133*/  *    - No verification that msg.sender is legitimate Uniswap pool
+/*LN-134*/  *    - Trusts attacker-provided parameters in data
+/*LN-135*/  *    - Calculates payment: amount1Delta = 5.37 WETH
+/*LN-136*/  *
+/*LN-137*/  * 5. Contract sends WETH to attacker:
+/*LN-138*/  *    - Withdraws WETH and converts to ETH
+/*LN-139*/  *    - Sends ETH to attacker-specified recipient
+/*LN-140*/  *    - Attacker receives ~$166K worth of ETH
+/*LN-141*/  *
+/*LN-142*/  * 6. No repayment required:
+/*LN-143*/  *    - Normal Uniswap callback expects tokens in return
+/*LN-144*/  *    - But no validation means attacker pays nothing
+/*LN-145*/  *    - Direct call bypasses pool's token transfer requirements
+/*LN-146*/  *
+/*LN-147*/  * Root Causes:
+/*LN-148*/  * - Missing msg.sender validation in callback function
+/*LN-149*/  * - Callback function marked as external/public instead of internal
+/*LN-150*/  * - No verification that callback came from legitimate Uniswap pool
+/*LN-151*/  * - Trusting user-provided addresses in callback data
+/*LN-152*/  * - No access control on sensitive callback functions
+/*LN-153*/  * - Lack of reentrancy guards
+/*LN-154*/  * - Missing context validation (was a swap actually initiated?)
+/*LN-155*/  *
+/*LN-156*/  * Fix:
+/*LN-157*/  * - Validate msg.sender is a legitimate Uniswap V3 pool:
+/*LN-158*/  *   ```solidity
+/*LN-159*/  *   require(isValidPool[msg.sender], "Unauthorized callback");
+/*LN-160*/  *   ```
+/*LN-161*/  * - Maintain whitelist of approved pool addresses
+/*LN-162*/  * - Use factory.getPool() to verify pool legitimacy
+/*LN-163*/  * - Implement reentrancy guards
+/*LN-164*/  * - Add access control modifiers
+/*LN-165*/  * - Store swap state before initiating, validate in callback
+/*LN-166*/  * - Never trust user-provided addresses in callback data
+/*LN-167*/  * - Make callbacks internal/private when possible
+/*LN-168*/  * - Implement emergency pause functionality
+/*LN-169*/  * - Add maximum transfer limits per callback
+/*LN-170*/  */
+/*LN-171*/ 

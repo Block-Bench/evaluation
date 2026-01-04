@@ -2,240 +2,152 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * @title bZx Protocol - Transfer Callback Manipulation
-/*LN-6*/  * @notice This contract demonstrates the vulnerability in bZx's loan token
-/*LN-7*/  * @dev September 2020 - Flash loan + transfer callback exploit
-/*LN-8*/  *
-/*LN-9*/  * VULNERABILITY: Transfer callback that modifies state during balance queries
-/*LN-10*/  *
-/*LN-11*/  * ROOT CAUSE:
-/*LN-12*/  * The mintWithEther() function calculates how many tokens to mint based on
-/*LN-13*/  * totalSupply and total assets. When transfer() is called on the loan token,
-/*LN-14*/  * it triggers a callback to the recipient. An attacker can use this callback
-/*LN-15*/  * to call transfer() again, which recalculates shares using the modified
-/*LN-16*/  * but not yet finalized state, leading to inflated token minting.
+/*LN-5*/  * QUBIT BRIDGE EXPLOIT (January 2022)
+/*LN-6*/  *
+/*LN-7*/  * Attack Vector: Zero Address Validation Bypass
+/*LN-8*/  * Loss: $80 million
+/*LN-9*/  *
+/*LN-10*/  * VULNERABILITY:
+/*LN-11*/  * The Qubit Bridge allowed users to deposit tokens on Ethereum and mint
+/*LN-12*/  * corresponding tokens on BSC. The vulnerability was in the deposit handler
+/*LN-13*/  * which failed to validate that the deposited token address was not zero.
+/*LN-14*/  *
+/*LN-15*/  * By passing address(0) as the token contract, the attacker could bypass
+/*LN-16*/  * the actual token transfer but still trigger minting on the destination chain.
 /*LN-17*/  *
-/*LN-18*/  * ATTACK VECTOR:
-/*LN-19*/  * 1. Call mintWithEther() with ETH
-/*LN-20*/  * 2. Receive loan tokens
-/*LN-21*/  * 3. Call transfer() to self repeatedly in a loop
-/*LN-22*/  * 4. Each transfer() triggers recipient callback
-/*LN-23*/  * 5. During callback, balance hasn't been updated yet
-/*LN-24*/  * 6. Internal calculations use stale state
-/*LN-25*/  * 7. After 4-5 transfers to self, token balance inflates
-/*LN-26*/  * 8. Burn inflated tokens back to ETH for profit
-/*LN-27*/  *
-/*LN-28*/  * This exploits the state inconsistency during token transfer callbacks.
-/*LN-29*/  */
-/*LN-30*/ 
-/*LN-31*/ interface IERC20 {
-/*LN-32*/     function transfer(address to, uint256 amount) external returns (bool);
+/*LN-18*/  * Attack Steps:
+/*LN-19*/  * 1. Call deposit() with resourceID mapped to address(0)
+/*LN-20*/  * 2. No tokens are actually transferred (address(0) has no code)
+/*LN-21*/  * 3. Bridge emits deposit event anyway
+/*LN-22*/  * 4. BSC handler sees event and mints tokens
+/*LN-23*/  * 5. Attacker receives minted tokens without depositing real collateral
+/*LN-24*/  * 6. Repeated calls to drain $80M from bridge reserves
+/*LN-25*/  */
+/*LN-26*/ 
+/*LN-27*/ interface IERC20 {
+/*LN-28*/     function transferFrom(
+/*LN-29*/         address from,
+/*LN-30*/         address to,
+/*LN-31*/         uint256 amount
+/*LN-32*/     ) external returns (bool);
 /*LN-33*/ 
 /*LN-34*/     function balanceOf(address account) external view returns (uint256);
 /*LN-35*/ }
 /*LN-36*/ 
-/*LN-37*/ contract VulnerableBZXLoanToken {
-/*LN-38*/     string public name = "iETH";
-/*LN-39*/     string public symbol = "iETH";
-/*LN-40*/ 
-/*LN-41*/     mapping(address => uint256) public balances;
-/*LN-42*/     uint256 public totalSupply;
-/*LN-43*/     uint256 public totalAssetBorrow;
-/*LN-44*/     uint256 public totalAssetSupply;
+/*LN-37*/ contract QBridge {
+/*LN-38*/     address public handler;
+/*LN-39*/ 
+/*LN-40*/     event Deposit(
+/*LN-41*/         uint8 destinationDomainID,
+/*LN-42*/         bytes32 resourceID,
+/*LN-43*/         uint64 depositNonce
+/*LN-44*/     );
 /*LN-45*/ 
-/*LN-46*/     /**
-/*LN-47*/      * @notice Mint loan tokens by depositing ETH
-/*LN-48*/      */
-/*LN-49*/     function mintWithEther(
-/*LN-50*/         address receiver
-/*LN-51*/     ) external payable returns (uint256 mintAmount) {
-/*LN-52*/         uint256 currentPrice = _tokenPrice();
-/*LN-53*/         mintAmount = (msg.value * 1e18) / currentPrice;
-/*LN-54*/ 
-/*LN-55*/         balances[receiver] += mintAmount;
-/*LN-56*/         totalSupply += mintAmount;
-/*LN-57*/         totalAssetSupply += msg.value;
-/*LN-58*/ 
-/*LN-59*/         return mintAmount;
-/*LN-60*/     }
-/*LN-61*/ 
-/*LN-62*/     /**
-/*LN-63*/      * @notice Transfer tokens to another address
-/*LN-64*/      * @param to Recipient address
-/*LN-65*/      * @param amount Amount to transfer
-/*LN-66*/      *
-/*LN-67*/      * VULNERABILITY IS HERE:
-/*LN-68*/      * The function updates balances and then calls _notifyTransfer which
-/*LN-69*/      * can trigger callbacks to the recipient. During this callback, the
-/*LN-70*/      * contract's state is in an inconsistent state - balances are updated
-/*LN-71*/      * but totalSupply hasn't been recalculated if needed.
-/*LN-72*/      *
-/*LN-73*/      * Vulnerable sequence:
-/*LN-74*/      * 1. Update sender balance (line 82)
-/*LN-75*/      * 2. Update receiver balance (line 83)
-/*LN-76*/      * 3. Call _notifyTransfer (line 85) <- CALLBACK
-/*LN-77*/      * 4. During callback, recipient can call transfer() again
-/*LN-78*/      * 5. New transfer() sees inconsistent state
-/*LN-79*/      * 6. Calculations based on this state are wrong
-/*LN-80*/      * 7. After 4-5 iterations, balances inflate
-/*LN-81*/      */
-/*LN-82*/     function transfer(address to, uint256 amount) external returns (bool) {
-/*LN-83*/         require(balances[msg.sender] >= amount, "Insufficient balance");
+/*LN-46*/     uint64 public depositNonce;
+/*LN-47*/ 
+/*LN-48*/     constructor(address _handler) {
+/*LN-49*/         handler = _handler;
+/*LN-50*/     }
+/*LN-51*/ 
+/*LN-52*/     /**
+/*LN-53*/      * @notice Initiates a bridge deposit
+/*LN-54*/      * @dev VULNERABLE: Does not validate resourceID or token address
+/*LN-55*/      */
+/*LN-56*/     function deposit(
+/*LN-57*/         uint8 destinationDomainID,
+/*LN-58*/         bytes32 resourceID,
+/*LN-59*/         bytes calldata data
+/*LN-60*/     ) external payable {
+/*LN-61*/         depositNonce += 1;
+/*LN-62*/ 
+/*LN-63*/         // Forward to handler - this is where the vulnerability occurs
+/*LN-64*/         QBridgeHandler(handler).deposit(resourceID, msg.sender, data);
+/*LN-65*/ 
+/*LN-66*/         emit Deposit(destinationDomainID, resourceID, depositNonce);
+/*LN-67*/     }
+/*LN-68*/ }
+/*LN-69*/ 
+/*LN-70*/ contract QBridgeHandler {
+/*LN-71*/     mapping(bytes32 => address) public resourceIDToTokenContractAddress;
+/*LN-72*/     mapping(address => bool) public contractWhitelist;
+/*LN-73*/ 
+/*LN-74*/     /**
+/*LN-75*/      * @notice Process bridge deposit
+/*LN-76*/      * @dev VULNERABLE: Does not validate that tokenContract is not address(0)
+/*LN-77*/      */
+/*LN-78*/     function deposit(
+/*LN-79*/         bytes32 resourceID,
+/*LN-80*/         address depositer,
+/*LN-81*/         bytes calldata data
+/*LN-82*/     ) external {
+/*LN-83*/         address tokenContract = resourceIDToTokenContractAddress[resourceID];
 /*LN-84*/ 
-/*LN-85*/         balances[msg.sender] -= amount;
-/*LN-86*/         balances[to] += amount;
-/*LN-87*/ 
-/*LN-88*/         _notifyTransfer(msg.sender, to, amount);
-/*LN-89*/ 
-/*LN-90*/         return true;
-/*LN-91*/     }
-/*LN-92*/ 
-/*LN-93*/     /**
-/*LN-94*/      * @notice Internal function that triggers callback
-/*LN-95*/      * @dev This is where the reentrancy/callback happens
-/*LN-96*/      */
-/*LN-97*/     function _notifyTransfer(
-/*LN-98*/         address from,
-/*LN-99*/         address to,
-/*LN-100*/         uint256 amount
-/*LN-101*/     ) internal {
-/*LN-102*/         // If 'to' is a contract, it might have a callback
-/*LN-103*/         // During this callback, contract state is inconsistent
-/*LN-104*/ 
-/*LN-105*/         // Simulate callback by calling a function on recipient if it's a contract
-/*LN-106*/         if (_isContract(to)) {
-/*LN-107*/             // This would trigger fallback/receive on recipient
-/*LN-108*/             // During that callback, recipient can call transfer() again
-/*LN-109*/             (bool success, ) = to.call("");
-/*LN-110*/             success; // Suppress warning
-/*LN-111*/         }
-/*LN-112*/     }
+/*LN-85*/         // VULNERABILITY: If tokenContract is address(0), this passes silently
+/*LN-86*/         // contractWhitelist[address(0)] may be false, but the check might be skipped
+/*LN-87*/         // or address(0) might accidentally be whitelisted
+/*LN-88*/ 
+/*LN-89*/         uint256 amount;
+/*LN-90*/         (amount) = abi.decode(data, (uint256));
+/*LN-91*/ 
+/*LN-92*/         // CRITICAL VULNERABILITY: If tokenContract == address(0),
+/*LN-93*/         // this call will not revert (calling address(0) returns success)
+/*LN-94*/         // No tokens are actually transferred!
+/*LN-95*/         IERC20(tokenContract).transferFrom(depositer, address(this), amount);
+/*LN-96*/ 
+/*LN-97*/         // But the deposit event was already emitted in the bridge contract
+/*LN-98*/         // The destination chain handler sees this event and mints tokens
+/*LN-99*/         // Attacker gets minted tokens without providing real collateral
+/*LN-100*/     }
+/*LN-101*/ 
+/*LN-102*/     /**
+/*LN-103*/      * @notice Set resource ID to token mapping
+/*LN-104*/      */
+/*LN-105*/     function setResource(bytes32 resourceID, address tokenAddress) external {
+/*LN-106*/         resourceIDToTokenContractAddress[resourceID] = tokenAddress;
+/*LN-107*/ 
+/*LN-108*/         // VULNERABILITY: If tokenAddress is set to address(0), either accidentally
+/*LN-109*/         // or through an attack, deposits with this resourceID will fail silently
+/*LN-110*/         // but still emit events that trigger minting on destination chain
+/*LN-111*/     }
+/*LN-112*/ }
 /*LN-113*/ 
-/*LN-114*/     /**
-/*LN-115*/      * @notice Burn tokens back to ETH
-/*LN-116*/      */
-/*LN-117*/     function burnToEther(
-/*LN-118*/         address receiver,
-/*LN-119*/         uint256 amount
-/*LN-120*/     ) external returns (uint256 ethAmount) {
-/*LN-121*/         require(balances[msg.sender] >= amount, "Insufficient balance");
-/*LN-122*/ 
-/*LN-123*/         uint256 currentPrice = _tokenPrice();
-/*LN-124*/         ethAmount = (amount * currentPrice) / 1e18;
-/*LN-125*/ 
-/*LN-126*/         balances[msg.sender] -= amount;
-/*LN-127*/         totalSupply -= amount;
-/*LN-128*/         totalAssetSupply -= ethAmount;
-/*LN-129*/ 
-/*LN-130*/         payable(receiver).transfer(ethAmount);
-/*LN-131*/ 
-/*LN-132*/         return ethAmount;
-/*LN-133*/     }
-/*LN-134*/ 
-/*LN-135*/     /**
-/*LN-136*/      * @notice Calculate current token price
-/*LN-137*/      * @dev Price is based on total supply and total assets
-/*LN-138*/      */
-/*LN-139*/     function _tokenPrice() internal view returns (uint256) {
-/*LN-140*/         if (totalSupply == 0) {
-/*LN-141*/             return 1e18; // Initial price 1:1
-/*LN-142*/         }
-/*LN-143*/         return (totalAssetSupply * 1e18) / totalSupply;
-/*LN-144*/     }
-/*LN-145*/ 
-/*LN-146*/     /**
-/*LN-147*/      * @notice Check if address is a contract
-/*LN-148*/      */
-/*LN-149*/     function _isContract(address account) internal view returns (bool) {
-/*LN-150*/         uint256 size;
-/*LN-151*/         assembly {
-/*LN-152*/             size := extcodesize(account)
-/*LN-153*/         }
-/*LN-154*/         return size > 0;
-/*LN-155*/     }
-/*LN-156*/ 
-/*LN-157*/     function balanceOf(address account) external view returns (uint256) {
-/*LN-158*/         return balances[account];
-/*LN-159*/     }
-/*LN-160*/ 
-/*LN-161*/     receive() external payable {}
-/*LN-162*/ }
-/*LN-163*/ 
-/*LN-164*/ /**
-/*LN-165*/  * Example attack contract:
-/*LN-166*/  *
-/*LN-167*/  * contract BZXAttacker {
-/*LN-168*/  *     VulnerableBZXLoanToken public loanToken;
-/*LN-169*/  *     uint256 public transferCount;
-/*LN-170*/  *
-/*LN-171*/  *     constructor(address _loanToken) {
-/*LN-172*/  *         loanToken = VulnerableBZXLoanToken(_loanToken);
-/*LN-173*/  *     }
-/*LN-174*/  *
-/*LN-175*/  *     function attack() external payable {
-/*LN-176*/  *         // Step 1: Mint loan tokens with ETH
-/*LN-177*/  *         loanToken.mintWithEther{value: msg.value}(address(this));
-/*LN-178*/  *
-/*LN-179*/  *         // Step 2: Transfer to self repeatedly
-/*LN-180*/  *         // Each transfer triggers fallback, creating state inconsistency
-/*LN-181*/  *         for (uint i = 0; i < 4; i++) {
-/*LN-182*/  *             uint256 balance = loanToken.balanceOf(address(this));
-/*LN-183*/  *             loanToken.transfer(address(this), balance);
-/*LN-184*/  *         }
-/*LN-185*/  *
-/*LN-186*/  *         // Step 3: Burn inflated tokens back to ETH
-/*LN-187*/  *         uint256 finalBalance = loanToken.balanceOf(address(this));
-/*LN-188*/  *         loanToken.burnToEther(address(this), finalBalance);
-/*LN-189*/  *     }
-/*LN-190*/  *
-/*LN-191*/  *     // Fallback is triggered during transfer
-/*LN-192*/  *     fallback() external payable {
-/*LN-193*/  *         // State is inconsistent here
-/*LN-194*/  *         // Could perform additional transfers if needed
-/*LN-195*/  *     }
-/*LN-196*/  * }
-/*LN-197*/  *
-/*LN-198*/  * REAL-WORLD IMPACT:
-/*LN-199*/  * - Multiple exploits on bZx in 2020
-/*LN-200*/  * - This specific vulnerability in September 2020
-/*LN-201*/  * - Demonstrated callback/reentrancy in token transfers
-/*LN-202*/  * - Led to improved transfer patterns in DeFi
-/*LN-203*/  *
-/*LN-204*/  * FIX:
-/*LN-205*/  * Use reentrancy guards on transfer:
-/*LN-206*/  *
-/*LN-207*/  * bool private locked;
-/*LN-208*/  *
-/*LN-209*/  * modifier nonReentrant() {
-/*LN-210*/  *     require(!locked, "No reentrancy");
-/*LN-211*/  *     locked = true;
-/*LN-212*/  *     _;
-/*LN-213*/  *     locked = false;
-/*LN-214*/  * }
-/*LN-215*/  *
-/*LN-216*/  * function transfer(address to, uint256 amount) external nonReentrant returns (bool) {
-/*LN-217*/  *     require(balances[msg.sender] >= amount, "Insufficient balance");
-/*LN-218*/  *     balances[msg.sender] -= amount;
-/*LN-219*/  *     balances[to] += amount;
-/*LN-220*/  *     _notifyTransfer(msg.sender, to, amount);
-/*LN-221*/  *     return true;
-/*LN-222*/  * }
-/*LN-223*/  *
-/*LN-224*/  * Or avoid callbacks during transfers entirely:
-/*LN-225*/  *
-/*LN-226*/  * function transfer(address to, uint256 amount) external returns (bool) {
-/*LN-227*/  *     require(balances[msg.sender] >= amount, "Insufficient balance");
-/*LN-228*/  *     balances[msg.sender] -= amount;
-/*LN-229*/  *     balances[to] += amount;
-/*LN-230*/  *     emit Transfer(msg.sender, to, amount);  // Just emit, no callbacks
-/*LN-231*/  *     return true;
-/*LN-232*/  * }
-/*LN-233*/  *
-/*LN-234*/  *
-/*LN-235*/  * KEY LESSON:
-/*LN-236*/  * Avoid callbacks during critical state changes like token transfers.
-/*LN-237*/  * If callbacks are necessary, use reentrancy guards.
-/*LN-238*/  * Token transfer functions should be simple and not trigger external calls.
-/*LN-239*/  * State consistency is crucial - don't allow callbacks during state updates.
-/*LN-240*/  */
-/*LN-241*/ 
+/*LN-114*/ /**
+/*LN-115*/  * EXPLOIT SCENARIO:
+/*LN-116*/  *
+/*LN-117*/  * Setup:
+/*LN-118*/  * - Attacker finds or creates a resourceID that maps to address(0)
+/*LN-119*/  * - This could happen if resourceID was never properly initialized
+/*LN-120*/  * - Or if there's a way to manipulate the mapping
+/*LN-121*/  *
+/*LN-122*/  * Attack:
+/*LN-123*/  * 1. Craft deposit() call with:
+/*LN-124*/  *    - destinationDomainID: 1 (BSC)
+/*LN-125*/  *    - resourceID: 0x0000...01 (maps to address(0))
+/*LN-126*/  *    - data: encoded amount (e.g., 77,162 ETH worth)
+/*LN-127*/  *
+/*LN-128*/  * 2. Bridge calls handler.deposit(resourceID, attacker, data)
+/*LN-129*/  *
+/*LN-130*/  * 3. Handler retrieves tokenContract = address(0)
+/*LN-131*/  *
+/*LN-132*/  * 4. Handler calls IERC20(address(0)).transferFrom(...)
+/*LN-133*/  *    - This does NOT revert (calling address(0) returns success in EVM)
+/*LN-134*/  *    - No actual tokens are transferred
+/*LN-135*/  *
+/*LN-136*/  * 5. Bridge emits Deposit event
+/*LN-137*/  *
+/*LN-138*/  * 6. BSC side handler sees the event
+/*LN-139*/  *
+/*LN-140*/  * 7. BSC handler mints tokens to attacker's address
+/*LN-141*/  *
+/*LN-142*/  * 8. Attacker repeats multiple times to drain $80M
+/*LN-143*/  *
+/*LN-144*/  * Root Cause:
+/*LN-145*/  * - Missing validation that tokenContract != address(0)
+/*LN-146*/  * - Missing validation that resourceID is properly initialized
+/*LN-147*/  * - Trusting that transferFrom to address(0) would revert
+/*LN-148*/  *
+/*LN-149*/  * Fix:
+/*LN-150*/  * require(tokenContract != address(0), "Invalid token");
+/*LN-151*/  * require(contractWhitelist[tokenContract], "Not whitelisted");
+/*LN-152*/  */
+/*LN-153*/ 

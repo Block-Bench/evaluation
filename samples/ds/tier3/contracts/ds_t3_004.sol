@@ -1,110 +1,34 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import "forge-std/Test.sol";
+contract SimplePool {
+    uint public totalDebt;
+    uint public lastAccrueInterestTime;
+    uint public loanTokenBalance;
 
-contract ContractTest is Test {
-    ERC20 ERC20Contract;
-    address alice = vm.addr(1);
-    address eve = vm.addr(2);
-
-    function testApproveScam() public {
-        ERC20Contract = new ERC20();
-        ERC20Contract.mint(1000);
-        ERC20Contract.transfer(address(alice), 1000);
-
-        vm.prank(alice);
-        // Be Careful to grant unlimited amount to unknown website/address.
-        // Do not perform approve, if you are sure it's from a legitimate website.
-        // Alice granted approval permission to Eve.
-        ERC20Contract.approve(address(eve), type(uint256).max);
-
-        console.log(
-            "Before operation",
-            ERC20Contract.balanceOf(eve)
-        );
-        console.log(
-            "Due to Alice granted transfer permission to Eve, now Eve can move funds from Alice"
-        );
-        vm.prank(eve);
-        // Now, Eve can move funds from Alice.
-        ERC20Contract.transferFrom(address(alice), address(eve), 1000);
-        console.log(
-            "After operation",
-            ERC20Contract.balanceOf(eve)
-        );
-        console.log("operate completed");
+    constructor() {
+        totalDebt = 10000e6; //debt token is USDC and has 6 digit decimals.
+        lastAccrueInterestTime = block.timestamp - 1;
+        loanTokenBalance = 500e18;
     }
 
-    receive() external payable {}
-}
+    function getCurrentReward() public view returns (uint _reward) {
+        // Get the time passed since the last interest accrual
+        uint _timeDelta = block.timestamp - lastAccrueInterestTime;
 
-interface IERC20 {
-    function totalSupply() external view returns (uint);
+        // If the time passed is 0, return 0 reward
+        if (_timeDelta == 0) return 0;
 
-    function balanceOf(address account) external view returns (uint);
+        // Calculate the supplied value
+        // uint _supplied = totalDebt + loanTokenBalance;
+        //console.log(_supplied);
+        // Calculate the reward
+        _reward = (totalDebt * _timeDelta) / (365 days * 1e18);
 
-    function transfer(address recipient, uint amount) external returns (bool);
+        // 31536000 is the number of seconds in a year
+        // 365 days * 1e18 = 31_536_000_000_000_000_000_000_000
+        //_totalDebt * _timeDelta / 31_536_000_000_000_000_000_000_000
 
-    function allowance(
-        address owner,
-        address spender
-    ) external view returns (uint);
-
-    function approve(address spender, uint amount) external returns (bool);
-
-    function transferFrom(
-        address sender,
-        address recipient,
-        uint amount
-    ) external returns (bool);
-
-    event Transfer(address indexed from, address indexed to, uint value);
-    event Approval(address indexed owner, address indexed spender, uint value);
-}
-
-contract ERC20 is IERC20 {
-    uint public totalSupply;
-    mapping(address => uint) public balanceOf;
-    mapping(address => mapping(address => uint)) public allowance;
-    string public name = "Test example";
-    string public symbol = "Test";
-    uint8 public decimals = 18;
-
-    function transfer(address recipient, uint amount) external returns (bool) {
-        balanceOf[msg.sender] -= amount;
-        balanceOf[recipient] += amount;
-        emit Transfer(msg.sender, recipient, amount);
-        return true;
-    }
-
-    function approve(address spender, uint amount) external returns (bool) {
-        allowance[msg.sender][spender] = amount;
-        emit Approval(msg.sender, spender, amount);
-        return true;
-    }
-
-    function transferFrom(
-        address sender,
-        address recipient,
-        uint amount
-    ) external returns (bool) {
-        allowance[sender][msg.sender] -= amount;
-        balanceOf[sender] -= amount;
-        balanceOf[recipient] += amount;
-        emit Transfer(sender, recipient, amount);
-        return true;
-    }
-
-    function mint(uint amount) external {
-        balanceOf[msg.sender] += amount;
-        totalSupply += amount;
-        emit Transfer(address(0), msg.sender, amount);
-    }
-
-    function burn(uint amount) external {
-        balanceOf[msg.sender] -= amount;
-        totalSupply -= amount;
-        emit Transfer(msg.sender, address(0), amount);
+        _reward;
     }
 }

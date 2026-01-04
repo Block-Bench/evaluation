@@ -4,50 +4,99 @@
 /*LN-4*/ interface IERC20 {
 /*LN-5*/     function transfer(address to, uint256 amount) external returns (bool);
 /*LN-6*/ 
-/*LN-7*/     function transferFrom(
-/*LN-8*/         address from,
-/*LN-9*/         address to,
-/*LN-10*/         uint256 amount
-/*LN-11*/     ) external returns (bool);
-/*LN-12*/ 
-/*LN-13*/     function balanceOf(address account) external view returns (uint256);
-/*LN-14*/ 
-/*LN-15*/     function approve(address spender, uint256 amount) external returns (bool);
-/*LN-16*/ }
-/*LN-17*/ 
-/*LN-18*/ contract SenecaChamber {
-/*LN-19*/     uint8 public constant OPERATION_CALL = 30;
-/*LN-20*/     uint8 public constant OPERATION_DELEGATECALL = 31;
-/*LN-21*/ 
-/*LN-22*/     mapping(address => bool) public vaultOwners;
+/*LN-7*/     function balanceOf(address account) external view returns (uint256);
+/*LN-8*/ }
+/*LN-9*/ 
+/*LN-10*/ /**
+/*LN-11*/  */
+/*LN-12*/ contract PlayDappToken {
+/*LN-13*/     string public name = "PlayDapp Token";
+/*LN-14*/     string public symbol = "PLA";
+/*LN-15*/     uint8 public decimals = 18;
+/*LN-16*/ 
+/*LN-17*/     uint256 public totalSupply;
+/*LN-18*/ 
+/*LN-19*/     address public minter;
+/*LN-20*/ 
+/*LN-21*/     mapping(address => uint256) public balanceOf;
+/*LN-22*/     mapping(address => mapping(address => uint256)) public allowance;
 /*LN-23*/ 
-/*LN-24*/     function performOperations(
-/*LN-25*/         uint8[] memory actions,
-/*LN-26*/         uint256[] memory values,
-/*LN-27*/         bytes[] memory datas
-/*LN-28*/     ) external payable returns (uint256 value1, uint256 value2) {
-/*LN-29*/         require(
-/*LN-30*/             actions.length == values.length && values.length == datas.length,
-/*LN-31*/             "Length mismatch"
-/*LN-32*/         );
-/*LN-33*/ 
-/*LN-34*/         for (uint256 i = 0; i < actions.length; i++) {
-/*LN-35*/             if (actions[i] == OPERATION_CALL) {
-/*LN-36*/                 // Decode target from user-provided data
-/*LN-37*/                 (address target, bytes memory callData, , , ) = abi.decode(
-/*LN-38*/                     datas[i],
-/*LN-39*/                     (address, bytes, uint256, uint256, uint256)
-/*LN-40*/                 );
-/*LN-41*/ 
-/*LN-42*/                 
-/*LN-43*/ 
-/*LN-44*/                 
-/*LN-45*/                 (bool success, ) = target.call{value: values[i]}(callData);
-/*LN-46*/                 require(success, "Call failed");
-/*LN-47*/             }
-/*LN-48*/         }
-/*LN-49*/ 
-/*LN-50*/         return (0, 0);
-/*LN-51*/     }
-/*LN-52*/ }
-/*LN-53*/ 
+/*LN-24*/     event Transfer(address indexed from, address indexed to, uint256 value);
+/*LN-25*/     event Approval(
+/*LN-26*/         address indexed owner,
+/*LN-27*/         address indexed spender,
+/*LN-28*/         uint256 value
+/*LN-29*/     );
+/*LN-30*/     event Minted(address indexed to, uint256 amount);
+/*LN-31*/ 
+/*LN-32*/     constructor() {
+/*LN-33*/         minter = msg.sender;
+/*LN-34*/         // Initial supply minted
+/*LN-35*/         _mint(msg.sender, 700_000_000 * 10 ** 18); // 700M initial supply
+/*LN-36*/     }
+/*LN-37*/ 
+/*LN-38*/     /**
+/*LN-39*/      */
+/*LN-40*/     modifier onlyMinter() {
+/*LN-41*/         require(msg.sender == minter, "Not minter");
+/*LN-42*/         _;
+/*LN-43*/     }
+/*LN-44*/ 
+/*LN-45*/     function mint(address to, uint256 amount) external onlyMinter {
+/*LN-46*/ 
+/*LN-47*/         _mint(to, amount);
+/*LN-48*/         emit Minted(to, amount);
+/*LN-49*/     }
+/*LN-50*/ 
+/*LN-51*/     /**
+/*LN-52*/      * @dev Internal mint function with no safeguards
+/*LN-53*/      */
+/*LN-54*/     function _mint(address to, uint256 amount) internal {
+/*LN-55*/         require(to != address(0), "Mint to zero address");
+/*LN-56*/ 
+/*LN-57*/         totalSupply += amount;
+/*LN-58*/         balanceOf[to] += amount;
+/*LN-59*/ 
+/*LN-60*/         emit Transfer(address(0), to, amount);
+/*LN-61*/     }
+/*LN-62*/ 
+/*LN-63*/     /**
+/*LN-64*/      */
+/*LN-65*/     function setMinter(address newMinter) external onlyMinter {
+/*LN-66*/         minter = newMinter;
+/*LN-67*/     }
+/*LN-68*/ 
+/*LN-69*/     function transfer(address to, uint256 amount) external returns (bool) {
+/*LN-70*/         require(balanceOf[msg.sender] >= amount, "Insufficient balance");
+/*LN-71*/         balanceOf[msg.sender] -= amount;
+/*LN-72*/         balanceOf[to] += amount;
+/*LN-73*/         emit Transfer(msg.sender, to, amount);
+/*LN-74*/         return true;
+/*LN-75*/     }
+/*LN-76*/ 
+/*LN-77*/     function approve(address spender, uint256 amount) external returns (bool) {
+/*LN-78*/         allowance[msg.sender][spender] = amount;
+/*LN-79*/         emit Approval(msg.sender, spender, amount);
+/*LN-80*/         return true;
+/*LN-81*/     }
+/*LN-82*/ 
+/*LN-83*/     function transferFrom(
+/*LN-84*/         address from,
+/*LN-85*/         address to,
+/*LN-86*/         uint256 amount
+/*LN-87*/     ) external returns (bool) {
+/*LN-88*/         require(balanceOf[from] >= amount, "Insufficient balance");
+/*LN-89*/         require(
+/*LN-90*/             allowance[from][msg.sender] >= amount,
+/*LN-91*/             "Insufficient allowance"
+/*LN-92*/         );
+/*LN-93*/ 
+/*LN-94*/         balanceOf[from] -= amount;
+/*LN-95*/         balanceOf[to] += amount;
+/*LN-96*/         allowance[from][msg.sender] -= amount;
+/*LN-97*/ 
+/*LN-98*/         emit Transfer(from, to, amount);
+/*LN-99*/         return true;
+/*LN-100*/     }
+/*LN-101*/ }
+/*LN-102*/ 

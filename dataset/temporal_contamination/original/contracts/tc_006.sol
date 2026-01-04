@@ -2,278 +2,260 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * @title Ronin Bridge (Vulnerable Version)
-/*LN-6*/  * @notice This contract demonstrates the multi-sig vulnerability that led to the $625M Ronin Bridge hack
-/*LN-7*/  * @dev March 23, 2022 - Largest bridge hack in crypto history
+/*LN-5*/  * @title Cream Finance Lending Pool (Vulnerable Version)
+/*LN-6*/  * @notice This contract demonstrates the vulnerability that led to the $130M Cream Finance hack
+/*LN-7*/  * @dev October 27, 2021 - Complex flash loan + price oracle manipulation
 /*LN-8*/  *
-/*LN-9*/  * VULNERABILITY: Compromised validator keys / insufficient decentralization
+/*LN-9*/  * VULNERABILITY: Price oracle manipulation + flash loan + reentrancy
 /*LN-10*/  *
 /*LN-11*/  * ROOT CAUSE:
-/*LN-12*/  * The Ronin Bridge used a multi-signature system with 9 validators. To process
-/*LN-13*/  * a withdrawal, 5 out of 9 validator signatures were required. However:
-/*LN-14*/  *
-/*LN-15*/  * 1. Sky Mavis (Axie Infinity creator) controlled 4 validator nodes
-/*LN-16*/  * 2. One validator was run by a DAO, but Sky Mavis had access to it
-/*LN-17*/  * 3. Attackers compromised Sky Mavis's infrastructure
-/*LN-18*/  * 4. Gained access to 5 out of 9 validator keys
-/*LN-19*/  * 5. Could forge valid signatures for any withdrawal
-/*LN-20*/  *
-/*LN-21*/  * The root issue was insufficient decentralization - a single entity controlled
-/*LN-22*/  * enough validators to approve withdrawals unilaterally.
-/*LN-23*/  *
-/*LN-24*/  * ATTACK VECTOR:
-/*LN-25*/  * 1. Attackers compromised Sky Mavis's systems (possibly via social engineering)
-/*LN-26*/  * 2. Gained access to private keys for 4 Sky Mavis validators
-/*LN-27*/  * 3. Gained access to 1 DAO validator key (Sky Mavis had temporary access)
-/*LN-28*/  * 4. Now controlled 5/9 validators - enough to approve withdrawals
-/*LN-29*/  * 5. Created fake withdrawal requests with forged signatures
-/*LN-30*/  * 6. Bridge contract verified signatures (all valid!)
-/*LN-31*/  * 7. Bridge transferred $625M in ETH and USDC to attacker
-/*LN-32*/  *
-/*LN-33*/  * This demonstrates that multi-sig security depends entirely on:
-/*LN-34*/  * - Key management
-/*LN-35*/  * - Distribution of control
-/*LN-36*/  * - Infrastructure security
-/*LN-37*/  */
+/*LN-12*/  * Cream Finance was a fork of Compound Finance with similar mechanics:
+/*LN-13*/  * - Users deposit collateral to mint crTokens
+/*LN-14*/  * - crTokens can be used as collateral to borrow other assets
+/*LN-15*/  * - Borrowing power based on collateral value (from price oracles)
+/*LN-16*/  *
+/*LN-17*/  * The attack exploited:
+/*LN-18*/  * 1. Cream used yUSD token as collateral
+/*LN-19*/  * 2. yUSD price was calculated from its underlying assets (via Curve pool)
+/*LN-20*/  * 3. Attacker could manipulate yUSD price by draining Curve pool
+/*LN-21*/  * 4. With inflated yUSD value, attacker could borrow massive amounts
+/*LN-22*/  *
+/*LN-23*/  * ATTACK VECTOR:
+/*LN-24*/  * 1. Flash loan $500M DAI from MakerDAO
+/*LN-25*/  * 2. Convert DAI to yUSD (via Curve), mint crYUSD as collateral ($500M value)
+/*LN-26*/  * 3. Flash loan 524,000 ETH from Aave
+/*LN-27*/  * 4. Mint crETH as additional collateral ($2B value)
+/*LN-28*/  * 5. Borrow yUSD multiple times against ETH collateral
+/*LN-29*/  * 6. Withdraw yUSD from Curve to underlying tokens, doubling crYUSD price
+/*LN-30*/  * 7. Now crYUSD collateral is valued at $1.5B (was $500M)
+/*LN-31*/  * 8. Borrow massive amounts against inflated collateral
+/*LN-32*/  * 9. Repay flash loans, keep profit
+/*LN-33*/  */
+/*LN-34*/ 
+/*LN-35*/ interface IOracle {
+/*LN-36*/     function getUnderlyingPrice(address cToken) external view returns (uint256);
+/*LN-37*/ }
 /*LN-38*/ 
-/*LN-39*/ contract VulnerableRoninBridge {
-/*LN-40*/     // Validator addresses
-/*LN-41*/     address[] public validators;
-/*LN-42*/     mapping(address => bool) public isValidator;
+/*LN-39*/ interface ICToken {
+/*LN-40*/     function mint(uint256 mintAmount) external;
+/*LN-41*/ 
+/*LN-42*/     function borrow(uint256 borrowAmount) external;
 /*LN-43*/ 
-/*LN-44*/     uint256 public requiredSignatures = 5; // Need 5 out of 9
-/*LN-45*/     uint256 public validatorCount;
-/*LN-46*/ 
-/*LN-47*/     // Track processed withdrawals to prevent replay
-/*LN-48*/     mapping(uint256 => bool) public processedWithdrawals;
-/*LN-49*/ 
-/*LN-50*/     // Supported tokens
-/*LN-51*/     mapping(address => bool) public supportedTokens;
+/*LN-44*/     function redeem(uint256 redeemTokens) external;
+/*LN-45*/ 
+/*LN-46*/     function underlying() external view returns (address);
+/*LN-47*/ }
+/*LN-48*/ 
+/*LN-49*/ contract VulnerableCreamLending {
+/*LN-50*/     // Oracle for getting asset prices
+/*LN-51*/     IOracle public oracle;
 /*LN-52*/ 
-/*LN-53*/     event WithdrawalProcessed(
-/*LN-54*/         uint256 indexed withdrawalId,
-/*LN-55*/         address indexed user,
-/*LN-56*/         address indexed token,
-/*LN-57*/         uint256 amount
-/*LN-58*/     );
-/*LN-59*/ 
-/*LN-60*/     constructor(address[] memory _validators) {
-/*LN-61*/         require(
-/*LN-62*/             _validators.length >= requiredSignatures,
-/*LN-63*/             "Not enough validators"
-/*LN-64*/         );
-/*LN-65*/ 
-/*LN-66*/         for (uint256 i = 0; i < _validators.length; i++) {
-/*LN-67*/             address validator = _validators[i];
-/*LN-68*/             require(validator != address(0), "Invalid validator");
-/*LN-69*/             require(!isValidator[validator], "Duplicate validator");
-/*LN-70*/ 
-/*LN-71*/             validators.push(validator);
-/*LN-72*/             isValidator[validator] = true;
-/*LN-73*/         }
-/*LN-74*/ 
-/*LN-75*/         validatorCount = _validators.length;
-/*LN-76*/     }
-/*LN-77*/ 
-/*LN-78*/     /**
-/*LN-79*/      * @notice Process a withdrawal from Ronin to Ethereum
-/*LN-80*/      * @param _withdrawalId Unique ID for this withdrawal
-/*LN-81*/      * @param _user Address to receive tokens
-/*LN-82*/      * @param _token Token contract address
-/*LN-83*/      * @param _amount Amount to withdraw
-/*LN-84*/      * @param _signatures Concatenated validator signatures
-/*LN-85*/      *
-/*LN-86*/      * VULNERABILITY:
-/*LN-87*/      * While the signature verification logic is correct, the vulnerability
-/*LN-88*/      * lies in the validator key management. If an attacker gains control of
-/*LN-89*/      * >= 5 validator private keys, they can forge valid signatures for any
-/*LN-90*/      * withdrawal, even ones that never happened on Ronin chain.
-/*LN-91*/      *
-/*LN-92*/      * In the Ronin hack:
-/*LN-93*/      * - Sky Mavis controlled 4 validators
-/*LN-94*/      * - DAO validator was temporarily managed by Sky Mavis (5th key)
-/*LN-95*/      * - Attackers compromised Sky Mavis infrastructure
-/*LN-96*/      * - Gained access to all 5 keys
-/*LN-97*/      * - Created fake withdrawals with valid signatures
-/*LN-98*/      */
-/*LN-99*/     function withdrawERC20For(
-/*LN-100*/         uint256 _withdrawalId,
-/*LN-101*/         address _user,
-/*LN-102*/         address _token,
-/*LN-103*/         uint256 _amount,
-/*LN-104*/         bytes memory _signatures
-/*LN-105*/     ) external {
-/*LN-106*/         // Check if already processed
-/*LN-107*/         require(!processedWithdrawals[_withdrawalId], "Already processed");
-/*LN-108*/ 
-/*LN-109*/         // Check if token is supported
-/*LN-110*/         require(supportedTokens[_token], "Token not supported");
-/*LN-111*/ 
-/*LN-112*/         // Verify signatures
-/*LN-113*/         // VULNERABILITY: If enough validator keys are compromised,
-/*LN-114*/         // attackers can create valid signatures for fake withdrawals
-/*LN-115*/         require(
-/*LN-116*/             _verifySignatures(
-/*LN-117*/                 _withdrawalId,
-/*LN-118*/                 _user,
-/*LN-119*/                 _token,
-/*LN-120*/                 _amount,
-/*LN-121*/                 _signatures
-/*LN-122*/             ),
-/*LN-123*/             "Invalid signatures"
-/*LN-124*/         );
-/*LN-125*/ 
-/*LN-126*/         // Mark as processed
-/*LN-127*/         processedWithdrawals[_withdrawalId] = true;
+/*LN-53*/     // Collateral factors (how much can be borrowed against collateral)
+/*LN-54*/     mapping(address => uint256) public collateralFactors; // e.g., 75% = 0.75e18
+/*LN-55*/ 
+/*LN-56*/     // User deposits (crToken balances)
+/*LN-57*/     mapping(address => mapping(address => uint256)) public userDeposits;
+/*LN-58*/ 
+/*LN-59*/     // User borrows
+/*LN-60*/     mapping(address => mapping(address => uint256)) public userBorrows;
+/*LN-61*/ 
+/*LN-62*/     // Supported markets
+/*LN-63*/     mapping(address => bool) public supportedMarkets;
+/*LN-64*/ 
+/*LN-65*/     event Deposit(address indexed user, address indexed cToken, uint256 amount);
+/*LN-66*/     event Borrow(address indexed user, address indexed cToken, uint256 amount);
+/*LN-67*/ 
+/*LN-68*/     constructor(address _oracle) {
+/*LN-69*/         oracle = IOracle(_oracle);
+/*LN-70*/     }
+/*LN-71*/ 
+/*LN-72*/     /**
+/*LN-73*/      * @notice Mint crTokens by depositing underlying assets
+/*LN-74*/      * @param cToken The crToken to mint
+/*LN-75*/      * @param amount Amount of underlying to deposit
+/*LN-76*/      *
+/*LN-77*/      * This function is safe, but sets up the collateral that enables the attack
+/*LN-78*/      */
+/*LN-79*/     function mint(address cToken, uint256 amount) external {
+/*LN-80*/         require(supportedMarkets[cToken], "Market not supported");
+/*LN-81*/ 
+/*LN-82*/         // Transfer underlying from user (simplified)
+/*LN-83*/         // address underlying = ICToken(cToken).underlying();
+/*LN-84*/         // IERC20(underlying).transferFrom(msg.sender, address(this), amount);
+/*LN-85*/ 
+/*LN-86*/         // Mint crTokens to user
+/*LN-87*/         userDeposits[msg.sender][cToken] += amount;
+/*LN-88*/ 
+/*LN-89*/         emit Deposit(msg.sender, cToken, amount);
+/*LN-90*/     }
+/*LN-91*/ 
+/*LN-92*/     /**
+/*LN-93*/      * @notice Borrow assets against collateral
+/*LN-94*/      * @param cToken The crToken to borrow
+/*LN-95*/      * @param amount Amount to borrow
+/*LN-96*/      *
+/*LN-97*/      * VULNERABILITY:
+/*LN-98*/      * The borrowing limit is calculated based on oracle prices.
+/*LN-99*/      * If the oracle price can be manipulated (as with yUSD via Curve),
+/*LN-100*/      * attackers can borrow far more than their actual collateral is worth.
+/*LN-101*/      */
+/*LN-102*/     function borrow(address cToken, uint256 amount) external {
+/*LN-103*/         require(supportedMarkets[cToken], "Market not supported");
+/*LN-104*/ 
+/*LN-105*/         // Calculate user's borrowing power
+/*LN-106*/         uint256 borrowPower = calculateBorrowPower(msg.sender);
+/*LN-107*/ 
+/*LN-108*/         // Calculate current total borrows value
+/*LN-109*/         uint256 currentBorrows = calculateTotalBorrows(msg.sender);
+/*LN-110*/ 
+/*LN-111*/         // Get value of new borrow
+/*LN-112*/         // VULNERABILITY: Uses oracle price which can be manipulated!
+/*LN-113*/         uint256 borrowValue = (oracle.getUnderlyingPrice(cToken) * amount) /
+/*LN-114*/             1e18;
+/*LN-115*/ 
+/*LN-116*/         // Check if user has enough collateral
+/*LN-117*/         require(
+/*LN-118*/             currentBorrows + borrowValue <= borrowPower,
+/*LN-119*/             "Insufficient collateral"
+/*LN-120*/         );
+/*LN-121*/ 
+/*LN-122*/         // Update borrow balance
+/*LN-123*/         userBorrows[msg.sender][cToken] += amount;
+/*LN-124*/ 
+/*LN-125*/         // Transfer tokens to borrower (simplified)
+/*LN-126*/         // address underlying = ICToken(cToken).underlying();
+/*LN-127*/         // IERC20(underlying).transfer(msg.sender, amount);
 /*LN-128*/ 
-/*LN-129*/         // Transfer tokens
-/*LN-130*/         // In reality, this would transfer from bridge reserves
-/*LN-131*/         // IERC20(_token).transfer(_user, _amount);
-/*LN-132*/ 
-/*LN-133*/         emit WithdrawalProcessed(_withdrawalId, _user, _token, _amount);
-/*LN-134*/     }
-/*LN-135*/ 
-/*LN-136*/     /**
-/*LN-137*/      * @notice Verify validator signatures
-/*LN-138*/      * @dev VULNERABILITY: The verification logic is correct, but useless if
-/*LN-139*/      * validator keys are compromised. The attacker had valid keys, so they
-/*LN-140*/      * could create genuinely valid signatures for fake withdrawals.
-/*LN-141*/      */
-/*LN-142*/     function _verifySignatures(
-/*LN-143*/         uint256 _withdrawalId,
-/*LN-144*/         address _user,
-/*LN-145*/         address _token,
-/*LN-146*/         uint256 _amount,
-/*LN-147*/         bytes memory _signatures
-/*LN-148*/     ) internal view returns (bool) {
-/*LN-149*/         require(_signatures.length % 65 == 0, "Invalid signature length");
-/*LN-150*/ 
-/*LN-151*/         uint256 signatureCount = _signatures.length / 65;
-/*LN-152*/         require(signatureCount >= requiredSignatures, "Not enough signatures");
-/*LN-153*/ 
-/*LN-154*/         // Reconstruct the message hash
-/*LN-155*/         bytes32 messageHash = keccak256(
-/*LN-156*/             abi.encodePacked(_withdrawalId, _user, _token, _amount)
-/*LN-157*/         );
-/*LN-158*/         bytes32 ethSignedMessageHash = keccak256(
-/*LN-159*/             abi.encodePacked("\x19Ethereum Signed Message:\n32", messageHash)
-/*LN-160*/         );
-/*LN-161*/ 
-/*LN-162*/         address[] memory signers = new address[](signatureCount);
-/*LN-163*/ 
-/*LN-164*/         // Extract and verify each signature
-/*LN-165*/         for (uint256 i = 0; i < signatureCount; i++) {
-/*LN-166*/             bytes memory signature = _extractSignature(_signatures, i);
-/*LN-167*/             address signer = _recoverSigner(ethSignedMessageHash, signature);
-/*LN-168*/ 
-/*LN-169*/             // Check if signer is a validator
-/*LN-170*/             require(isValidator[signer], "Invalid signer");
-/*LN-171*/ 
-/*LN-172*/             // Check for duplicate signers
-/*LN-173*/             for (uint256 j = 0; j < i; j++) {
-/*LN-174*/                 require(signers[j] != signer, "Duplicate signer");
-/*LN-175*/             }
-/*LN-176*/ 
-/*LN-177*/             signers[i] = signer;
-/*LN-178*/         }
-/*LN-179*/ 
-/*LN-180*/         // All checks passed
-/*LN-181*/         return true;
-/*LN-182*/     }
-/*LN-183*/ 
-/*LN-184*/     /**
-/*LN-185*/      * @notice Extract a single signature from concatenated signatures
-/*LN-186*/      */
-/*LN-187*/     function _extractSignature(
-/*LN-188*/         bytes memory _signatures,
-/*LN-189*/         uint256 _index
-/*LN-190*/     ) internal pure returns (bytes memory) {
-/*LN-191*/         bytes memory signature = new bytes(65);
-/*LN-192*/         uint256 offset = _index * 65;
-/*LN-193*/ 
-/*LN-194*/         for (uint256 i = 0; i < 65; i++) {
-/*LN-195*/             signature[i] = _signatures[offset + i];
-/*LN-196*/         }
-/*LN-197*/ 
-/*LN-198*/         return signature;
-/*LN-199*/     }
-/*LN-200*/ 
-/*LN-201*/     /**
-/*LN-202*/      * @notice Recover signer from signature
-/*LN-203*/      */
-/*LN-204*/     function _recoverSigner(
-/*LN-205*/         bytes32 _hash,
-/*LN-206*/         bytes memory _signature
-/*LN-207*/     ) internal pure returns (address) {
-/*LN-208*/         require(_signature.length == 65, "Invalid signature length");
-/*LN-209*/ 
-/*LN-210*/         bytes32 r;
-/*LN-211*/         bytes32 s;
-/*LN-212*/         uint8 v;
+/*LN-129*/         emit Borrow(msg.sender, cToken, amount);
+/*LN-130*/     }
+/*LN-131*/ 
+/*LN-132*/     /**
+/*LN-133*/      * @notice Calculate user's total borrowing power
+/*LN-134*/      * @param user The user address
+/*LN-135*/      * @return Total borrowing power in USD (scaled by 1e18)
+/*LN-136*/      *
+/*LN-137*/      * VULNERABILITY:
+/*LN-138*/      * This function uses oracle.getUnderlyingPrice() which can return
+/*LN-139*/      * manipulated prices for tokens like yUSD.
+/*LN-140*/      *
+/*LN-141*/      * In the Cream hack:
+/*LN-142*/      * 1. Attacker deposited crYUSD (backed by Curve pool)
+/*LN-143*/      * 2. Oracle valued yUSD based on its underlying assets
+/*LN-144*/      * 3. Attacker manipulated Curve pool by withdrawing all yUSD
+/*LN-145*/      * 4. This made remaining yUSD appear more valuable
+/*LN-146*/      * 5. Oracle reported inflated price
+/*LN-147*/      * 6. Attacker could borrow huge amounts
+/*LN-148*/      */
+/*LN-149*/     function calculateBorrowPower(address user) public view returns (uint256) {
+/*LN-150*/         uint256 totalPower = 0;
+/*LN-151*/ 
+/*LN-152*/         // Iterate through all supported markets (simplified)
+/*LN-153*/         // In reality, would track user's entered markets
+/*LN-154*/         address[] memory markets = new address[](2); // Placeholder
+/*LN-155*/ 
+/*LN-156*/         for (uint256 i = 0; i < markets.length; i++) {
+/*LN-157*/             address cToken = markets[i];
+/*LN-158*/             uint256 balance = userDeposits[user][cToken];
+/*LN-159*/ 
+/*LN-160*/             if (balance > 0) {
+/*LN-161*/                 // Get price from oracle
+/*LN-162*/                 // VULNERABILITY: This price can be manipulated!
+/*LN-163*/                 uint256 price = oracle.getUnderlyingPrice(cToken);
+/*LN-164*/ 
+/*LN-165*/                 // Calculate value
+/*LN-166*/                 uint256 value = (balance * price) / 1e18;
+/*LN-167*/ 
+/*LN-168*/                 // Apply collateral factor
+/*LN-169*/                 uint256 power = (value * collateralFactors[cToken]) / 1e18;
+/*LN-170*/ 
+/*LN-171*/                 totalPower += power;
+/*LN-172*/             }
+/*LN-173*/         }
+/*LN-174*/ 
+/*LN-175*/         return totalPower;
+/*LN-176*/     }
+/*LN-177*/ 
+/*LN-178*/     /**
+/*LN-179*/      * @notice Calculate user's total borrow value
+/*LN-180*/      * @param user The user address
+/*LN-181*/      * @return Total borrow value in USD (scaled by 1e18)
+/*LN-182*/      */
+/*LN-183*/     function calculateTotalBorrows(address user) public view returns (uint256) {
+/*LN-184*/         uint256 totalBorrows = 0;
+/*LN-185*/ 
+/*LN-186*/         // Iterate through all supported markets (simplified)
+/*LN-187*/         address[] memory markets = new address[](2); // Placeholder
+/*LN-188*/ 
+/*LN-189*/         for (uint256 i = 0; i < markets.length; i++) {
+/*LN-190*/             address cToken = markets[i];
+/*LN-191*/             uint256 borrowed = userBorrows[user][cToken];
+/*LN-192*/ 
+/*LN-193*/             if (borrowed > 0) {
+/*LN-194*/                 uint256 price = oracle.getUnderlyingPrice(cToken);
+/*LN-195*/                 uint256 value = (borrowed * price) / 1e18;
+/*LN-196*/                 totalBorrows += value;
+/*LN-197*/             }
+/*LN-198*/         }
+/*LN-199*/ 
+/*LN-200*/         return totalBorrows;
+/*LN-201*/     }
+/*LN-202*/ 
+/*LN-203*/     /**
+/*LN-204*/      * @notice Add a supported market
+/*LN-205*/      * @param cToken The crToken to add
+/*LN-206*/      * @param collateralFactor The collateral factor (e.g., 0.75e18 for 75%)
+/*LN-207*/      */
+/*LN-208*/     function addMarket(address cToken, uint256 collateralFactor) external {
+/*LN-209*/         supportedMarkets[cToken] = true;
+/*LN-210*/         collateralFactors[cToken] = collateralFactor;
+/*LN-211*/     }
+/*LN-212*/ }
 /*LN-213*/ 
-/*LN-214*/         assembly {
-/*LN-215*/             r := mload(add(_signature, 32))
-/*LN-216*/             s := mload(add(_signature, 64))
-/*LN-217*/             v := byte(0, mload(add(_signature, 96)))
-/*LN-218*/         }
-/*LN-219*/ 
-/*LN-220*/         if (v < 27) {
-/*LN-221*/             v += 27;
-/*LN-222*/         }
-/*LN-223*/ 
-/*LN-224*/         require(v == 27 || v == 28, "Invalid signature v value");
-/*LN-225*/ 
-/*LN-226*/         return ecrecover(_hash, v, r, s);
-/*LN-227*/     }
-/*LN-228*/ 
-/*LN-229*/     /**
-/*LN-230*/      * @notice Add supported token (admin function)
-/*LN-231*/      */
-/*LN-232*/     function addSupportedToken(address _token) external {
-/*LN-233*/         supportedTokens[_token] = true;
-/*LN-234*/     }
-/*LN-235*/ }
-/*LN-236*/ 
-/*LN-237*/ /**
-/*LN-238*/  * REAL-WORLD IMPACT:
-/*LN-239*/  * - $625M stolen (173,600 ETH + 25.5M USDC) on March 23, 2022
-/*LN-240*/  * - Largest bridge hack in crypto history at the time
-/*LN-241*/  * - Took 6 days before anyone noticed (!)
-/*LN-242*/  * - Funds were never recovered
-/*LN-243*/  * - Caused massive damage to Axie Infinity ecosystem
+/*LN-214*/ /**
+/*LN-215*/  * REAL-WORLD IMPACT:
+/*LN-216*/  * - $130M stolen on October 27, 2021
+/*LN-217*/  * - Complex multi-step attack using two flash loans
+/*LN-218*/  * - Exploited price oracle manipulation via Curve pool
+/*LN-219*/  * - One of Cream's multiple hacks (they were exploited several times)
+/*LN-220*/  *
+/*LN-221*/  * ATTACK FLOW (Simplified):
+/*LN-222*/  * 1. Flash loan $500M DAI from MakerDAO
+/*LN-223*/  * 2. Swap DAI -> yUSD, deposit to Cream, get crYUSD collateral
+/*LN-224*/  * 3. Flash loan 524,000 ETH from Aave
+/*LN-225*/  * 4. Deposit ETH to Cream, get crETH collateral
+/*LN-226*/  * 5. Borrow yUSD against ETH collateral (multiple times)
+/*LN-227*/  * 6. Withdraw yUSD from Curve to underlying tokens
+/*LN-228*/  * 7. This manipulation doubles the price of remaining yUSD
+/*LN-229*/  * 8. Oracle reports inflated yUSD price
+/*LN-230*/  * 9. Attacker's crYUSD collateral is now valued at $1.5B (was $500M)
+/*LN-231*/  * 10. Borrow massive amounts against inflated collateral
+/*LN-232*/  * 11. Repay flash loans with profit
+/*LN-233*/  *
+/*LN-234*/  * FIX:
+/*LN-235*/  * The fix requires:
+/*LN-236*/  * 1. Use Time-Weighted Average Price (TWAP) oracles
+/*LN-237*/  * 2. Use Chainlink or other manipulation-resistant oracles
+/*LN-238*/  * 3. Don't use LP token prices directly from AMM pools
+/*LN-239*/  * 4. Implement price sanity checks and circuit breakers
+/*LN-240*/  * 5. Add borrow caps per market
+/*LN-241*/  * 6. Implement gradual price updates, not instant changes
+/*LN-242*/  * 7. Use multiple oracle sources and take median
+/*LN-243*/  * 8. Add flash loan attack detection
 /*LN-244*/  *
-/*LN-245*/  * FIX:
-/*LN-246*/  * The fix requires:
-/*LN-247*/  * 1. Increase total number of validators (more decentralization)
-/*LN-248*/  * 2. Ensure no single entity controls multiple validators
-/*LN-249*/  * 3. Implement hardware security modules (HSMs) for key storage
-/*LN-250*/  * 4. Use threshold signatures (MPC) instead of multi-sig
-/*LN-251*/  * 5. Implement real-time monitoring and alerts
-/*LN-252*/  * 6. Add withdrawal limits and timeloacks for large amounts
-/*LN-253*/  * 7. Require geographic and organizational diversity among validators
-/*LN-254*/  * 8. Implement anomaly detection for unusual withdrawal patterns
-/*LN-255*/  * 9. Use cold wallets with delays for large reserves
-/*LN-256*/  * 10. Regular security audits and penetration testing
+/*LN-245*/  * KEY LESSON:
+/*LN-246*/  * Oracle manipulation is one of the most dangerous vulnerabilities in DeFi.
+/*LN-247*/  * Using spot prices from AMM pools is especially risky because:
+/*LN-248*/  * - Pools can be manipulated via flash loans
+/*LN-249*/  * - Especially dangerous for low-liquidity assets
+/*LN-250*/  * - Can lead to cascading liquidations and protocol insolvency
+/*LN-251*/  *
+/*LN-252*/  * Cream was particularly vulnerable because:
+/*LN-253*/  * - It listed many low-liquidity tokens
+/*LN-254*/  * - Used Curve pool prices without sufficient safeguards
+/*LN-255*/  * - Allowed recursive borrowing that amplified the attack
+/*LN-256*/  *
 /*LN-257*/  *
-/*LN-258*/  * KEY LESSON:
-/*LN-259*/  * Multi-sig security is only as strong as the weakest validator.
-/*LN-260*/  * If a single entity controls multiple validators, or if validator
-/*LN-261*/  * infrastructure is not properly secured, the entire system is vulnerable.
-/*LN-262*/  *
-/*LN-263*/  * The Ronin hack demonstrated that:
-/*LN-264*/  * - Decentralization must be real, not just on paper
-/*LN-265*/  * - Key management is critical
-/*LN-266*/  * - Monitoring and alerting must be robust (6 days to detect!)
-/*LN-267*/  * - Bridge security is a major attack vector in DeFi
-/*LN-268*/  *
-/*LN-269*/  * The vulnerability wasn't in the smart contract code itself - the signature
-/*LN-270*/  * verification was correct. The issue was centralization and compromised
-/*LN-271*/  * infrastructure. This is a reminder that security extends beyond code.
-/*LN-272*/  *
-/*LN-273*/  * - The real vulnerability was in the validator setup and key management
-/*LN-274*/  *
-/*LN-275*/  * ATTRIBUTION:
-/*LN-276*/  * The attack was attributed to the Lazarus Group (North Korean state hackers).
-/*LN-277*/  * They used sophisticated social engineering and infrastructure compromise.
-/*LN-278*/  */
-/*LN-279*/ 
+/*LN-258*/  * The vulnerability is in the ORACLE, not this contract's logic.
+/*LN-259*/  * But the contract should have protected against oracle manipulation.
+/*LN-260*/  */
+/*LN-261*/ 

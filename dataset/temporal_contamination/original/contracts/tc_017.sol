@@ -2,222 +2,210 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * @title Pickle Finance - Arbitrary Call Vulnerability
-/*LN-6*/  * @notice This contract demonstrates the vulnerability that led to the Pickle hack
-/*LN-7*/  * @dev November 21, 2020 - $20M stolen through arbitrary contract calls
-/*LN-8*/  *
-/*LN-9*/  * VULNERABILITY: Arbitrary external calls in swap function allowing malicious operations
-/*LN-10*/  *
-/*LN-11*/  * ROOT CAUSE:
-/*LN-12*/  * The Controller's swapExactJarForJar() function accepts arrays of target addresses
-/*LN-13*/  * and calldata, then makes arbitrary external calls to these targets. An attacker
-/*LN-14*/  * can craft malicious calldata that calls privileged functions on strategy contracts,
-/*LN-15*/  * such as withdrawAll() or withdraw(), draining funds.
-/*LN-16*/  *
-/*LN-17*/  * ATTACK VECTOR:
-/*LN-18*/  * 1. Create fake "jar" (vault) contracts that return attacker-controlled addresses
-/*LN-19*/  * 2. Call swapExactJarForJar() with these fake jars
-/*LN-20*/  * 3. Pass target addresses pointing to real strategy contracts
-/*LN-21*/  * 4. Pass calldata that encodes calls to withdrawAll() or other privileged functions
-/*LN-22*/  * 5. Controller makes these calls without proper authorization checks
-/*LN-23*/  * 6. Strategy contracts execute withdrawAll(), sending funds to attacker
-/*LN-24*/  * 7. Repeat with multiple strategies to drain protocol
-/*LN-25*/  *
-/*LN-26*/  * The vulnerability is that the Controller trusts user-provided targets and calldata
-/*LN-27*/  * without validating what functions are being called or who should be able to call them.
-/*LN-28*/  */
-/*LN-29*/ 
-/*LN-30*/ interface IERC20 {
-/*LN-31*/     function transfer(address to, uint256 amount) external returns (bool);
-/*LN-32*/ 
-/*LN-33*/     function balanceOf(address account) external view returns (uint256);
-/*LN-34*/ }
-/*LN-35*/ 
-/*LN-36*/ interface IJar {
-/*LN-37*/     function token() external view returns (address);
-/*LN-38*/ 
-/*LN-39*/     function withdraw(uint256 amount) external;
-/*LN-40*/ }
-/*LN-41*/ 
-/*LN-42*/ interface IStrategy {
-/*LN-43*/     function withdrawAll() external;
+/*LN-5*/  * WARP FINANCE EXPLOIT (December 2020)
+/*LN-6*/  *
+/*LN-7*/  * Attack Vector: Flash Loan LP Token Price Manipulation
+/*LN-8*/  * Loss: $7.7 million
+/*LN-9*/  *
+/*LN-10*/  * VULNERABILITY:
+/*LN-11*/  * Warp Finance allowed users to deposit Uniswap LP tokens as collateral and
+/*LN-12*/  * borrow stablecoins. The vulnerability was in how the protocol calculated
+/*LN-13*/  * the value of LP tokens - it used the current reserve balances directly
+/*LN-14*/  * without any protection against flash loan manipulation.
+/*LN-15*/  *
+/*LN-16*/  * By using flash loans to massively imbalance a Uniswap pool, the attacker
+/*LN-17*/  * could inflate the calculated value of their LP tokens, allowing them to
+/*LN-18*/  * borrow more than the true value of their collateral.
+/*LN-19*/  *
+/*LN-20*/  * Attack Steps:
+/*LN-21*/  * 1. Flash loan large amounts of DAI
+/*LN-22*/  * 2. Swap DAI for ETH in Uniswap pool, heavily imbalancing it
+/*LN-23*/  * 3. LP token price calculation now shows inflated ETH value
+/*LN-24*/  * 4. Deposit LP tokens as collateral (now overvalued)
+/*LN-25*/  * 5. Borrow maximum DAI based on inflated collateral value
+/*LN-26*/  * 6. Swap back to rebalance pool
+/*LN-27*/  * 7. Repay flash loan
+/*LN-28*/  * 8. Profit from overborrowing
+/*LN-29*/  */
+/*LN-30*/ 
+/*LN-31*/ interface IUniswapV2Pair {
+/*LN-32*/     function getReserves()
+/*LN-33*/         external
+/*LN-34*/         view
+/*LN-35*/         returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
+/*LN-36*/ 
+/*LN-37*/     function totalSupply() external view returns (uint256);
+/*LN-38*/ }
+/*LN-39*/ 
+/*LN-40*/ interface IERC20 {
+/*LN-41*/     function balanceOf(address account) external view returns (uint256);
+/*LN-42*/ 
+/*LN-43*/     function transfer(address to, uint256 amount) external returns (bool);
 /*LN-44*/ 
-/*LN-45*/     function withdraw(address token) external;
-/*LN-46*/ }
-/*LN-47*/ 
-/*LN-48*/ contract VulnerablePickleController {
-/*LN-49*/     address public governance;
-/*LN-50*/     mapping(address => address) public strategies; // jar => strategy
+/*LN-45*/     function transferFrom(
+/*LN-46*/         address from,
+/*LN-47*/         address to,
+/*LN-48*/         uint256 amount
+/*LN-49*/     ) external returns (bool);
+/*LN-50*/ }
 /*LN-51*/ 
-/*LN-52*/     constructor() {
-/*LN-53*/         governance = msg.sender;
-/*LN-54*/     }
-/*LN-55*/ 
-/*LN-56*/     /**
-/*LN-57*/      * @notice Swap tokens between jars through strategies
-/*LN-58*/      * @param _fromJar Source jar address
-/*LN-59*/      * @param _toJar Destination jar address
-/*LN-60*/      * @param _fromJarAmount Amount to swap
-/*LN-61*/      * @param _toJarMinAmount Minimum amount to receive
-/*LN-62*/      * @param _targets Array of target contract addresses to call
-/*LN-63*/      * @param _data Array of calldata for each target
-/*LN-64*/      *
-/*LN-65*/      * VULNERABILITY IS HERE:
-/*LN-66*/      * The function makes arbitrary calls to user-provided targets with user-provided data.
-/*LN-67*/      * There are no checks on:
-/*LN-68*/      * 1. What contracts can be called (_targets)
-/*LN-69*/      * 2. What functions can be called (encoded in _data)
-/*LN-70*/      * 3. Whether the caller should have permission to make these calls
-/*LN-71*/      *
-/*LN-72*/      * Vulnerable sequence:
-/*LN-73*/      * 1. Function accepts arbitrary _targets and _data arrays (line 81-82)
-/*LN-74*/      * 2. Loops through and calls each target (line 88-91)
-/*LN-75*/      * 3. No validation of targets or data
-/*LN-76*/      * 4. Attacker can call withdrawAll() on strategies
-/*LN-77*/      * 5. Attacker can call any function on any contract
-/*LN-78*/      * 6. Funds drained from strategies
-/*LN-79*/      */
-/*LN-80*/     function swapExactJarForJar(
-/*LN-81*/         address _fromJar,
-/*LN-82*/         address _toJar,
-/*LN-83*/         uint256 _fromJarAmount,
-/*LN-84*/         uint256 _toJarMinAmount,
-/*LN-85*/         address[] calldata _targets,
-/*LN-86*/         bytes[] calldata _data
-/*LN-87*/     ) external {
-/*LN-88*/         require(_targets.length == _data.length, "Length mismatch");
-/*LN-89*/ 
-/*LN-90*/         // VULNERABLE: Make arbitrary calls without validation
-/*LN-91*/         for (uint256 i = 0; i < _targets.length; i++) {
-/*LN-92*/             (bool success, ) = _targets[i].call(_data[i]);
-/*LN-93*/             require(success, "Call failed");
-/*LN-94*/         }
+/*LN-52*/ contract WarpVault {
+/*LN-53*/     struct Position {
+/*LN-54*/         uint256 lpTokenAmount;
+/*LN-55*/         uint256 borrowed;
+/*LN-56*/     }
+/*LN-57*/ 
+/*LN-58*/     mapping(address => Position) public positions;
+/*LN-59*/ 
+/*LN-60*/     address public lpToken;
+/*LN-61*/     address public stablecoin;
+/*LN-62*/     uint256 public constant COLLATERAL_RATIO = 150; // 150% collateralization
+/*LN-63*/ 
+/*LN-64*/     constructor(address _lpToken, address _stablecoin) {
+/*LN-65*/         lpToken = _lpToken;
+/*LN-66*/         stablecoin = _stablecoin;
+/*LN-67*/     }
+/*LN-68*/ 
+/*LN-69*/     /**
+/*LN-70*/      * @notice Deposit LP tokens as collateral
+/*LN-71*/      */
+/*LN-72*/     function deposit(uint256 amount) external {
+/*LN-73*/         IERC20(lpToken).transferFrom(msg.sender, address(this), amount);
+/*LN-74*/         positions[msg.sender].lpTokenAmount += amount;
+/*LN-75*/     }
+/*LN-76*/ 
+/*LN-77*/     /**
+/*LN-78*/      * @notice Borrow stablecoins against LP token collateral
+/*LN-79*/      * @dev VULNERABLE: Uses current LP token value which can be manipulated
+/*LN-80*/      */
+/*LN-81*/     function borrow(uint256 amount) external {
+/*LN-82*/         uint256 collateralValue = getLPTokenValue(
+/*LN-83*/             positions[msg.sender].lpTokenAmount
+/*LN-84*/         );
+/*LN-85*/         uint256 maxBorrow = (collateralValue * 100) / COLLATERAL_RATIO;
+/*LN-86*/ 
+/*LN-87*/         require(
+/*LN-88*/             positions[msg.sender].borrowed + amount <= maxBorrow,
+/*LN-89*/             "Insufficient collateral"
+/*LN-90*/         );
+/*LN-91*/ 
+/*LN-92*/         positions[msg.sender].borrowed += amount;
+/*LN-93*/         IERC20(stablecoin).transfer(msg.sender, amount);
+/*LN-94*/     }
 /*LN-95*/ 
-/*LN-96*/         // The rest of swap logic would go here
-/*LN-97*/         // But it doesn't matter because attacker already drained funds
-/*LN-98*/     }
-/*LN-99*/ 
-/*LN-100*/     /**
-/*LN-101*/      * @notice Set strategy for a jar
-/*LN-102*/      * @dev Only governance should call this
-/*LN-103*/      */
-/*LN-104*/     function setStrategy(address jar, address strategy) external {
-/*LN-105*/         require(msg.sender == governance, "Not governance");
-/*LN-106*/         strategies[jar] = strategy;
-/*LN-107*/     }
-/*LN-108*/ }
-/*LN-109*/ 
-/*LN-110*/ /**
-/*LN-111*/  * Example Strategy contract that can be exploited:
-/*LN-112*/  */
-/*LN-113*/ contract PickleStrategy {
-/*LN-114*/     address public controller;
-/*LN-115*/     address public want; // The token this strategy manages
-/*LN-116*/ 
-/*LN-117*/     constructor(address _controller, address _want) {
-/*LN-118*/         controller = _controller;
-/*LN-119*/         want = _want;
-/*LN-120*/     }
-/*LN-121*/ 
-/*LN-122*/     /**
-/*LN-123*/      * @notice Withdraw all funds from strategy
-/*LN-124*/      * @dev Should only be callable by controller, but no check!
-/*LN-125*/      */
-/*LN-126*/     function withdrawAll() external {
-/*LN-127*/         // VULNERABLE: No access control!
-/*LN-128*/         // Should check: require(msg.sender == controller, "Not controller");
-/*LN-129*/ 
-/*LN-130*/         uint256 balance = IERC20(want).balanceOf(address(this));
-/*LN-131*/         IERC20(want).transfer(controller, balance);
-/*LN-132*/     }
-/*LN-133*/ 
-/*LN-134*/     /**
-/*LN-135*/      * @notice Withdraw specific token
-/*LN-136*/      * @dev Also lacks access control
-/*LN-137*/      */
-/*LN-138*/     function withdraw(address token) external {
-/*LN-139*/         // VULNERABLE: No access control!
-/*LN-140*/         uint256 balance = IERC20(token).balanceOf(address(this));
-/*LN-141*/         IERC20(token).transfer(controller, balance);
-/*LN-142*/     }
-/*LN-143*/ }
-/*LN-144*/ 
-/*LN-145*/ /**
-/*LN-146*/  * Example attack flow:
-/*LN-147*/  *
-/*LN-148*/  * 1. Attacker creates FakeJar contract:
-/*LN-149*/  *    contract FakeJar {
-/*LN-150*/  *        address public token;
-/*LN-151*/  *        constructor(address _token) { token = _token; }
-/*LN-152*/  *    }
-/*LN-153*/  *
-/*LN-154*/  * 2. Attacker encodes malicious calldata:
-/*LN-155*/  *    bytes memory withdrawAllData = abi.encodeWithSignature("withdrawAll()");
-/*LN-156*/  *    bytes memory withdrawData = abi.encodeWithSignature("withdraw(address)", DAI_ADDRESS);
-/*LN-157*/  *
-/*LN-158*/  * 3. Attacker calls controller.swapExactJarForJar():
-/*LN-159*/  *    - _fromJar = address(fakeJar1)
-/*LN-160*/  *    - _toJar = address(fakeJar2)
-/*LN-161*/  *    - _fromJarAmount = 0
-/*LN-162*/  *    - _toJarMinAmount = 0
-/*LN-163*/  *    - _targets = [strategyAddress1, strategyAddress2, ...]
-/*LN-164*/  *    - _data = [withdrawAllData, withdrawData, ...]
-/*LN-165*/  *
-/*LN-166*/  * 4. Controller calls strategy.withdrawAll() on behalf of attacker
-/*LN-167*/  * 5. Strategy sends all funds to controller (which is compromised in this flow)
-/*LN-168*/  * 6. Attacker repeats for all strategies
-/*LN-169*/  * 7. $20M drained
-/*LN-170*/  *
-/*LN-171*/  * REAL-WORLD IMPACT:
-/*LN-172*/  * - $20M stolen in November 2020
-/*LN-173*/  * - DAI strategy completely drained
-/*LN-174*/  * - Demonstrated danger of arbitrary external calls
-/*LN-175*/  * - Led to stricter function access controls in DeFi
+/*LN-96*/     /**
+/*LN-97*/      * @notice VULNERABLE FUNCTION: Calculate LP token value
+/*LN-98*/      * @dev Uses instantaneous reserve values, vulnerable to flash loan manipulation
+/*LN-99*/      *
+/*LN-100*/      * The vulnerability: LP token value is calculated as:
+/*LN-101*/      * value = (reserve0 * price0 + reserve1 * price1) * lpAmount / totalSupply
+/*LN-102*/      *
+/*LN-103*/      * If an attacker uses flash loans to manipulate reserve0 and reserve1,
+/*LN-104*/      * they can inflate the calculated value of their LP tokens.
+/*LN-105*/      */
+/*LN-106*/     function getLPTokenValue(uint256 lpAmount) public view returns (uint256) {
+/*LN-107*/         if (lpAmount == 0) return 0;
+/*LN-108*/ 
+/*LN-109*/         IUniswapV2Pair pair = IUniswapV2Pair(lpToken);
+/*LN-110*/ 
+/*LN-111*/         // Get current reserves - VULNERABLE to flash loan manipulation
+/*LN-112*/         (uint112 reserve0, uint112 reserve1, ) = pair.getReserves();
+/*LN-113*/         uint256 totalSupply = pair.totalSupply();
+/*LN-114*/ 
+/*LN-115*/         // Calculate share of reserves owned by these LP tokens
+/*LN-116*/         // This assumes reserves are fairly priced, but flash loans can manipulate this
+/*LN-117*/         uint256 amount0 = (uint256(reserve0) * lpAmount) / totalSupply;
+/*LN-118*/         uint256 amount1 = (uint256(reserve1) * lpAmount) / totalSupply;
+/*LN-119*/ 
+/*LN-120*/         // For simplicity, assume token0 is stablecoin ($1) and token1 is ETH
+/*LN-121*/         // In reality, would need oracle for ETH price
+/*LN-122*/         // VULNERABILITY: Using current reserves directly without TWAP or oracle
+/*LN-123*/         uint256 value0 = amount0; // amount0 is stablecoin, worth face value
+/*LN-124*/ 
+/*LN-125*/         // This simplified version just adds both reserves
+/*LN-126*/         // Real exploit would use inflated ETH reserves
+/*LN-127*/         uint256 totalValue = amount0 + amount1;
+/*LN-128*/ 
+/*LN-129*/         return totalValue;
+/*LN-130*/     }
+/*LN-131*/ 
+/*LN-132*/     /**
+/*LN-133*/      * @notice Repay borrowed amount
+/*LN-134*/      */
+/*LN-135*/     function repay(uint256 amount) external {
+/*LN-136*/         require(positions[msg.sender].borrowed >= amount, "Repay exceeds debt");
+/*LN-137*/ 
+/*LN-138*/         IERC20(stablecoin).transferFrom(msg.sender, address(this), amount);
+/*LN-139*/         positions[msg.sender].borrowed -= amount;
+/*LN-140*/     }
+/*LN-141*/ 
+/*LN-142*/     /**
+/*LN-143*/      * @notice Withdraw LP tokens
+/*LN-144*/      */
+/*LN-145*/     function withdraw(uint256 amount) external {
+/*LN-146*/         require(
+/*LN-147*/             positions[msg.sender].lpTokenAmount >= amount,
+/*LN-148*/             "Insufficient balance"
+/*LN-149*/         );
+/*LN-150*/ 
+/*LN-151*/         // Check that position remains healthy after withdrawal
+/*LN-152*/         uint256 remainingLP = positions[msg.sender].lpTokenAmount - amount;
+/*LN-153*/         uint256 remainingValue = getLPTokenValue(remainingLP);
+/*LN-154*/         uint256 maxBorrow = (remainingValue * 100) / COLLATERAL_RATIO;
+/*LN-155*/ 
+/*LN-156*/         require(
+/*LN-157*/             positions[msg.sender].borrowed <= maxBorrow,
+/*LN-158*/             "Withdrawal would liquidate position"
+/*LN-159*/         );
+/*LN-160*/ 
+/*LN-161*/         positions[msg.sender].lpTokenAmount -= amount;
+/*LN-162*/         IERC20(lpToken).transfer(msg.sender, amount);
+/*LN-163*/     }
+/*LN-164*/ }
+/*LN-165*/ 
+/*LN-166*/ /**
+/*LN-167*/  * EXPLOIT SCENARIO:
+/*LN-168*/  *
+/*LN-169*/  * Initial State:
+/*LN-170*/  * - Uniswap DAI/ETH pool: 1M DAI, 500 ETH (ETH price = $2000)
+/*LN-171*/  * - LP tokens represent balanced liquidity
+/*LN-172*/  * - Attacker holds some LP tokens
+/*LN-173*/  *
+/*LN-174*/  * Attack:
+/*LN-175*/  * 1. Flash loan 5M DAI from dYdX/Aave
 /*LN-176*/  *
-/*LN-177*/  * FIX:
-/*LN-178*/  * 1. Remove arbitrary call functionality entirely:
-/*LN-179*/  *
-/*LN-180*/  * function swapExactJarForJar(
-/*LN-181*/  *     address _fromJar,
-/*LN-182*/  *     address _toJar,
-/*LN-183*/  *     uint256 _fromJarAmount,
-/*LN-184*/  *     uint256 _toJarMinAmount
-/*LN-185*/  * ) external {
-/*LN-186*/  *     // Implement swap logic directly, no arbitrary calls
-/*LN-187*/  *     address fromStrategy = strategies[_fromJar];
-/*LN-188*/  *     address toStrategy = strategies[_toJar];
-/*LN-189*/  *
-/*LN-190*/  *     // Call specific, known functions only
-/*LN-191*/  *     IStrategy(fromStrategy).withdraw(_fromJarAmount);
-/*LN-192*/  *     IStrategy(toStrategy).deposit(_fromJarAmount);
-/*LN-193*/  * }
-/*LN-194*/  *
-/*LN-195*/  * 2. Add strict access control to strategy functions:
-/*LN-196*/  *
-/*LN-197*/  * function withdrawAll() external {
-/*LN-198*/  *     require(msg.sender == controller, "Only controller");
-/*LN-199*/  *     uint256 balance = IERC20(want).balanceOf(address(this));
-/*LN-200*/  *     IERC20(want).transfer(controller, balance);
-/*LN-201*/  * }
-/*LN-202*/  *
-/*LN-203*/  * 3. Whitelist allowed targets and function selectors:
+/*LN-177*/  * 2. Swap 5M DAI -> ETH in Uniswap pool
+/*LN-178*/  *    - Pool becomes: 6M DAI, 100 ETH (heavily imbalanced)
+/*LN-179*/  *    - Constant product maintained but prices skewed
+/*LN-180*/  *
+/*LN-181*/  * 3. LP token value calculation now sees:
+/*LN-182*/  *    - reserve0 (DAI): 6M
+/*LN-183*/  *    - reserve1 (ETH): 100 (but each LP token's share looks valuable due to high DAI reserve)
+/*LN-184*/  *    - Due to calculation method, LP tokens appear more valuable
+/*LN-185*/  *
+/*LN-186*/  * 4. Deposit LP tokens to Warp Finance
+/*LN-187*/  *    - getLPTokenValue() returns inflated value due to manipulated reserves
+/*LN-188*/  *
+/*LN-189*/  * 5. Borrow maximum stablecoins based on inflated collateral value
+/*LN-190*/  *    - Can borrow ~2-3x more than LP tokens are truly worth
+/*LN-191*/  *
+/*LN-192*/  * 6. Swap ETH back to DAI to rebalance pool
+/*LN-193*/  *
+/*LN-194*/  * 7. Repay flash loan
+/*LN-195*/  *
+/*LN-196*/  * 8. Keep overborrowed funds
+/*LN-197*/  *    - Profit: $7.7M
+/*LN-198*/  *    - Warp Finance left with undercollateralized debt
+/*LN-199*/  *
+/*LN-200*/  * Root Cause:
+/*LN-201*/  * - Using instantaneous reserve values to calculate LP token worth
+/*LN-202*/  * - No protection against within-block price manipulation
+/*LN-203*/  * - No use of TWAP (Time-Weighted Average Price)
 /*LN-204*/  *
-/*LN-205*/  * mapping(address => mapping(bytes4 => bool)) public allowedCalls;
-/*LN-206*/  *
-/*LN-207*/  * function swapExactJarForJar(...) external {
-/*LN-208*/  *     for (uint256 i = 0; i < _targets.length; i++) {
-/*LN-209*/  *         bytes4 selector = bytes4(_data[i]);
-/*LN-210*/  *         require(allowedCalls[_targets[i]][selector], "Call not allowed");
-/*LN-211*/  *         (bool success, ) = _targets[i].call(_data[i]);
-/*LN-212*/  *         require(success, "Call failed");
-/*LN-213*/  *     }
-/*LN-214*/  * }
-/*LN-215*/  *
-/*LN-216*/  *
-/*LN-217*/  * KEY LESSON:
-/*LN-218*/  * Never allow arbitrary external calls with user-provided targets and calldata.
-/*LN-219*/  * Always validate what contracts and functions can be called.
-/*LN-220*/  * Implement strict access control on all privileged functions.
-/*LN-221*/  * If arbitrary calls are needed, use strict whitelisting.
-/*LN-222*/  */
-/*LN-223*/ 
+/*LN-205*/  * Fix:
+/*LN-206*/  * - Use Uniswap TWAP oracle for price feeds
+/*LN-207*/  * - Don't calculate LP token value from instantaneous reserves
+/*LN-208*/  * - Use external price oracles (Chainlink, etc.)
+/*LN-209*/  * - Implement manipulation-resistant LP valuation (e.g., Alpha Homora's formula)
+/*LN-210*/  */
+/*LN-211*/ 

@@ -2,14 +2,14 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * COW PROTOCOL EXPLOIT (November 2024)
-/*LN-6*/  * Loss: $166,000
-/*LN-7*/  * Attack: Unauthorized Callback Invocation + Solver Manipulation
+/*LN-5*/  * HEDGEY FINANCE EXPLOIT (April 2024)
+/*LN-6*/  * Loss: $44.7 million
+/*LN-7*/  * Attack: Arbitrary External Call via Token Locker Donation
 /*LN-8*/  *
-/*LN-9*/  * CoW Protocol is a DEX aggregator using intent-based trading with solvers.
-/*LN-10*/  * The exploit involved directly calling the uniswapV3SwapCallback function
-/*LN-11*/  * with crafted parameters, bypassing normal swap validation, and extracting
-/*LN-12*/  * funds from a solver contract.
+/*LN-9*/  * Hedgey Finance manages token vesting and claims. The createLockedCampaign
+/*LN-10*/  * function accepted a user-controlled tokenLocker address in the donation
+/*LN-11*/  * parameter. This address was then used in an external call that allowed
+/*LN-12*/  * attackers to call transferFrom on any token where users had approvals.
 /*LN-13*/  */
 /*LN-14*/ 
 /*LN-15*/ interface IERC20 {
@@ -26,146 +26,168 @@
 /*LN-26*/     function approve(address spender, uint256 amount) external returns (bool);
 /*LN-27*/ }
 /*LN-28*/ 
-/*LN-29*/ interface IWETH {
-/*LN-30*/     function deposit() external payable;
-/*LN-31*/ 
-/*LN-32*/     function withdraw(uint256 amount) external;
-/*LN-33*/ 
-/*LN-34*/     function balanceOf(address account) external view returns (uint256);
-/*LN-35*/ }
-/*LN-36*/ 
-/*LN-37*/ contract CowSolver {
-/*LN-38*/     IWETH public immutable WETH;
-/*LN-39*/     address public immutable settlement;
-/*LN-40*/ 
-/*LN-41*/     constructor(address _weth, address _settlement) {
-/*LN-42*/         WETH = IWETH(_weth);
-/*LN-43*/         settlement = _settlement;
-/*LN-44*/     }
-/*LN-45*/ 
-/*LN-46*/     /**
-/*LN-47*/      * @notice Uniswap V3 swap callback
-/*LN-48*/      * @dev VULNERABILITY: Can be called directly by anyone, not just Uniswap pool
-/*LN-49*/      */
-/*LN-50*/     function uniswapV3SwapCallback(
-/*LN-51*/         int256 amount0Delta,
-/*LN-52*/         int256 amount1Delta,
-/*LN-53*/         bytes calldata data
-/*LN-54*/     ) external payable {
-/*LN-55*/         // VULNERABILITY 1: No validation that msg.sender is a legitimate Uniswap V3 pool
-/*LN-56*/         // Anyone can call this function directly with arbitrary parameters
-/*LN-57*/         // Should verify: require(msg.sender == expectedPool, "Unauthorized callback");
-/*LN-58*/ 
-/*LN-59*/         // Decode callback data
-/*LN-60*/         (
-/*LN-61*/             uint256 price,
-/*LN-62*/             address solver,
-/*LN-63*/             address tokenIn,
-/*LN-64*/             address recipient
-/*LN-65*/         ) = abi.decode(data, (uint256, address, address, address));
-/*LN-66*/ 
-/*LN-67*/         // VULNERABILITY 2: Trusts user-provided 'solver' address in calldata
-/*LN-68*/         // Attacker can specify their own address as solver
-/*LN-69*/         // Contract will transfer tokens to attacker-controlled address
-/*LN-70*/ 
-/*LN-71*/         // VULNERABILITY 3: Trusts user-provided 'recipient' address
-/*LN-72*/         // Attacker controls where funds ultimately go
-/*LN-73*/ 
-/*LN-74*/         // VULNERABILITY 4: No validation of swap amounts or prices
-/*LN-75*/         // amount0Delta and amount1Delta controlled by attacker
-/*LN-76*/         // Can specify amounts that drain the contract
+/*LN-29*/ enum TokenLockup {
+/*LN-30*/     Unlocked,
+/*LN-31*/     Locked,
+/*LN-32*/     Vesting
+/*LN-33*/ }
+/*LN-34*/ 
+/*LN-35*/ struct Campaign {
+/*LN-36*/     address manager;
+/*LN-37*/     address token;
+/*LN-38*/     uint256 amount;
+/*LN-39*/     uint256 end;
+/*LN-40*/     TokenLockup tokenLockup;
+/*LN-41*/     bytes32 root;
+/*LN-42*/ }
+/*LN-43*/ 
+/*LN-44*/ struct ClaimLockup {
+/*LN-45*/     address tokenLocker;
+/*LN-46*/     uint256 start;
+/*LN-47*/     uint256 cliff;
+/*LN-48*/     uint256 period;
+/*LN-49*/     uint256 periods;
+/*LN-50*/ }
+/*LN-51*/ 
+/*LN-52*/ struct Donation {
+/*LN-53*/     address tokenLocker;
+/*LN-54*/     uint256 amount;
+/*LN-55*/     uint256 rate;
+/*LN-56*/     uint256 start;
+/*LN-57*/     uint256 cliff;
+/*LN-58*/     uint256 period;
+/*LN-59*/ }
+/*LN-60*/ 
+/*LN-61*/ contract HedgeyClaimCampaigns {
+/*LN-62*/     mapping(bytes16 => Campaign) public campaigns;
+/*LN-63*/ 
+/*LN-64*/     /**
+/*LN-65*/      * @notice Create a locked campaign with vesting
+/*LN-66*/      * @dev VULNERABILITY: User-controlled tokenLocker address in donation
+/*LN-67*/      */
+/*LN-68*/     function createLockedCampaign(
+/*LN-69*/         bytes16 id,
+/*LN-70*/         Campaign memory campaign,
+/*LN-71*/         ClaimLockup memory claimLockup,
+/*LN-72*/         Donation memory donation
+/*LN-73*/     ) external {
+/*LN-74*/         require(campaigns[id].manager == address(0), "Campaign exists");
+/*LN-75*/ 
+/*LN-76*/         campaigns[id] = campaign;
 /*LN-77*/ 
-/*LN-78*/         // Calculate payment amount based on manipulated parameters
-/*LN-79*/         uint256 amountToPay;
-/*LN-80*/         if (amount0Delta > 0) {
-/*LN-81*/             amountToPay = uint256(amount0Delta);
-/*LN-82*/         } else {
-/*LN-83*/             amountToPay = uint256(amount1Delta);
-/*LN-84*/         }
-/*LN-85*/ 
-/*LN-86*/         // VULNERABILITY 5: Transfers tokens without verifying legitimate swap occurred
-/*LN-87*/         // No check that a real Uniswap swap initiated this callback
-/*LN-88*/         // Attacker gets tokens without providing anything in return
-/*LN-89*/ 
-/*LN-90*/         if (tokenIn == address(WETH)) {
-/*LN-91*/             WETH.withdraw(amountToPay);
-/*LN-92*/             payable(recipient).transfer(amountToPay);
-/*LN-93*/         } else {
-/*LN-94*/             IERC20(tokenIn).transfer(recipient, amountToPay);
-/*LN-95*/         }
-/*LN-96*/     }
-/*LN-97*/ 
-/*LN-98*/     /**
-/*LN-99*/      * @notice Execute settlement (normal flow)
-/*LN-100*/      * @dev This is how the function SHOULD be called, through proper settlement
-/*LN-101*/      */
-/*LN-102*/     function executeSettlement(bytes calldata settlementData) external {
-/*LN-103*/         require(msg.sender == settlement, "Only settlement");
-/*LN-104*/         // Normal settlement logic...
-/*LN-105*/     }
-/*LN-106*/ 
-/*LN-107*/     receive() external payable {}
-/*LN-108*/ }
-/*LN-109*/ 
-/*LN-110*/ /**
-/*LN-111*/  * EXPLOIT SCENARIO:
-/*LN-112*/  *
-/*LN-113*/  * 1. Attacker identifies vulnerable CowSolver contract:
-/*LN-114*/  *    - Contract: 0xA58cA3013Ed560594557f02420ed77e154De0109
-/*LN-115*/  *    - Has uniswapV3SwapCallback function exposed
-/*LN-116*/  *    - No msg.sender validation on callback
-/*LN-117*/  *
-/*LN-118*/  * 2. Attacker crafts malicious callback data:
-/*LN-119*/  *    - amount0Delta: -1978613680814188858940 (negative, expects to receive)
-/*LN-120*/  *    - amount1Delta: 5373296932158610028 (positive, solver should pay)
-/*LN-121*/  *    - data contains:
-/*LN-122*/  *      * price: 1976408883179648193852
-/*LN-123*/  *      * solver: attacker's address
-/*LN-124*/  *      * tokenIn: WETH address
-/*LN-125*/  *      * recipient: attacker's address
-/*LN-126*/  *
-/*LN-127*/  * 3. Attacker directly calls uniswapV3SwapCallback():
-/*LN-128*/  *    - Calls solver contract's callback function directly
-/*LN-129*/  *    - NOT through a real Uniswap V3 pool swap
-/*LN-130*/  *    - Bypasses all normal swap validation
-/*LN-131*/  *
-/*LN-132*/  * 4. Solver contract processes malicious callback:
-/*LN-133*/  *    - No verification that msg.sender is legitimate Uniswap pool
-/*LN-134*/  *    - Trusts attacker-provided parameters in data
-/*LN-135*/  *    - Calculates payment: amount1Delta = 5.37 WETH
+/*LN-78*/         if (donation.amount > 0 && donation.tokenLocker != address(0)) {
+/*LN-79*/             // VULNERABILITY 1: User-controlled tokenLocker address
+/*LN-80*/             // Attacker can specify malicious contract address
+/*LN-81*/ 
+/*LN-82*/             // VULNERABILITY 2: Arbitrary external call to user-controlled address
+/*LN-83*/             // Makes call to donation.tokenLocker without validation
+/*LN-84*/             (bool success, ) = donation.tokenLocker.call(
+/*LN-85*/                 abi.encodeWithSignature(
+/*LN-86*/                     "createTokenLock(address,uint256,uint256,uint256,uint256,uint256)",
+/*LN-87*/                     campaign.token,
+/*LN-88*/                     donation.amount,
+/*LN-89*/                     donation.start,
+/*LN-90*/                     donation.cliff,
+/*LN-91*/                     donation.rate,
+/*LN-92*/                     donation.period
+/*LN-93*/                 )
+/*LN-94*/             );
+/*LN-95*/ 
+/*LN-96*/             // VULNERABILITY 3: Assumed success means tokens were locked
+/*LN-97*/             // But malicious contract can do anything, including token theft
+/*LN-98*/             require(success, "Token lock failed");
+/*LN-99*/         }
+/*LN-100*/     }
+/*LN-101*/ 
+/*LN-102*/     /**
+/*LN-103*/      * @notice Cancel a campaign
+/*LN-104*/      */
+/*LN-105*/     function cancelCampaign(bytes16 campaignId) external {
+/*LN-106*/         require(campaigns[campaignId].manager == msg.sender, "Not manager");
+/*LN-107*/         delete campaigns[campaignId];
+/*LN-108*/     }
+/*LN-109*/ }
+/*LN-110*/ 
+/*LN-111*/ /**
+/*LN-112*/  * EXPLOIT SCENARIO:
+/*LN-113*/  *
+/*LN-114*/  * 1. Attacker creates malicious "tokenLocker" contract:
+/*LN-115*/  *    - Implements createTokenLock() interface
+/*LN-116*/  *    - But instead of locking tokens, calls transferFrom() on victims
+/*LN-117*/  *    - Contract address: 0x[attacker_contract]
+/*LN-118*/  *
+/*LN-119*/  * 2. Attacker identifies victims with token approvals:
+/*LN-120*/  *    - Users who approved Hedgey for USDC transfers
+/*LN-121*/  *    - Many users had unlimited approvals
+/*LN-122*/  *    - Target victims with large USDC balances
+/*LN-123*/  *
+/*LN-124*/  * 3. Attacker borrows USDC via flashloan:
+/*LN-125*/  *    - Borrows 1.305M USDC from Balancer
+/*LN-126*/  *    - Uses as campaign.amount in call
+/*LN-127*/  *
+/*LN-128*/  * 4. Attacker calls createLockedCampaign():
+/*LN-129*/  *    - Sets donation.tokenLocker = malicious contract address
+/*LN-130*/  *    - Sets donation.amount = flashloan amount
+/*LN-131*/  *    - Campaign.token = USDC address
+/*LN-132*/  *
+/*LN-133*/  * 5. Hedgey calls malicious tokenLocker:
+/*LN-134*/  *    - Calls attackerContract.createTokenLock()
+/*LN-135*/  *    - msg.sender is Hedgey contract
 /*LN-136*/  *
-/*LN-137*/  * 5. Contract sends WETH to attacker:
-/*LN-138*/  *    - Withdraws WETH and converts to ETH
-/*LN-139*/  *    - Sends ETH to attacker-specified recipient
-/*LN-140*/  *    - Attacker receives ~$166K worth of ETH
-/*LN-141*/  *
-/*LN-142*/  * 6. No repayment required:
-/*LN-143*/  *    - Normal Uniswap callback expects tokens in return
-/*LN-144*/  *    - But no validation means attacker pays nothing
-/*LN-145*/  *    - Direct call bypasses pool's token transfer requirements
+/*LN-137*/  * 6. Malicious contract executes token theft:
+/*LN-138*/  *    - Instead of locking tokens, calls:
+/*LN-139*/  *      USDC.transferFrom(victim, attacker, victimBalance)
+/*LN-140*/  *    - Transfer succeeds because victim approved Hedgey
+/*LN-141*/  *    - Hedgey is msg.sender, so has approval rights
+/*LN-142*/  *
+/*LN-143*/  * 7. Repeat for multiple victims:
+/*LN-144*/  *    - Drain $44.7M total from many users
+/*LN-145*/  *    - Each user who had approved Hedgey is vulnerable
 /*LN-146*/  *
-/*LN-147*/  * Root Causes:
-/*LN-148*/  * - Missing msg.sender validation in callback function
-/*LN-149*/  * - Callback function marked as external/public instead of internal
-/*LN-150*/  * - No verification that callback came from legitimate Uniswap pool
-/*LN-151*/  * - Trusting user-provided addresses in callback data
-/*LN-152*/  * - No access control on sensitive callback functions
-/*LN-153*/  * - Lack of reentrancy guards
-/*LN-154*/  * - Missing context validation (was a swap actually initiated?)
-/*LN-155*/  *
-/*LN-156*/  * Fix:
-/*LN-157*/  * - Validate msg.sender is a legitimate Uniswap V3 pool:
-/*LN-158*/  *   ```solidity
-/*LN-159*/  *   require(isValidPool[msg.sender], "Unauthorized callback");
-/*LN-160*/  *   ```
-/*LN-161*/  * - Maintain whitelist of approved pool addresses
-/*LN-162*/  * - Use factory.getPool() to verify pool legitimacy
-/*LN-163*/  * - Implement reentrancy guards
-/*LN-164*/  * - Add access control modifiers
-/*LN-165*/  * - Store swap state before initiating, validate in callback
-/*LN-166*/  * - Never trust user-provided addresses in callback data
-/*LN-167*/  * - Make callbacks internal/private when possible
-/*LN-168*/  * - Implement emergency pause functionality
-/*LN-169*/  * - Add maximum transfer limits per callback
-/*LN-170*/  */
-/*LN-171*/ 
+/*LN-147*/  * 8. Repay flashloan and profit:
+/*LN-148*/  *    - Return borrowed USDC
+/*LN-149*/  *    - Keep stolen funds
+/*LN-150*/  *
+/*LN-151*/  * Malicious Contract Implementation:
+/*LN-152*/  * ```solidity
+/*LN-153*/  * contract MaliciousLocker {
+/*LN-154*/  *     function createTokenLock(
+/*LN-155*/  *         address token,
+/*LN-156*/  *         uint256 amount,
+/*LN-157*/  *         uint256 start,
+/*LN-158*/  *         uint256 cliff,
+/*LN-159*/  *         uint256 rate,
+/*LN-160*/  *         uint256 period
+/*LN-161*/  *     ) external {
+/*LN-162*/  *         // msg.sender is Hedgey contract with victim approvals
+/*LN-163*/  *         IERC20 tokenContract = IERC20(token);
+/*LN-164*/  *         address victim = 0x[victim_address];
+/*LN-165*/  *         uint256 victimBalance = tokenContract.balanceOf(victim);
+/*LN-166*/  *
+/*LN-167*/  *         // Steal victim's tokens using Hedgey's approval rights
+/*LN-168*/  *         tokenContract.transferFrom(victim, tx.origin, victimBalance);
+/*LN-169*/  *     }
+/*LN-170*/  * }
+/*LN-171*/  * ```
+/*LN-172*/  *
+/*LN-173*/  * Root Causes:
+/*LN-174*/  * - User-controlled address used in external call
+/*LN-175*/  * - No whitelist of approved tokenLocker contracts
+/*LN-176*/  * - Arbitrary external call without validation
+/*LN-177*/  * - Trusting return value without verifying behavior
+/*LN-178*/  * - Users gave unlimited approvals to Hedgey
+/*LN-179*/  * - No validation of tokenLocker contract code
+/*LN-180*/  * - Missing access controls on who can create campaigns
+/*LN-181*/  *
+/*LN-182*/  * Fix:
+/*LN-183*/  * - Whitelist approved tokenLocker contract addresses
+/*LN-184*/  * - Never make external calls to user-provided addresses
+/*LN-185*/  * - Implement contract code verification
+/*LN-186*/  * - Require tokenLocker contracts to be verified/audited
+/*LN-187*/  * - Use proxy pattern with upgradeable approved lockers
+/*LN-188*/  * - Implement approval scoping (Permit2 pattern)
+/*LN-189*/  * - Add maximum approval amounts
+/*LN-190*/  * - Monitor for unusual transferFrom patterns
+/*LN-191*/  * - Implement pause mechanism for suspicious activity
+/*LN-192*/  */
+/*LN-193*/ 

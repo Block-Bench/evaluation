@@ -2,66 +2,90 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * HUNDRED FINANCE EXPLOIT (March 2022)  
-/*LN-6*/  * Attack: ERC667 Token Hooks Reentrancy
-/*LN-7*/  * Loss: $6 million
+/*LN-5*/  * BVAULTS (SAFEMOON) EXPLOIT (May 2021)
+/*LN-6*/  * Attack: Liquidity Pool Drain via Token Manipulation
+/*LN-7*/  * Loss: $8.5 million
 /*LN-8*/  * 
-/*LN-9*/  * ERC667 tokens have transfer hooks that call recipient contracts.
-/*LN-10*/  * Hundred Finance (Compound fork) didn't account for reentrancy during
-/*LN-11*/  * the token transfer, allowing attackers to re-enter and manipulate state.
-/*LN-12*/  */
-/*LN-13*/ 
-/*LN-14*/ interface IERC20 {
+/*LN-9*/  * SafeMoon-style tokens with transfer fees/burns can be exploited
+/*LN-10*/  * when pools don't account for the actual received amounts.
+/*LN-11*/  */
+/*LN-12*/ 
+/*LN-13*/ interface IERC20 {
+/*LN-14*/     function balanceOf(address account) external view returns (uint256);
 /*LN-15*/     function transfer(address to, uint256 amount) external returns (bool);
 /*LN-16*/     function transferFrom(address from, address to, uint256 amount) external returns (bool);
 /*LN-17*/ }
 /*LN-18*/ 
-/*LN-19*/ interface ICompoundToken {
-/*LN-20*/     function borrow(uint256 amount) external;
-/*LN-21*/     function repayBorrow(uint256 amount) external;
-/*LN-22*/     function redeem(uint256 tokens) external;
-/*LN-23*/     function mint(uint256 amount) external;
-/*LN-24*/ }
-/*LN-25*/ 
-/*LN-26*/ contract HundredFinanceMarket {
-/*LN-27*/     mapping(address => uint256) public accountBorrows;
-/*LN-28*/     mapping(address => uint256) public accountTokens;
-/*LN-29*/     
-/*LN-30*/     address public underlying;
-/*LN-31*/     uint256 public totalBorrows;
-/*LN-32*/     
-/*LN-33*/     constructor(address _underlying) {
-/*LN-34*/         underlying = _underlying;
-/*LN-35*/     }
-/*LN-36*/     
-/*LN-37*/     function borrow(uint256 amount) external {
-/*LN-38*/         accountBorrows[msg.sender] += amount;
-/*LN-39*/         totalBorrows += amount;
-/*LN-40*/         
-/*LN-41*/         // VULNERABLE: Transfer before updating state completely
-/*LN-42*/         // If underlying is ERC667, it can call back during transfer
-/*LN-43*/         IERC20(underlying).transfer(msg.sender, amount);
+/*LN-19*/ contract DeflatToken {
+/*LN-20*/     mapping(address => uint256) public balanceOf;
+/*LN-21*/     uint256 public totalSupply;
+/*LN-22*/     uint256 public feePercent = 10; // 10% burn on transfer
+/*LN-23*/     
+/*LN-24*/     function transfer(address to, uint256 amount) external returns (bool) {
+/*LN-25*/         uint256 fee = (amount * feePercent) / 100;
+/*LN-26*/         uint256 amountAfterFee = amount - fee;
+/*LN-27*/         
+/*LN-28*/         balanceOf[msg.sender] -= amount;
+/*LN-29*/         balanceOf[to] += amountAfterFee;
+/*LN-30*/         totalSupply -= fee; // Burn fee
+/*LN-31*/         
+/*LN-32*/         return true;
+/*LN-33*/     }
+/*LN-34*/     
+/*LN-35*/     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+/*LN-36*/         uint256 fee = (amount * feePercent) / 100;
+/*LN-37*/         uint256 amountAfterFee = amount - fee;
+/*LN-38*/         
+/*LN-39*/         balanceOf[from] -= amount;
+/*LN-40*/         balanceOf[to] += amountAfterFee;
+/*LN-41*/         totalSupply -= fee;
+/*LN-42*/         
+/*LN-43*/         return true;
 /*LN-44*/     }
-/*LN-45*/     
-/*LN-46*/     function repayBorrow(uint256 amount) external {
-/*LN-47*/         // Transfer tokens from user
-/*LN-48*/         IERC20(underlying).transferFrom(msg.sender, address(this), amount);
-/*LN-49*/         
-/*LN-50*/         // Update borrow state
-/*LN-51*/         accountBorrows[msg.sender] -= amount;
-/*LN-52*/         totalBorrows -= amount;
+/*LN-45*/ }
+/*LN-46*/ 
+/*LN-47*/ contract VulnerableVault {
+/*LN-48*/     address public token;
+/*LN-49*/     mapping(address => uint256) public deposits;
+/*LN-50*/     
+/*LN-51*/     constructor(address _token) {
+/*LN-52*/         token = _token;
 /*LN-53*/     }
-/*LN-54*/ }
-/*LN-55*/ 
-/*LN-56*/ /**
-/*LN-57*/  * EXPLOIT: 
-/*LN-58*/  * 1. Flash loan ERC667 tokens
-/*LN-59*/  * 2. Call borrow() 
-/*LN-60*/  * 3. During transfer, ERC667 calls back to attacker
-/*LN-61*/  * 4. Attacker re-enters borrow() before first borrow completes
-/*LN-62*/  * 5. Can borrow multiple times with same collateral
-/*LN-63*/  * 6. Drain $6M from protocol
-/*LN-64*/  * 
-/*LN-65*/  * Fix: Use reentrancy guards or checks-effects-interactions pattern
-/*LN-66*/  */
-/*LN-67*/ 
+/*LN-54*/     
+/*LN-55*/     function deposit(uint256 amount) external {
+/*LN-56*/         // VULNERABLE: Assumes full amount is received
+/*LN-57*/         // Doesn't check actual balance increase
+/*LN-58*/         IERC20(token).transferFrom(msg.sender, address(this), amount);
+/*LN-59*/         
+/*LN-60*/         deposits[msg.sender] += amount; // Records full amount
+/*LN-61*/         // But only received amount - fee!
+/*LN-62*/     }
+/*LN-63*/     
+/*LN-64*/     function withdraw(uint256 amount) external {
+/*LN-65*/         require(deposits[msg.sender] >= amount, "Insufficient");
+/*LN-66*/         
+/*LN-67*/         deposits[msg.sender] -= amount;
+/*LN-68*/         
+/*LN-69*/         // VULNERABILITY: Transfers full amount user deposited
+/*LN-70*/         // But vault actually received less due to transfer fee
+/*LN-71*/         IERC20(token).transfer(msg.sender, amount);
+/*LN-72*/     }
+/*LN-73*/ }
+/*LN-74*/ 
+/*LN-75*/ /**
+/*LN-76*/  * EXPLOIT:
+/*LN-77*/  * 1. Deflation token charges 10% fee on transfers
+/*LN-78*/  * 2. Attacker deposits 100 tokens
+/*LN-79*/  * 3. Vault receives only 90 tokens (10% burned)
+/*LN-80*/  * 4. Vault credits attacker with 100 tokens in deposits[]
+/*LN-81*/  * 5. Attacker withdraws 100 tokens
+/*LN-82*/  * 6. Vault sends 100 tokens (but had 90 + others' deposits)
+/*LN-83*/  * 7. Repeat to drain $8.5M from vault
+/*LN-84*/  * 
+/*LN-85*/  * Fix: Check actual balance before/after transfer:
+/*LN-86*/  * uint256 balBefore = token.balanceOf(address(this));
+/*LN-87*/  * token.transferFrom(...);
+/*LN-88*/  * uint256 received = token.balanceOf(address(this)) - balBefore;
+/*LN-89*/  * deposits[msg.sender] += received;
+/*LN-90*/  */
+/*LN-91*/ 

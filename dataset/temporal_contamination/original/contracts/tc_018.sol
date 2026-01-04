@@ -2,179 +2,217 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * INDEXED FINANCE EXPLOIT (October 2021)
+/*LN-5*/  * DODO REINITALIZATION EXPLOIT (March 2021)
 /*LN-6*/  *
-/*LN-7*/  * Attack Vector: Pool Weight Manipulation via Flash Loans
-/*LN-8*/  * Loss: $16 million
+/*LN-7*/  * Attack Vector: Reinitialization Vulnerability
+/*LN-8*/  * Loss: $3.8 million
 /*LN-9*/  *
 /*LN-10*/  * VULNERABILITY:
-/*LN-11*/  * The Indexed Finance protocol used index pools where token weights could be
-/*LN-12*/  * adjusted based on liquidity. An attacker used flash loans to massively
-/*LN-13*/  * drain liquidity of a single token, causing the pool's internal weight
-/*LN-14*/  * calculation to become extremely skewed.
-/*LN-15*/  *
-/*LN-16*/  * The vulnerability was in the _updateWeights() function which recalculated
-/*LN-17*/  * token weights based on current balances. By temporarily removing almost all
-/*LN-18*/  * of a token's liquidity, the attacker could manipulate weights to favor
-/*LN-19*/  * their subsequent trades.
-/*LN-20*/  *
-/*LN-21*/  * Attack Steps:
-/*LN-22*/  * 1. Flash loan large amounts of SUSHI/UNI/other index tokens
-/*LN-23*/  * 2. Swap massively into the pool, draining one token (e.g., DEFI5)
-/*LN-24*/  * 3. Pool recalculates weights based on new unbalanced state
-/*LN-25*/  * 4. Buy back the drained token at manipulated prices
-/*LN-26*/  * 5. Repay flash loan and profit from price discrepancy
-/*LN-27*/  */
+/*LN-11*/  * DODO's liquidity pool contract had an init() function that could be called
+/*LN-12*/  * multiple times without proper access control. The initialization function
+/*LN-13*/  * set critical parameters including fee recipient addresses and token balances.
+/*LN-14*/  *
+/*LN-15*/  * An attacker could call init() again after deployment, setting themselves
+/*LN-16*/  * as the fee recipient or manipulating pool parameters to drain funds.
+/*LN-17*/  *
+/*LN-18*/  * Attack Steps:
+/*LN-19*/  * 1. Identify DODO pool contract without initialization lock
+/*LN-20*/  * 2. Call init() with attacker-controlled parameters
+/*LN-21*/  * 3. Set maintainer/fee recipient to attacker address
+/*LN-22*/  * 4. Execute swaps or claim accumulated fees
+/*LN-23*/  * 5. Drain funds from pool
+/*LN-24*/  */
+/*LN-25*/ 
+/*LN-26*/ interface IERC20 {
+/*LN-27*/     function balanceOf(address account) external view returns (uint256);
 /*LN-28*/ 
-/*LN-29*/ interface IERC20 {
-/*LN-30*/     function balanceOf(address account) external view returns (uint256);
-/*LN-31*/ 
-/*LN-32*/     function transfer(address to, uint256 amount) external returns (bool);
-/*LN-33*/ }
-/*LN-34*/ 
-/*LN-35*/ contract IndexPool {
-/*LN-36*/     struct Token {
-/*LN-37*/         address addr;
-/*LN-38*/         uint256 balance;
-/*LN-39*/         uint256 weight; // stored as percentage (100 = 100%)
-/*LN-40*/     }
-/*LN-41*/ 
-/*LN-42*/     mapping(address => Token) public tokens;
-/*LN-43*/     address[] public tokenList;
-/*LN-44*/     uint256 public totalWeight;
-/*LN-45*/ 
-/*LN-46*/     constructor() {
-/*LN-47*/         totalWeight = 100;
-/*LN-48*/     }
-/*LN-49*/ 
-/*LN-50*/     function addToken(address token, uint256 initialWeight) external {
-/*LN-51*/         tokens[token] = Token({addr: token, balance: 0, weight: initialWeight});
-/*LN-52*/         tokenList.push(token);
-/*LN-53*/     }
-/*LN-54*/ 
-/*LN-55*/     /**
-/*LN-56*/      * @notice Swap tokens in the pool
-/*LN-57*/      * @dev VULNERABLE: Weights are updated based on current balances after swap
+/*LN-29*/     function transfer(address to, uint256 amount) external returns (bool);
+/*LN-30*/ 
+/*LN-31*/     function transferFrom(
+/*LN-32*/         address from,
+/*LN-33*/         address to,
+/*LN-34*/         uint256 amount
+/*LN-35*/     ) external returns (bool);
+/*LN-36*/ }
+/*LN-37*/ 
+/*LN-38*/ contract DODOPool {
+/*LN-39*/     address public maintainer;
+/*LN-40*/     address public baseToken;
+/*LN-41*/     address public quoteToken;
+/*LN-42*/ 
+/*LN-43*/     uint256 public lpFeeRate;
+/*LN-44*/     uint256 public baseBalance;
+/*LN-45*/     uint256 public quoteBalance;
+/*LN-46*/ 
+/*LN-47*/     bool public isInitialized;
+/*LN-48*/ 
+/*LN-49*/     event Initialized(address maintainer, address base, address quote);
+/*LN-50*/ 
+/*LN-51*/     /**
+/*LN-52*/      * @notice VULNERABLE: init() can be called multiple times
+/*LN-53*/      * @dev Missing `require(!isInitialized)` check allows reinitialization
+/*LN-54*/      *
+/*LN-55*/      * This function sets critical pool parameters including the maintainer
+/*LN-56*/      * address (fee recipient). Without proper protection, attackers can
+/*LN-57*/      * call it again to hijack the pool.
 /*LN-58*/      */
-/*LN-59*/     function swap(
-/*LN-60*/         address tokenIn,
-/*LN-61*/         address tokenOut,
-/*LN-62*/         uint256 amountIn
-/*LN-63*/     ) external returns (uint256 amountOut) {
-/*LN-64*/         require(tokens[tokenIn].addr != address(0), "Invalid token");
-/*LN-65*/         require(tokens[tokenOut].addr != address(0), "Invalid token");
-/*LN-66*/ 
-/*LN-67*/         // Transfer tokens in
-/*LN-68*/         IERC20(tokenIn).transfer(address(this), amountIn);
-/*LN-69*/         tokens[tokenIn].balance += amountIn;
-/*LN-70*/ 
-/*LN-71*/         // Calculate amount out based on current weights
-/*LN-72*/         amountOut = calculateSwapAmount(tokenIn, tokenOut, amountIn);
-/*LN-73*/ 
-/*LN-74*/         // Transfer tokens out
-/*LN-75*/         require(
-/*LN-76*/             tokens[tokenOut].balance >= amountOut,
-/*LN-77*/             "Insufficient liquidity"
-/*LN-78*/         );
-/*LN-79*/         tokens[tokenOut].balance -= amountOut;
-/*LN-80*/         IERC20(tokenOut).transfer(msg.sender, amountOut);
-/*LN-81*/ 
-/*LN-82*/         // VULNERABILITY: Update weights after swap based on new balances
-/*LN-83*/         // This allows flash loan attacks to manipulate weights
-/*LN-84*/         _updateWeights();
+/*LN-59*/     function init(
+/*LN-60*/         address _maintainer,
+/*LN-61*/         address _baseToken,
+/*LN-62*/         address _quoteToken,
+/*LN-63*/         uint256 _lpFeeRate
+/*LN-64*/     ) external {
+/*LN-65*/         // VULNERABILITY: Missing initialization check!
+/*LN-66*/         // Should have: require(!isInitialized, "Already initialized");
+/*LN-67*/ 
+/*LN-68*/         maintainer = _maintainer;
+/*LN-69*/         baseToken = _baseToken;
+/*LN-70*/         quoteToken = _quoteToken;
+/*LN-71*/         lpFeeRate = _lpFeeRate;
+/*LN-72*/ 
+/*LN-73*/         // Even though we set isInitialized = true, the damage is done
+/*LN-74*/         // The attacker has already changed the maintainer address
+/*LN-75*/         isInitialized = true;
+/*LN-76*/ 
+/*LN-77*/         emit Initialized(_maintainer, _baseToken, _quoteToken);
+/*LN-78*/     }
+/*LN-79*/ 
+/*LN-80*/     /**
+/*LN-81*/      * @notice Add liquidity to pool
+/*LN-82*/      */
+/*LN-83*/     function addLiquidity(uint256 baseAmount, uint256 quoteAmount) external {
+/*LN-84*/         require(isInitialized, "Not initialized");
 /*LN-85*/ 
-/*LN-86*/         return amountOut;
-/*LN-87*/     }
+/*LN-86*/         IERC20(baseToken).transferFrom(msg.sender, address(this), baseAmount);
+/*LN-87*/         IERC20(quoteToken).transferFrom(msg.sender, address(this), quoteAmount);
 /*LN-88*/ 
-/*LN-89*/     /**
-/*LN-90*/      * @notice Calculate swap amount based on token weights
-/*LN-91*/      */
-/*LN-92*/     function calculateSwapAmount(
-/*LN-93*/         address tokenIn,
-/*LN-94*/         address tokenOut,
-/*LN-95*/         uint256 amountIn
-/*LN-96*/     ) public view returns (uint256) {
-/*LN-97*/         uint256 weightIn = tokens[tokenIn].weight;
-/*LN-98*/         uint256 weightOut = tokens[tokenOut].weight;
-/*LN-99*/         uint256 balanceOut = tokens[tokenOut].balance;
-/*LN-100*/ 
-/*LN-101*/         // Simplified constant product with weights: x * y = k * (w1/w2)
-/*LN-102*/         // amountOut = balanceOut * amountIn * weightOut / (balanceIn * weightIn + amountIn * weightOut)
-/*LN-103*/ 
-/*LN-104*/         uint256 numerator = balanceOut * amountIn * weightOut;
-/*LN-105*/         uint256 denominator = tokens[tokenIn].balance *
-/*LN-106*/             weightIn +
-/*LN-107*/             amountIn *
-/*LN-108*/             weightOut;
-/*LN-109*/ 
-/*LN-110*/         return numerator / denominator;
-/*LN-111*/     }
-/*LN-112*/ 
-/*LN-113*/     /**
-/*LN-114*/      * @notice VULNERABLE FUNCTION: Updates token weights based on current balances
-/*LN-115*/      * @dev This is called after every swap, allowing manipulation via flash loans
-/*LN-116*/      *
-/*LN-117*/      * The vulnerability: If an attacker uses flash loans to massively imbalance
-/*LN-118*/      * the pool temporarily, this function will update weights to reflect that
-/*LN-119*/      * imbalance, allowing them to profit from the skewed pricing.
-/*LN-120*/      */
-/*LN-121*/     function _updateWeights() internal {
-/*LN-122*/         uint256 totalValue = 0;
-/*LN-123*/ 
-/*LN-124*/         // Calculate total value in pool
-/*LN-125*/         for (uint256 i = 0; i < tokenList.length; i++) {
-/*LN-126*/             address token = tokenList[i];
-/*LN-127*/             // In real implementation, this would use oracle prices
-/*LN-128*/             // For this simplified version, we use balance as proxy for value
-/*LN-129*/             totalValue += tokens[token].balance;
-/*LN-130*/         }
-/*LN-131*/ 
-/*LN-132*/         // Update each token's weight proportional to its balance
-/*LN-133*/         for (uint256 i = 0; i < tokenList.length; i++) {
-/*LN-134*/             address token = tokenList[i];
-/*LN-135*/ 
-/*LN-136*/             // VULNERABILITY: Weight is directly based on current balance
-/*LN-137*/             // Flash loan attackers can manipulate this by temporarily
-/*LN-138*/             // draining liquidity of one token
-/*LN-139*/             tokens[token].weight = (tokens[token].balance * 100) / totalValue;
-/*LN-140*/         }
-/*LN-141*/     }
+/*LN-89*/         baseBalance += baseAmount;
+/*LN-90*/         quoteBalance += quoteAmount;
+/*LN-91*/     }
+/*LN-92*/ 
+/*LN-93*/     /**
+/*LN-94*/      * @notice Swap tokens
+/*LN-95*/      */
+/*LN-96*/     function swap(
+/*LN-97*/         address fromToken,
+/*LN-98*/         address toToken,
+/*LN-99*/         uint256 fromAmount
+/*LN-100*/     ) external returns (uint256 toAmount) {
+/*LN-101*/         require(isInitialized, "Not initialized");
+/*LN-102*/         require(
+/*LN-103*/             (fromToken == baseToken && toToken == quoteToken) ||
+/*LN-104*/                 (fromToken == quoteToken && toToken == baseToken),
+/*LN-105*/             "Invalid token pair"
+/*LN-106*/         );
+/*LN-107*/ 
+/*LN-108*/         // Transfer tokens in
+/*LN-109*/         IERC20(fromToken).transferFrom(msg.sender, address(this), fromAmount);
+/*LN-110*/ 
+/*LN-111*/         // Calculate swap amount (simplified constant product)
+/*LN-112*/         if (fromToken == baseToken) {
+/*LN-113*/             toAmount = (quoteBalance * fromAmount) / (baseBalance + fromAmount);
+/*LN-114*/             baseBalance += fromAmount;
+/*LN-115*/             quoteBalance -= toAmount;
+/*LN-116*/         } else {
+/*LN-117*/             toAmount = (baseBalance * fromAmount) / (quoteBalance + fromAmount);
+/*LN-118*/             quoteBalance += fromAmount;
+/*LN-119*/             baseBalance -= toAmount;
+/*LN-120*/         }
+/*LN-121*/ 
+/*LN-122*/         // Deduct fee for maintainer
+/*LN-123*/         uint256 fee = (toAmount * lpFeeRate) / 10000;
+/*LN-124*/         toAmount -= fee;
+/*LN-125*/ 
+/*LN-126*/         // Transfer tokens out
+/*LN-127*/         IERC20(toToken).transfer(msg.sender, toAmount);
+/*LN-128*/ 
+/*LN-129*/         // VULNERABILITY: Fees accumulate for maintainer
+/*LN-130*/         // If attacker reinitialized and set themselves as maintainer,
+/*LN-131*/         // they can claim all fees
+/*LN-132*/         IERC20(toToken).transfer(maintainer, fee);
+/*LN-133*/ 
+/*LN-134*/         return toAmount;
+/*LN-135*/     }
+/*LN-136*/ 
+/*LN-137*/     /**
+/*LN-138*/      * @notice Claim accumulated fees (simplified)
+/*LN-139*/      */
+/*LN-140*/     function claimFees() external {
+/*LN-141*/         require(msg.sender == maintainer, "Only maintainer");
 /*LN-142*/ 
-/*LN-143*/     /**
-/*LN-144*/      * @notice Get current token weight
-/*LN-145*/      */
-/*LN-146*/     function getWeight(address token) external view returns (uint256) {
-/*LN-147*/         return tokens[token].weight;
-/*LN-148*/     }
-/*LN-149*/ 
-/*LN-150*/     /**
-/*LN-151*/      * @notice Add liquidity to pool
-/*LN-152*/      */
-/*LN-153*/     function addLiquidity(address token, uint256 amount) external {
-/*LN-154*/         require(tokens[token].addr != address(0), "Invalid token");
-/*LN-155*/         IERC20(token).transfer(address(this), amount);
-/*LN-156*/         tokens[token].balance += amount;
-/*LN-157*/         _updateWeights();
-/*LN-158*/     }
-/*LN-159*/ }
-/*LN-160*/ 
-/*LN-161*/ /**
-/*LN-162*/  * EXPLOIT SCENARIO:
-/*LN-163*/  *
-/*LN-164*/  * Initial State:
-/*LN-165*/  * - Pool has: 1M SUSHI (weight: 33%), 1M UNI (weight: 33%), 1M DEFI5 (weight: 33%)
-/*LN-166*/  *
-/*LN-167*/  * Attack:
-/*LN-168*/  * 1. Flash loan 10M SUSHI
-/*LN-169*/  * 2. Swap 10M SUSHI -> DEFI5 (drains most DEFI5 from pool)
-/*LN-170*/  * 3. Pool now has: 11M SUSHI, 1M UNI, 0.1M DEFI5
-/*LN-171*/  * 4. _updateWeights() recalculates: SUSHI 91%, UNI 8%, DEFI5 1%
-/*LN-172*/  * 5. Now DEFI5 is heavily undervalued due to its tiny weight
-/*LN-173*/  * 6. Buy back DEFI5 at manipulated low price
-/*LN-174*/  * 7. Repay flash loan
-/*LN-175*/  * 8. Profit: ~$16M
-/*LN-176*/  *
-/*LN-177*/  * Fix: Weights should not be updated based on instantaneous balances.
-/*LN-178*/  * Use time-weighted average prices (TWAP) or external oracles instead.
-/*LN-179*/  */
-/*LN-180*/ 
+/*LN-143*/         // In the real DODO contract, there was accumulated fee tracking
+/*LN-144*/         // Attacker could reinitialize, set themselves as maintainer,
+/*LN-145*/         // then claim all accumulated fees
+/*LN-146*/         uint256 baseTokenBalance = IERC20(baseToken).balanceOf(address(this));
+/*LN-147*/         uint256 quoteTokenBalance = IERC20(quoteToken).balanceOf(address(this));
+/*LN-148*/ 
+/*LN-149*/         // Transfer excess (fees) to maintainer
+/*LN-150*/         if (baseTokenBalance > baseBalance) {
+/*LN-151*/             uint256 excess = baseTokenBalance - baseBalance;
+/*LN-152*/             IERC20(baseToken).transfer(maintainer, excess);
+/*LN-153*/         }
+/*LN-154*/ 
+/*LN-155*/         if (quoteTokenBalance > quoteBalance) {
+/*LN-156*/             uint256 excess = quoteTokenBalance - quoteBalance;
+/*LN-157*/             IERC20(quoteToken).transfer(maintainer, excess);
+/*LN-158*/         }
+/*LN-159*/     }
+/*LN-160*/ }
+/*LN-161*/ 
+/*LN-162*/ /**
+/*LN-163*/  * EXPLOIT SCENARIO:
+/*LN-164*/  *
+/*LN-165*/  * Initial State:
+/*LN-166*/  * - DODO pool deployed and initialized by legitimate owner
+/*LN-167*/  * - maintainer = 0xLegitOwner
+/*LN-168*/  * - Pool has accumulated $3.8M in fees and liquidity
+/*LN-169*/  *
+/*LN-170*/  * Attack:
+/*LN-171*/  * 1. Attacker notices init() has no initialization guard
+/*LN-172*/  *
+/*LN-173*/  * 2. Attacker calls:
+/*LN-174*/  *    init(
+/*LN-175*/  *      _maintainer: 0xAttacker,  // Hijack maintainer role
+/*LN-176*/  *      _baseToken: <existing>,
+/*LN-177*/  *      _quoteToken: <existing>,
+/*LN-178*/  *      _lpFeeRate: 10000  // Max fees to attacker
+/*LN-179*/  *    )
+/*LN-180*/  *
+/*LN-181*/  * 3. Now maintainer = 0xAttacker
+/*LN-182*/  *
+/*LN-183*/  * 4. Attacker can:
+/*LN-184*/  *    a) Call claimFees() to steal accumulated fees
+/*LN-185*/  *    b) All future swap fees go to attacker
+/*LN-186*/  *    c) In some versions, could manipulate baseBalance/quoteBalance
+/*LN-187*/  *       to enable profitable swaps
+/*LN-188*/  *
+/*LN-189*/  * 5. Drain $3.8M from the pool
+/*LN-190*/  *
+/*LN-191*/  * Root Cause:
+/*LN-192*/  * - init() function lacked proper initialization guard
+/*LN-193*/  * - Missing: require(!isInitialized, "Already initialized")
+/*LN-194*/  * - Or better: use OpenZeppelin's Initializable pattern
+/*LN-195*/  *
+/*LN-196*/  * Fix:
+/*LN-197*/  * ```solidity
+/*LN-198*/  * bool private initialized;
+/*LN-199*/  *
+/*LN-200*/  * function init(...) external {
+/*LN-201*/  *     require(!initialized, "Already initialized");
+/*LN-202*/  *     initialized = true;
+/*LN-203*/  *     // ... rest of initialization
+/*LN-204*/  * }
+/*LN-205*/  * ```
+/*LN-206*/  *
+/*LN-207*/  * Or use OpenZeppelin Initializable:
+/*LN-208*/  * ```solidity
+/*LN-209*/  * import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+/*LN-210*/  *
+/*LN-211*/  * contract DODOPool is Initializable {
+/*LN-212*/  *     function init(...) external initializer {
+/*LN-213*/  *         // ... initialization logic
+/*LN-214*/  *     }
+/*LN-215*/  * }
+/*LN-216*/  * ```
+/*LN-217*/  */
+/*LN-218*/ 

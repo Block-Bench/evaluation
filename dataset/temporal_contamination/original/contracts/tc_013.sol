@@ -2,191 +2,240 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * @title PancakeHunny - Balance Calculation Vulnerability
-/*LN-6*/  * @notice This contract demonstrates the vulnerability that led to the PancakeHunny hack
-/*LN-7*/  * @dev May 20, 2021 - $45M stolen through incorrect balance calculation
+/*LN-5*/  * @title bZx Protocol - Transfer Callback Manipulation
+/*LN-6*/  * @notice This contract demonstrates the vulnerability in bZx's loan token
+/*LN-7*/  * @dev September 2020 - Flash loan + transfer callback exploit
 /*LN-8*/  *
-/*LN-9*/  * VULNERABILITY: Using balanceOf for fee calculation allowing flash loan manipulation
+/*LN-9*/  * VULNERABILITY: Transfer callback that modifies state during balance queries
 /*LN-10*/  *
 /*LN-11*/  * ROOT CAUSE:
-/*LN-12*/  * The mintFor() function calculates reward tokens based on contract's current token balance
-/*LN-13*/  * using balanceOf(address(this)). An attacker can artificially inflate this balance
-/*LN-14*/  * by sending tokens directly to the contract before calling the function, then
-/*LN-15*/  * immediately withdrawing after, tricking the contract into minting excessive rewards.
-/*LN-16*/  *
-/*LN-17*/  * ATTACK VECTOR:
-/*LN-18*/  * 1. Attacker deposits large amount of LP tokens to vault
-/*LN-19*/  * 2. Attacker transfers additional LP tokens directly to the minter contract
-/*LN-20*/  * 3. Attacker calls getReward() which triggers mintFor()
-/*LN-21*/  * 4. mintFor() sees inflated balance from step 2, mints excessive HUNNY rewards
-/*LN-22*/  * 5. Attacker receives far more HUNNY tokens than earned
-/*LN-23*/  * 6. Attacker sells HUNNY tokens for profit
-/*LN-24*/  *
-/*LN-25*/  * This vulnerability often combines with flash loans to amplify the attack.
-/*LN-26*/  */
-/*LN-27*/ 
-/*LN-28*/ interface IERC20 {
-/*LN-29*/     function transfer(address to, uint256 amount) external returns (bool);
+/*LN-12*/  * The mintWithEther() function calculates how many tokens to mint based on
+/*LN-13*/  * totalSupply and total assets. When transfer() is called on the loan token,
+/*LN-14*/  * it triggers a callback to the recipient. An attacker can use this callback
+/*LN-15*/  * to call transfer() again, which recalculates shares using the modified
+/*LN-16*/  * but not yet finalized state, leading to inflated token minting.
+/*LN-17*/  *
+/*LN-18*/  * ATTACK VECTOR:
+/*LN-19*/  * 1. Call mintWithEther() with ETH
+/*LN-20*/  * 2. Receive loan tokens
+/*LN-21*/  * 3. Call transfer() to self repeatedly in a loop
+/*LN-22*/  * 4. Each transfer() triggers recipient callback
+/*LN-23*/  * 5. During callback, balance hasn't been updated yet
+/*LN-24*/  * 6. Internal calculations use stale state
+/*LN-25*/  * 7. After 4-5 transfers to self, token balance inflates
+/*LN-26*/  * 8. Burn inflated tokens back to ETH for profit
+/*LN-27*/  *
+/*LN-28*/  * This exploits the state inconsistency during token transfer callbacks.
+/*LN-29*/  */
 /*LN-30*/ 
-/*LN-31*/     function transferFrom(
-/*LN-32*/         address from,
-/*LN-33*/         address to,
-/*LN-34*/         uint256 amount
-/*LN-35*/     ) external returns (bool);
+/*LN-31*/ interface IERC20 {
+/*LN-32*/     function transfer(address to, uint256 amount) external returns (bool);
+/*LN-33*/ 
+/*LN-34*/     function balanceOf(address account) external view returns (uint256);
+/*LN-35*/ }
 /*LN-36*/ 
-/*LN-37*/     function balanceOf(address account) external view returns (uint256);
-/*LN-38*/ }
-/*LN-39*/ 
-/*LN-40*/ interface IPancakeRouter {
-/*LN-41*/     function swapExactTokensForTokens(
-/*LN-42*/         uint amountIn,
-/*LN-43*/         uint amountOut,
-/*LN-44*/         address[] calldata path,
-/*LN-45*/         address to,
-/*LN-46*/         uint deadline
-/*LN-47*/     ) external returns (uint[] memory amounts);
-/*LN-48*/ }
-/*LN-49*/ 
-/*LN-50*/ contract VulnerableHunnyMinter {
-/*LN-51*/     IERC20 public lpToken; // LP token (e.g., CAKE-BNB)
-/*LN-52*/     IERC20 public rewardToken; // HUNNY reward token
-/*LN-53*/ 
-/*LN-54*/     mapping(address => uint256) public depositedLP;
-/*LN-55*/     mapping(address => uint256) public earnedRewards;
-/*LN-56*/ 
-/*LN-57*/     uint256 public constant REWARD_RATE = 100; // 100 reward tokens per LP token
+/*LN-37*/ contract VulnerableBZXLoanToken {
+/*LN-38*/     string public name = "iETH";
+/*LN-39*/     string public symbol = "iETH";
+/*LN-40*/ 
+/*LN-41*/     mapping(address => uint256) public balances;
+/*LN-42*/     uint256 public totalSupply;
+/*LN-43*/     uint256 public totalAssetBorrow;
+/*LN-44*/     uint256 public totalAssetSupply;
+/*LN-45*/ 
+/*LN-46*/     /**
+/*LN-47*/      * @notice Mint loan tokens by depositing ETH
+/*LN-48*/      */
+/*LN-49*/     function mintWithEther(
+/*LN-50*/         address receiver
+/*LN-51*/     ) external payable returns (uint256 mintAmount) {
+/*LN-52*/         uint256 currentPrice = _tokenPrice();
+/*LN-53*/         mintAmount = (msg.value * 1e18) / currentPrice;
+/*LN-54*/ 
+/*LN-55*/         balances[receiver] += mintAmount;
+/*LN-56*/         totalSupply += mintAmount;
+/*LN-57*/         totalAssetSupply += msg.value;
 /*LN-58*/ 
-/*LN-59*/     constructor(address _lpToken, address _rewardToken) {
-/*LN-60*/         lpToken = IERC20(_lpToken);
-/*LN-61*/         rewardToken = IERC20(_rewardToken);
-/*LN-62*/     }
-/*LN-63*/ 
-/*LN-64*/     /**
-/*LN-65*/      * @notice Deposit LP tokens to earn rewards
-/*LN-66*/      */
-/*LN-67*/     function deposit(uint256 amount) external {
-/*LN-68*/         lpToken.transferFrom(msg.sender, address(this), amount);
-/*LN-69*/         depositedLP[msg.sender] += amount;
-/*LN-70*/     }
-/*LN-71*/ 
-/*LN-72*/     /**
-/*LN-73*/      * @notice Calculate and mint rewards for user
-/*LN-74*/      * @param flip The LP token address
-/*LN-75*/      * @param _withdrawalFee Withdrawal fee amount
-/*LN-76*/      * @param _performanceFee Performance fee amount
-/*LN-77*/      * @param to Recipient address
-/*LN-78*/      *
-/*LN-79*/      * VULNERABILITY IS HERE:
-/*LN-80*/      * The function uses balanceOf(address(this)) to calculate rewards.
-/*LN-81*/      * This includes ALL tokens in the contract, not just legitimate deposits.
-/*LN-82*/      *
-/*LN-83*/      * Vulnerable sequence:
-/*LN-84*/      * 1. User has legitimately deposited some LP tokens
-/*LN-85*/      * 2. User transfers EXTRA LP tokens directly to contract (line 88)
-/*LN-86*/      * 3. mintFor() is called (line 90)
-/*LN-87*/      * 4. Line 95 uses balanceOf which includes the extra tokens
-/*LN-88*/      * 5. tokenToReward() calculates rewards based on inflated balance
-/*LN-89*/      * 6. User receives excessive rewards
-/*LN-90*/      * 7. Extra LP tokens can be withdrawn later
-/*LN-91*/      */
-/*LN-92*/     function mintFor(
-/*LN-93*/         address flip,
-/*LN-94*/         uint256 _withdrawalFee,
-/*LN-95*/         uint256 _performanceFee,
-/*LN-96*/         address to,
-/*LN-97*/         uint256 /* amount - unused */
-/*LN-98*/     ) external {
-/*LN-99*/         require(flip == address(lpToken), "Invalid token");
-/*LN-100*/ 
-/*LN-101*/         // Transfer fees from caller
-/*LN-102*/         uint256 feeSum = _performanceFee + _withdrawalFee;
-/*LN-103*/         lpToken.transferFrom(msg.sender, address(this), feeSum);
+/*LN-59*/         return mintAmount;
+/*LN-60*/     }
+/*LN-61*/ 
+/*LN-62*/     /**
+/*LN-63*/      * @notice Transfer tokens to another address
+/*LN-64*/      * @param to Recipient address
+/*LN-65*/      * @param amount Amount to transfer
+/*LN-66*/      *
+/*LN-67*/      * VULNERABILITY IS HERE:
+/*LN-68*/      * The function updates balances and then calls _notifyTransfer which
+/*LN-69*/      * can trigger callbacks to the recipient. During this callback, the
+/*LN-70*/      * contract's state is in an inconsistent state - balances are updated
+/*LN-71*/      * but totalSupply hasn't been recalculated if needed.
+/*LN-72*/      *
+/*LN-73*/      * Vulnerable sequence:
+/*LN-74*/      * 1. Update sender balance (line 82)
+/*LN-75*/      * 2. Update receiver balance (line 83)
+/*LN-76*/      * 3. Call _notifyTransfer (line 85) <- CALLBACK
+/*LN-77*/      * 4. During callback, recipient can call transfer() again
+/*LN-78*/      * 5. New transfer() sees inconsistent state
+/*LN-79*/      * 6. Calculations based on this state are wrong
+/*LN-80*/      * 7. After 4-5 iterations, balances inflate
+/*LN-81*/      */
+/*LN-82*/     function transfer(address to, uint256 amount) external returns (bool) {
+/*LN-83*/         require(balances[msg.sender] >= amount, "Insufficient balance");
+/*LN-84*/ 
+/*LN-85*/         balances[msg.sender] -= amount;
+/*LN-86*/         balances[to] += amount;
+/*LN-87*/ 
+/*LN-88*/         _notifyTransfer(msg.sender, to, amount);
+/*LN-89*/ 
+/*LN-90*/         return true;
+/*LN-91*/     }
+/*LN-92*/ 
+/*LN-93*/     /**
+/*LN-94*/      * @notice Internal function that triggers callback
+/*LN-95*/      * @dev This is where the reentrancy/callback happens
+/*LN-96*/      */
+/*LN-97*/     function _notifyTransfer(
+/*LN-98*/         address from,
+/*LN-99*/         address to,
+/*LN-100*/         uint256 amount
+/*LN-101*/     ) internal {
+/*LN-102*/         // If 'to' is a contract, it might have a callback
+/*LN-103*/         // During this callback, contract state is inconsistent
 /*LN-104*/ 
-/*LN-105*/         // VULNERABLE: Use balanceOf to calculate rewards
-/*LN-106*/         // This includes tokens sent directly to contract, not just fees
-/*LN-107*/         uint256 hunnyRewardAmount = tokenToReward(
-/*LN-108*/             lpToken.balanceOf(address(this))
-/*LN-109*/         );
-/*LN-110*/ 
-/*LN-111*/         // Mint excessive rewards
-/*LN-112*/         earnedRewards[to] += hunnyRewardAmount;
-/*LN-113*/     }
-/*LN-114*/ 
-/*LN-115*/     /**
-/*LN-116*/      * @notice Convert LP token amount to reward amount
-/*LN-117*/      * @dev This is called with the inflated balance
-/*LN-118*/      */
-/*LN-119*/     function tokenToReward(uint256 lpAmount) internal pure returns (uint256) {
-/*LN-120*/         return lpAmount * REWARD_RATE;
-/*LN-121*/     }
+/*LN-105*/         // Simulate callback by calling a function on recipient if it's a contract
+/*LN-106*/         if (_isContract(to)) {
+/*LN-107*/             // This would trigger fallback/receive on recipient
+/*LN-108*/             // During that callback, recipient can call transfer() again
+/*LN-109*/             (bool success, ) = to.call("");
+/*LN-110*/             success; // Suppress warning
+/*LN-111*/         }
+/*LN-112*/     }
+/*LN-113*/ 
+/*LN-114*/     /**
+/*LN-115*/      * @notice Burn tokens back to ETH
+/*LN-116*/      */
+/*LN-117*/     function burnToEther(
+/*LN-118*/         address receiver,
+/*LN-119*/         uint256 amount
+/*LN-120*/     ) external returns (uint256 ethAmount) {
+/*LN-121*/         require(balances[msg.sender] >= amount, "Insufficient balance");
 /*LN-122*/ 
-/*LN-123*/     /**
-/*LN-124*/      * @notice Claim earned rewards
-/*LN-125*/      */
-/*LN-126*/     function getReward() external {
-/*LN-127*/         uint256 reward = earnedRewards[msg.sender];
-/*LN-128*/         require(reward > 0, "No rewards");
+/*LN-123*/         uint256 currentPrice = _tokenPrice();
+/*LN-124*/         ethAmount = (amount * currentPrice) / 1e18;
+/*LN-125*/ 
+/*LN-126*/         balances[msg.sender] -= amount;
+/*LN-127*/         totalSupply -= amount;
+/*LN-128*/         totalAssetSupply -= ethAmount;
 /*LN-129*/ 
-/*LN-130*/         earnedRewards[msg.sender] = 0;
-/*LN-131*/         rewardToken.transfer(msg.sender, reward);
-/*LN-132*/     }
-/*LN-133*/ 
-/*LN-134*/     /**
-/*LN-135*/      * @notice Withdraw deposited LP tokens
-/*LN-136*/      */
-/*LN-137*/     function withdraw(uint256 amount) external {
-/*LN-138*/         require(depositedLP[msg.sender] >= amount, "Insufficient balance");
-/*LN-139*/         depositedLP[msg.sender] -= amount;
-/*LN-140*/         lpToken.transfer(msg.sender, amount);
-/*LN-141*/     }
-/*LN-142*/ }
-/*LN-143*/ 
-/*LN-144*/ /**
-/*LN-145*/  * Example attack flow:
-/*LN-146*/  *
-/*LN-147*/  * 1. Attacker obtains large amount of LP tokens (via flash loan)
-/*LN-148*/  * 2. Attacker deposits small amount to vault: deposit(1 ether)
-/*LN-149*/  * 3. Attacker transfers large amount directly to minter: lpToken.transfer(minter, 100 ether)
-/*LN-150*/  * 4. Vault calls mintFor() on behalf of attacker
-/*LN-151*/  * 5. mintFor() calculates: tokenToReward(101 ether) = 10,100 HUNNY
-/*LN-152*/  * 6. Attacker should only get tokenToReward(1 ether) = 100 HUNNY
-/*LN-153*/  * 7. Attacker received 101x more rewards than deserved
-/*LN-154*/  * 8. Attacker swaps HUNNY for profit, repays flash loan
-/*LN-155*/  *
-/*LN-156*/  * REAL-WORLD IMPACT:
-/*LN-157*/  * - $45M stolen in May 2021
-/*LN-158*/  * - HUNNY token price crashed 99%
-/*LN-159*/  * - Multiple vaults affected
-/*LN-160*/  * - Attacker used flash loans to amplify the attack
-/*LN-161*/  *
-/*LN-162*/  * FIX:
-/*LN-163*/  * Never use balanceOf for reward calculations. Track deposits explicitly:
-/*LN-164*/  *
-/*LN-165*/  * mapping(address => uint256) public totalDeposited;
+/*LN-130*/         payable(receiver).transfer(ethAmount);
+/*LN-131*/ 
+/*LN-132*/         return ethAmount;
+/*LN-133*/     }
+/*LN-134*/ 
+/*LN-135*/     /**
+/*LN-136*/      * @notice Calculate current token price
+/*LN-137*/      * @dev Price is based on total supply and total assets
+/*LN-138*/      */
+/*LN-139*/     function _tokenPrice() internal view returns (uint256) {
+/*LN-140*/         if (totalSupply == 0) {
+/*LN-141*/             return 1e18; // Initial price 1:1
+/*LN-142*/         }
+/*LN-143*/         return (totalAssetSupply * 1e18) / totalSupply;
+/*LN-144*/     }
+/*LN-145*/ 
+/*LN-146*/     /**
+/*LN-147*/      * @notice Check if address is a contract
+/*LN-148*/      */
+/*LN-149*/     function _isContract(address account) internal view returns (bool) {
+/*LN-150*/         uint256 size;
+/*LN-151*/         assembly {
+/*LN-152*/             size := extcodesize(account)
+/*LN-153*/         }
+/*LN-154*/         return size > 0;
+/*LN-155*/     }
+/*LN-156*/ 
+/*LN-157*/     function balanceOf(address account) external view returns (uint256) {
+/*LN-158*/         return balances[account];
+/*LN-159*/     }
+/*LN-160*/ 
+/*LN-161*/     receive() external payable {}
+/*LN-162*/ }
+/*LN-163*/ 
+/*LN-164*/ /**
+/*LN-165*/  * Example attack contract:
 /*LN-166*/  *
-/*LN-167*/  * function mintFor(...) external {
-/*LN-168*/  *     uint256 feeSum = _performanceFee + _withdrawalFee;
-/*LN-169*/  *     lpToken.transferFrom(msg.sender, address(this), feeSum);
+/*LN-167*/  * contract BZXAttacker {
+/*LN-168*/  *     VulnerableBZXLoanToken public loanToken;
+/*LN-169*/  *     uint256 public transferCount;
 /*LN-170*/  *
-/*LN-171*/  *     // Use tracked amount, not balanceOf
-/*LN-172*/  *     totalDeposited += feeSum;
-/*LN-173*/  *     uint256 hunnyRewardAmount = tokenToReward(feeSum);  // Only use actual fees
+/*LN-171*/  *     constructor(address _loanToken) {
+/*LN-172*/  *         loanToken = VulnerableBZXLoanToken(_loanToken);
+/*LN-173*/  *     }
 /*LN-174*/  *
-/*LN-175*/  *     earnedRewards[to] += hunnyRewardAmount;
-/*LN-176*/  * }
-/*LN-177*/  *
-/*LN-178*/  * Alternative: Store balance before transfer, calculate delta:
-/*LN-179*/  *
-/*LN-180*/  * uint256 balanceBefore = lpToken.balanceOf(address(this));
-/*LN-181*/  * lpToken.transferFrom(msg.sender, address(this), feeSum);
-/*LN-182*/  * uint256 actualReceived = lpToken.balanceOf(address(this)) - balanceBefore;
-/*LN-183*/  * uint256 hunnyRewardAmount = tokenToReward(actualReceived);
-/*LN-184*/  *
+/*LN-175*/  *     function attack() external payable {
+/*LN-176*/  *         // Step 1: Mint loan tokens with ETH
+/*LN-177*/  *         loanToken.mintWithEther{value: msg.value}(address(this));
+/*LN-178*/  *
+/*LN-179*/  *         // Step 2: Transfer to self repeatedly
+/*LN-180*/  *         // Each transfer triggers fallback, creating state inconsistency
+/*LN-181*/  *         for (uint i = 0; i < 4; i++) {
+/*LN-182*/  *             uint256 balance = loanToken.balanceOf(address(this));
+/*LN-183*/  *             loanToken.transfer(address(this), balance);
+/*LN-184*/  *         }
 /*LN-185*/  *
-/*LN-186*/  * KEY LESSON:
-/*LN-187*/  * Never use balanceOf(address(this)) for business logic.
-/*LN-188*/  * Anyone can inflate contract's balance by sending tokens directly.
-/*LN-189*/  * Always track deposits/transfers explicitly or calculate delta.
-/*LN-190*/  * Be especially careful with flash loan-amplified attacks.
-/*LN-191*/  */
-/*LN-192*/ 
+/*LN-186*/  *         // Step 3: Burn inflated tokens back to ETH
+/*LN-187*/  *         uint256 finalBalance = loanToken.balanceOf(address(this));
+/*LN-188*/  *         loanToken.burnToEther(address(this), finalBalance);
+/*LN-189*/  *     }
+/*LN-190*/  *
+/*LN-191*/  *     // Fallback is triggered during transfer
+/*LN-192*/  *     fallback() external payable {
+/*LN-193*/  *         // State is inconsistent here
+/*LN-194*/  *         // Could perform additional transfers if needed
+/*LN-195*/  *     }
+/*LN-196*/  * }
+/*LN-197*/  *
+/*LN-198*/  * REAL-WORLD IMPACT:
+/*LN-199*/  * - Multiple exploits on bZx in 2020
+/*LN-200*/  * - This specific vulnerability in September 2020
+/*LN-201*/  * - Demonstrated callback/reentrancy in token transfers
+/*LN-202*/  * - Led to improved transfer patterns in DeFi
+/*LN-203*/  *
+/*LN-204*/  * FIX:
+/*LN-205*/  * Use reentrancy guards on transfer:
+/*LN-206*/  *
+/*LN-207*/  * bool private locked;
+/*LN-208*/  *
+/*LN-209*/  * modifier nonReentrant() {
+/*LN-210*/  *     require(!locked, "No reentrancy");
+/*LN-211*/  *     locked = true;
+/*LN-212*/  *     _;
+/*LN-213*/  *     locked = false;
+/*LN-214*/  * }
+/*LN-215*/  *
+/*LN-216*/  * function transfer(address to, uint256 amount) external nonReentrant returns (bool) {
+/*LN-217*/  *     require(balances[msg.sender] >= amount, "Insufficient balance");
+/*LN-218*/  *     balances[msg.sender] -= amount;
+/*LN-219*/  *     balances[to] += amount;
+/*LN-220*/  *     _notifyTransfer(msg.sender, to, amount);
+/*LN-221*/  *     return true;
+/*LN-222*/  * }
+/*LN-223*/  *
+/*LN-224*/  * Or avoid callbacks during transfers entirely:
+/*LN-225*/  *
+/*LN-226*/  * function transfer(address to, uint256 amount) external returns (bool) {
+/*LN-227*/  *     require(balances[msg.sender] >= amount, "Insufficient balance");
+/*LN-228*/  *     balances[msg.sender] -= amount;
+/*LN-229*/  *     balances[to] += amount;
+/*LN-230*/  *     emit Transfer(msg.sender, to, amount);  // Just emit, no callbacks
+/*LN-231*/  *     return true;
+/*LN-232*/  * }
+/*LN-233*/  *
+/*LN-234*/  *
+/*LN-235*/  * KEY LESSON:
+/*LN-236*/  * Avoid callbacks during critical state changes like token transfers.
+/*LN-237*/  * If callbacks are necessary, use reentrancy guards.
+/*LN-238*/  * Token transfer functions should be simple and not trigger external calls.
+/*LN-239*/  * State consistency is crucial - don't allow callbacks during state updates.
+/*LN-240*/  */
+/*LN-241*/ 

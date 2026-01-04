@@ -1,51 +1,139 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import "forge-std/Test.sol";
+import "@openzeppelin/contracts/utils/Address.sol";
+import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 
-contract ContractTest is Test {
-    SimplePool SimplePoolContract;
+contract Motorbike {
+    // keccak-256 hash of "eip1967.proxy.implementation" subtracted by 1
+    bytes32 internal constant _IMPLEMENTATION_SLOT =
+        0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
 
-    function setUp() public {
-        SimplePoolContract = new SimplePool();
+    struct AddressSlot {
+        address value;
     }
 
-    function testRounding_error() public view {
-        SimplePoolContract.getCurrentReward();
+    // Initializes the upgradeable proxy with an initial implementation specified by `_logic`.
+    constructor(address _logic) {
+        require(
+            Address.isContract(_logic),
+            "ERC1967: new implementation is not a contract"
+        );
+        _getAddressSlot(_IMPLEMENTATION_SLOT).value = _logic;
+        (bool success, ) = _logic.delegatecall(
+            abi.encodeWithSignature("initialize()")
+        );
+        require(success, "Call failed");
     }
 
-    receive() external payable {}
+    // Delegates the current call to `implementation`.
+    function _delegate(address implementation) internal virtual {
+
+        assembly {
+            calldatacopy(0, 0, calldatasize())
+            let result := delegatecall(
+                gas(),
+                implementation,
+                0,
+                calldatasize(),
+                0,
+                0
+            )
+            returndatacopy(0, 0, returndatasize())
+            switch result
+            case 0 {
+                revert(0, returndatasize())
+            }
+            default {
+                return(0, returndatasize())
+            }
+        }
+    }
+
+    // Fallback function that delegates calls to the address returned by `_implementation()`.
+    // Will run if no other function in the contract matches the call data
+    fallback() external payable virtual {
+        _delegate(_getAddressSlot(_IMPLEMENTATION_SLOT).value);
+    }
+
+    // Returns an `AddressSlot` with member `value` located at `slot`.
+    function _getAddressSlot(
+        bytes32 slot
+    ) internal pure returns (AddressSlot storage r) {
+        assembly {
+            r.slot := slot
+        }
+    }
 }
 
-contract SimplePool {
-    uint public totalDebt;
-    uint public lastAccrueInterestTime;
-    uint public loanTokenBalance;
+contract Engine is Initializable {
+    // keccak-256 hash of "eip1967.proxy.implementation" subtracted by 1
+    bytes32 internal constant _IMPLEMENTATION_SLOT =
+        0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
 
-    constructor() {
-        totalDebt = 10000e6; //debt token is USDC and has 6 digit decimals.
-        lastAccrueInterestTime = block.timestamp - 1;
-        loanTokenBalance = 500e18;
+    address public upgrader;
+    uint256 public horsePower;
+
+    struct AddressSlot {
+        address value;
     }
 
-    function getCurrentReward() public view returns (uint _reward) {
-        // Get the time passed since the last interest accrual
-        uint _timeDelta = block.timestamp - lastAccrueInterestTime; //_timeDelta=1
+    function initialize() external initializer {
+        horsePower = 1000;
+        upgrader = msg.sender;
+    }
 
-        // If the time passed is 0, return 0 reward
-        if (_timeDelta == 0) return 0;
+    // Upgrade the implementation of the proxy to `newImplementation`
+    // subsequently execute the function call
+    function upgradeToAndCall(
+        address newImplementation,
+        bytes memory data
+    ) external payable {
+        _authorizeUpgrade();
+        _upgradeToAndCall(newImplementation, data);
+    }
 
-        // Calculate the supplied value
-        // uint _supplied = totalDebt + loanTokenBalance;
-        //console.log(_supplied);
-        // Calculate the reward
-        _reward = (totalDebt * _timeDelta) / (365 days * 1e18);
-        console.log("Current reward", _reward);
+    // Restrict to upgrader role
+    function _authorizeUpgrade() internal view {
+        require(msg.sender == upgrader, "Can't upgrade");
+    }
 
-        // 31536000 is the number of seconds in a year
-        // 365 days * 1e18 = 31_536_000_000_000_000_000_000_000
-        //_totalDebt * _timeDelta / 31_536_000_000_000_000_000_000_000
-        // 10_000_000_000 * 1 / 31_536_000_000_000_000_000_000_000 // -> 0
-        _reward;
+    // Perform implementation upgrade with security checks for UUPS proxies, and additional setup call.
+    function _upgradeToAndCall(
+        address newImplementation,
+        bytes memory data
+    ) internal {
+        // Initial upgrade and setup call
+        _setImplementation(newImplementation);
+        if (data.length > 0) {
+            (bool success, ) = newImplementation.delegatecall(data);
+            require(success, "Call failed");
+        }
+    }
+
+    event Returny(uint256);
+
+    function greetMe() public {
+        emit Returny(0x42);
+    }
+
+    // Stores a new address in the EIP1967 implementation slot.
+    function _setImplementation(address newImplementation) private {
+        require(
+            Address.isContract(newImplementation),
+            "ERC1967: new implementation is not a contract"
+        );
+
+        AddressSlot storage r;
+        assembly {
+            r.slot := _IMPLEMENTATION_SLOT
+        }
+        r.value = newImplementation;
+    }
+}
+
+contract Operator {
+    function operate() external {
+        selfdestruct(payable(msg.sender));
     }
 }

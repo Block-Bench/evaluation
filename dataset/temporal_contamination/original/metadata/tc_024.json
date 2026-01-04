@@ -1,47 +1,39 @@
 {
-  "id": "inverse_finance_2022_04",
-  "exploit_name": "Inverse Finance Oracle Manipulation",
-  "date": "2022-04-02",
-  "blockchain": "ethereum",
-  "amount_lost_usd": "15600000",
-  "vulnerability_type": "price_oracle_manipulation",
-  "difficulty": 4,
+  "id": "burgerswap_2021_05",
+  "exploit_name": "BurgerSwap Fake Token",
+  "date": "2021-05-28",
+  "blockchain": "binance_smart_chain",
+  "amount_lost_usd": "7000000",
+  "vulnerability_type": "input_validation",
+  "difficulty": 3,
   "tags": [
-    "oracle",
-    "curve",
-    "flash_loan",
-    "lp_tokens",
-    "price_manipulation",
-    "yearn",
-    "lending"
+    "amm",
+    "fake_token",
+    "bsc",
+    "pair_validation",
+    "uniswap_fork"
   ],
-  "description": "Inverse Finance accepted Yearn Curve 3crypto LP tokens as collateral, with pricing from an oracle that read Curve's get_virtual_price(). An attacker used flash loans to add massive liquidity to the Curve pool, temporarily inflating the virtual_price. This allowed borrowing far more than the collateral's true value, as the oracle reported the manipulated inflated price.",
-  "attack_scenario": "1) Flash loan 2700 WBTC from Aave. 2) Add 2677.5 WBTC + 22,500 USDT to Curve 3crypto pool. 3) Massive liquidity addition inflates Curve virtual_price from $1.00 to ~$1.50. 4) Deposit yvCrv3Crypto tokens as collateral. 5) Oracle reads inflated price, valuing collateral 50% higher than true worth. 6) Borrow maximum DOLA based on inflated collateral value (80% of $1.50 = $1.20 per token vs should be $0.80). 7) Remove liquidity from Curve, price normalizes. 8) Repay flash loan, keep overborrowed $15.6M DOLA.",
-  "vulnerable_contract": {
-    "name": "InverseLending + SimplifiedOracle",
-    "functions": [
-      {
-        "name": "getPrice",
-        "vulnerability": "Reads Curve virtual_price directly without TWAP or manipulation resistance"
-      },
-      {
-        "name": "borrow",
-        "vulnerability": "Relies on manipulatable oracle price for collateral valuation"
-      }
-    ]
-  },
-  "root_cause": "The price oracle for Yearn Curve 3crypto LP tokens relied on Curve's get_virtual_price() which reflects current pool state. Flash loan attackers added massive liquidity in one transaction, inflating virtual_price. The oracle had no time-weighted averaging or manipulation resistance, so it reported the inflated price, allowing massive overborrowing.",
-  "vulnerable_lines": [63, 121],
-  "fix": "Implement time-weighted average price (TWAP) oracles. Use exponential moving averages (EMA) for price feeds. Add minimum delays between price updates. Use multiple independent oracle sources (e.g., Chainlink + Curve). Implement manipulation-resistant LP token pricing formulas that account for potential imbalances.",
+  "description": "BurgerSwap router didn't validate that token pairs were from the official factory. Attackers created fake tokens and malicious pairs with manipulated reserves, then used the router to swap through these fake pairs to extract real tokens at manipulated prices.",
+  "attack_scenario": "1) Attacker created fake token contracts mimicking legitimate addresses. 2) Created malicious pair contract with manipulated reserves (e.g., 1 fake token = 1000 real tokens). 3) Called router swap function with path through fake token. 4) Router accepted fake pair without factory validation. 5) Executed swap at manipulated price. 6) Extracted $7M in real tokens.",
+  "root_cause": "Router's swap function didn't verify that pairs came from the official factory. It accepted any pair address provided in the path, allowing attackers to inject fake pairs with arbitrary reserve ratios.",
+  "vulnerable_lines": [40, 51],
+  "fix": "Only accept pairs from official factory contract. Verify pair addresses: require(pair == factory.getPair(tokenA, tokenB)). Implement whitelist for tradeable tokens. Add pair creation validation.",
   "references": [
-    "https://www.inverse.finance/blog-posts/incident-update-april-2nd",
-    "https://twitter.com/InverseFinance/status/1510345809791537158",
-    "https://blocksecteam.medium.com/the-analysis-of-inverse-finance-security-incident-404c6c0d8f7"
+    "https://twitter.com/BurgerSwapBSC/status/1398310892343791619"
   ],
   "temporal_category": "pre_cutoff",
   "variant_type": "original",
   "checks_effects_interactions_violated": false,
   "involves_external_calls": true,
+  "vulnerable_contract": {
+    "name": "BurgerSwapRouter",
+    "functions": [
+      {
+        "name": "swapExactTokensForTokens",
+        "vulnerability": "Accepts any pair address without factory validation"
+      }
+    ]
+  },
   "contract_file": "contracts/tc_024.sol",
   "subset": "annotated",
   "original_subset": "temporal_contamination"

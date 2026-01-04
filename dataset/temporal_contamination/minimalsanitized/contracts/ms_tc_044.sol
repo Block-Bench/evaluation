@@ -11,78 +11,96 @@
 /*LN-11*/     ) external returns (bool);
 /*LN-12*/ 
 /*LN-13*/     function balanceOf(address account) external view returns (uint256);
-/*LN-14*/ 
-/*LN-15*/     function approve(address spender, uint256 amount) external returns (bool);
-/*LN-16*/ }
-/*LN-17*/ 
-/*LN-18*/ interface ISmartLoan {
-/*LN-19*/     function swapDebtParaSwap(
-/*LN-20*/         bytes32 _fromAsset,
-/*LN-21*/         bytes32 _toAsset,
-/*LN-22*/         uint256 _repayAmount,
-/*LN-23*/         uint256 _borrowAmount,
-/*LN-24*/         bytes4 selector,
-/*LN-25*/         bytes memory data
-/*LN-26*/     ) external;
+/*LN-14*/ }
+/*LN-15*/ 
+/*LN-16*/ /**
+/*LN-17*/  */
+/*LN-18*/ contract SonneMarket {
+/*LN-19*/     IERC20 public underlying;
+/*LN-20*/ 
+/*LN-21*/     string public name = "Sonne WETH";
+/*LN-22*/     string public symbol = "soWETH";
+/*LN-23*/     uint8 public decimals = 8;
+/*LN-24*/ 
+/*LN-25*/     uint256 public totalSupply;
+/*LN-26*/     mapping(address => uint256) public balanceOf;
 /*LN-27*/ 
-/*LN-28*/     function claimReward(address pair, uint256[] calldata ids) external;
-/*LN-29*/ }
-/*LN-30*/ 
-/*LN-31*/ contract SmartLoansFactory {
-/*LN-32*/     address public admin;
-/*LN-33*/ 
-/*LN-34*/     constructor() {
-/*LN-35*/         admin = msg.sender;
-/*LN-36*/     }
-/*LN-37*/ 
-/*LN-38*/     function createLoan() external returns (address) {
-/*LN-39*/         SmartLoan loan = new SmartLoan();
-/*LN-40*/         return address(loan);
-/*LN-41*/     }
-/*LN-42*/ 
-/*LN-43*/     function upgradePool(
-/*LN-44*/         address poolProxy,
-/*LN-45*/         address newImplementation
-/*LN-46*/     ) external {
-/*LN-47*/         
-/*LN-48*/         
-/*LN-49*/         require(msg.sender == admin, "Not admin");
-/*LN-50*/ 
-/*LN-51*/        
-/*LN-52*/ 
-/*LN-53*/         // Upgrade the proxy to point to new implementation
-/*LN-54*/         // (Simplified - actual upgrade uses proxy pattern)
-/*LN-55*/     }
-/*LN-56*/ }
+/*LN-28*/     // Compound-style interest rate tracking
+/*LN-29*/     uint256 public totalBorrows;
+/*LN-30*/     uint256 public totalReserves;
+/*LN-31*/ 
+/*LN-32*/     event Mint(address minter, uint256 mintAmount, uint256 mintTokens);
+/*LN-33*/     event Redeem(address redeemer, uint256 redeemAmount, uint256 redeemTokens);
+/*LN-34*/ 
+/*LN-35*/     constructor(address _underlying) {
+/*LN-36*/         underlying = IERC20(_underlying);
+/*LN-37*/     }
+/*LN-38*/ 
+/*LN-39*/     function exchangeRate() public view returns (uint256) {
+/*LN-40*/         if (totalSupply == 0) {
+/*LN-41*/             return 1e18; // Initial exchange rate: 1:1
+/*LN-42*/         }
+/*LN-43*/ 
+/*LN-44*/         uint256 cash = underlying.balanceOf(address(this));
+/*LN-45*/ 
+/*LN-46*/         // exchangeRate = (cash + totalBorrows - totalReserves) / totalSupply
+/*LN-47*/         uint256 totalUnderlying = cash + totalBorrows - totalReserves;
+/*LN-48*/ 
+/*LN-49*/         return (totalUnderlying * 1e18) / totalSupply;
+/*LN-50*/     }
+/*LN-51*/ 
+/*LN-52*/     /**
+/*LN-53*/      * @dev Supply underlying tokens, receive cTokens
+/*LN-54*/      */
+/*LN-55*/     function mint(uint256 mintAmount) external returns (uint256) {
+/*LN-56*/         require(mintAmount > 0, "Zero mint");
 /*LN-57*/ 
-/*LN-58*/ contract SmartLoan is ISmartLoan {
-/*LN-59*/     mapping(bytes32 => uint256) public deposits;
-/*LN-60*/     mapping(bytes32 => uint256) public debts;
-/*LN-61*/ 
-/*LN-62*/     function swapDebtParaSwap(
-/*LN-63*/         bytes32 _fromAsset,
-/*LN-64*/         bytes32 _toAsset,
-/*LN-65*/         uint256 _repayAmount,
-/*LN-66*/         uint256 _borrowAmount,
-/*LN-67*/         bytes4 selector,
-/*LN-68*/         bytes memory data
-/*LN-69*/     ) external override {
-/*LN-70*/         // Simplified swap logic
-/*LN-71*/     }
-/*LN-72*/ 
-/*LN-73*/     /**
-/*LN-74*/      * @notice Claim rewards from staking pairs
-/*LN-75*/      */
-/*LN-76*/     function claimReward(
-/*LN-77*/         address pair,
-/*LN-78*/         uint256[] calldata ids
-/*LN-79*/     ) external override {
-/*LN-80*/ 
-/*LN-81*/         // Call to pair contract to claim rewards
-/*LN-82*/         (bool success, ) = pair.call(
-/*LN-83*/             abi.encodeWithSignature("claimRewards(address)", msg.sender)
-/*LN-84*/         );
-/*LN-85*/ 
-/*LN-86*/     }
-/*LN-87*/ }
-/*LN-88*/ 
+/*LN-58*/         uint256 exchangeRateMantissa = exchangeRate();
+/*LN-59*/ 
+/*LN-60*/         // Calculate cTokens to mint: mintAmount * 1e18 / exchangeRate
+/*LN-61*/         uint256 mintTokens = (mintAmount * 1e18) / exchangeRateMantissa;
+/*LN-62*/ 
+/*LN-63*/         
+/*LN-64*/ 
+/*LN-65*/         totalSupply += mintTokens;
+/*LN-66*/         balanceOf[msg.sender] += mintTokens;
+/*LN-67*/ 
+/*LN-68*/         underlying.transferFrom(msg.sender, address(this), mintAmount);
+/*LN-69*/ 
+/*LN-70*/         emit Mint(msg.sender, mintAmount, mintTokens);
+/*LN-71*/         return mintTokens;
+/*LN-72*/     }
+/*LN-73*/ 
+/*LN-74*/     /**
+/*LN-75*/      * @dev Redeem cTokens for underlying based on current exchange rate
+/*LN-76*/      */
+/*LN-77*/     function redeem(uint256 redeemTokens) external returns (uint256) {
+/*LN-78*/         require(balanceOf[msg.sender] >= redeemTokens, "Insufficient balance");
+/*LN-79*/ 
+/*LN-80*/         uint256 exchangeRateMantissa = exchangeRate();
+/*LN-81*/ 
+/*LN-82*/         // Calculate underlying: redeemTokens * exchangeRate / 1e18
+/*LN-83*/         uint256 redeemAmount = (redeemTokens * exchangeRateMantissa) / 1e18;
+/*LN-84*/ 
+/*LN-85*/         balanceOf[msg.sender] -= redeemTokens;
+/*LN-86*/         totalSupply -= redeemTokens;
+/*LN-87*/ 
+/*LN-88*/         underlying.transfer(msg.sender, redeemAmount);
+/*LN-89*/ 
+/*LN-90*/         emit Redeem(msg.sender, redeemAmount, redeemTokens);
+/*LN-91*/         return redeemAmount;
+/*LN-92*/     }
+/*LN-93*/ 
+/*LN-94*/     /**
+/*LN-95*/      * @dev Get account's current underlying balance (for collateral calculation)
+/*LN-96*/      */
+/*LN-97*/     function balanceOfUnderlying(
+/*LN-98*/         address account
+/*LN-99*/     ) external view returns (uint256) {
+/*LN-100*/         uint256 exchangeRateMantissa = exchangeRate();
+/*LN-101*/ 
+/*LN-102*/         
+/*LN-103*/         return (balanceOf[account] * exchangeRateMantissa) / 1e18;
+/*LN-104*/     }
+/*LN-105*/ }
+/*LN-106*/ 

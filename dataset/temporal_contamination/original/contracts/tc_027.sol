@@ -2,68 +2,72 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * BURGERSWAP EXPLOIT (May 2021)
-/*LN-6*/  * Attack: Fake Token Injection
-/*LN-7*/  * Loss: $7 million
+/*LN-5*/  * SPARTAN PROTOCOL EXPLOIT (May 2021)
+/*LN-6*/  * Attack: Liquidity Calculation Error in AMM
+/*LN-7*/  * Loss: $30 million
 /*LN-8*/  * 
-/*LN-9*/  * BurgerSwap didn't validate that token pairs were legitimate,
-/*LN-10*/  * allowing attackers to create fake tokens and manipulate prices.
+/*LN-9*/  * Spartan's AMM had a critical error in calculating liquidity units
+/*LN-10*/  * during addLiquidity, allowing attackers to mint excessive LP tokens.
 /*LN-11*/  */
 /*LN-12*/ 
-/*LN-13*/ interface IPair {
-/*LN-14*/     function token0() external view returns (address);
-/*LN-15*/     function token1() external view returns (address);
-/*LN-16*/     function getReserves() external view returns (uint112, uint112, uint32);
-/*LN-17*/ }
-/*LN-18*/ 
-/*LN-19*/ contract BurgerSwapRouter {
-/*LN-20*/     
-/*LN-21*/     function swapExactTokensForTokens(
-/*LN-22*/         uint256 amountIn,
-/*LN-23*/         uint256 amountOutMin,
-/*LN-24*/         address[] calldata path,
-/*LN-25*/         address to,
-/*LN-26*/         uint256 deadline
-/*LN-27*/     ) external returns (uint[] memory amounts) {
-/*LN-28*/         
-/*LN-29*/         // VULNERABLE: Doesn't validate pairs are official
-/*LN-30*/         // Attacker can pass fake token addresses
-/*LN-31*/         
-/*LN-32*/         amounts = new uint[](path.length);
-/*LN-33*/         amounts[0] = amountIn;
-/*LN-34*/         
-/*LN-35*/         for (uint i = 0; i < path.length - 1; i++) {
-/*LN-36*/             address pair = _getPair(path[i], path[i+1]);
-/*LN-37*/             
-/*LN-38*/             // VULNERABILITY: Uses attacker-controlled pair
-/*LN-39*/             // No check if pair is from official factory
-/*LN-40*/             (uint112 reserve0, uint112 reserve1,) = IPair(pair).getReserves();
-/*LN-41*/             
-/*LN-42*/             amounts[i+1] = _getAmountOut(amounts[i], reserve0, reserve1);
-/*LN-43*/         }
-/*LN-44*/         
-/*LN-45*/         return amounts;
-/*LN-46*/     }
-/*LN-47*/     
-/*LN-48*/     function _getPair(address tokenA, address tokenB) internal pure returns (address) {
-/*LN-49*/         // Simplified - should check factory
-/*LN-50*/         // VULNERABILITY: Can return attacker's fake pair
-/*LN-51*/         return address(uint160(uint256(keccak256(abi.encodePacked(tokenA, tokenB)))));
-/*LN-52*/     }
-/*LN-53*/     
-/*LN-54*/     function _getAmountOut(uint256 amountIn, uint112 reserveIn, uint112 reserveOut) internal pure returns (uint256) {
-/*LN-55*/         return (amountIn * uint256(reserveOut)) / uint256(reserveIn);
+/*LN-13*/ contract SpartanPool {
+/*LN-14*/     uint256 public baseAmount;
+/*LN-15*/     uint256 public tokenAmount;
+/*LN-16*/     uint256 public totalUnits;
+/*LN-17*/     
+/*LN-18*/     mapping(address => uint256) public units;
+/*LN-19*/     
+/*LN-20*/     function addLiquidity(uint256 inputBase, uint256 inputToken) external returns (uint256 liquidityUnits) {
+/*LN-21*/         
+/*LN-22*/         if (totalUnits == 0) {
+/*LN-23*/             liquidityUnits = inputBase;
+/*LN-24*/         } else {
+/*LN-25*/             // VULNERABLE: Incorrect formula
+/*LN-26*/             // Should be: min(inputBase/baseAmount, inputToken/tokenAmount) * totalUnits
+/*LN-27*/             // Instead uses: (inputBase + inputToken) / 2
+/*LN-28*/             
+/*LN-29*/             uint256 baseRatio = (inputBase * totalUnits) / baseAmount;
+/*LN-30*/             uint256 tokenRatio = (inputToken * totalUnits) / tokenAmount;
+/*LN-31*/             
+/*LN-32*/             // BUG: Takes average instead of minimum!
+/*LN-33*/             liquidityUnits = (baseRatio + tokenRatio) / 2;
+/*LN-34*/         }
+/*LN-35*/         
+/*LN-36*/         units[msg.sender] += liquidityUnits;
+/*LN-37*/         totalUnits += liquidityUnits;
+/*LN-38*/         
+/*LN-39*/         baseAmount += inputBase;
+/*LN-40*/         tokenAmount += inputToken;
+/*LN-41*/         
+/*LN-42*/         return liquidityUnits;
+/*LN-43*/     }
+/*LN-44*/     
+/*LN-45*/     function removeLiquidity(uint256 liquidityUnits) external returns (uint256, uint256) {
+/*LN-46*/         uint256 outputBase = (liquidityUnits * baseAmount) / totalUnits;
+/*LN-47*/         uint256 outputToken = (liquidityUnits * tokenAmount) / totalUnits;
+/*LN-48*/         
+/*LN-49*/         units[msg.sender] -= liquidityUnits;
+/*LN-50*/         totalUnits -= liquidityUnits;
+/*LN-51*/         
+/*LN-52*/         baseAmount -= outputBase;
+/*LN-53*/         tokenAmount -= outputToken;
+/*LN-54*/         
+/*LN-55*/         return (outputBase, outputToken);
 /*LN-56*/     }
 /*LN-57*/ }
 /*LN-58*/ 
 /*LN-59*/ /**
 /*LN-60*/  * EXPLOIT:
-/*LN-61*/  * 1. Create fake token with same address pattern
-/*LN-62*/  * 2. Create malicious pair with manipulated reserves
-/*LN-63*/  * 3. Call swap with path through fake token
-/*LN-64*/  * 4. Extract real tokens due to price manipulation
-/*LN-65*/  * 5. Drain $7M
-/*LN-66*/  * 
-/*LN-67*/  * Fix: Only accept pairs from official factory, validate addresses
-/*LN-68*/  */
-/*LN-69*/ 
+/*LN-61*/  * 1. Pool has 100 BASE, 100 TOKEN, 100 totalUnits
+/*LN-62*/  * 2. Attacker adds 1 BASE, 99 TOKEN
+/*LN-63*/  * 3. baseRatio = 1*100/100 = 1
+/*LN-64*/  * 4. tokenRatio = 99*100/100 = 99  
+/*LN-65*/  * 5. liquidityUnits = (1+99)/2 = 50 (WRONG! Should be 1)
+/*LN-66*/  * 6. Attacker got 50 units for only 1 BASE worth of value
+/*LN-67*/  * 7. Remove liquidity: gets back proportional share = 33 BASE + 33 TOKEN
+/*LN-68*/  * 8. Profit: Started with 1 BASE + 99 TOKEN, ended with 33 BASE + 33 TOKEN
+/*LN-69*/  * 9. Repeat to drain $30M
+/*LN-70*/  * 
+/*LN-71*/  * Fix: Use minimum ratio, not average: liquidityUnits = min(baseRatio, tokenRatio)
+/*LN-72*/  */
+/*LN-73*/ 

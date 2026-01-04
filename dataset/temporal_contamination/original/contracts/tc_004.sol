@@ -2,223 +2,264 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * @title Harvest Finance Vault (Vulnerable Version)
-/*LN-6*/  * @notice This contract demonstrates the vulnerability that led to the $24M Harvest Finance hack
-/*LN-7*/  * @dev October 26, 2020 - Flash loan price manipulation attack
+/*LN-5*/  * @title Curve Finance Pool (Vulnerable Vyper Version)
+/*LN-6*/  * @notice This contract demonstrates the Vyper reentrancy vulnerability that led to the $70M Curve hack
+/*LN-7*/  * @dev July 30, 2023 - Vyper compiler bug causing reentrancy vulnerability
 /*LN-8*/  *
-/*LN-9*/  * VULNERABILITY: Price manipulation via flash loan arbitrage
+/*LN-9*/  * VULNERABILITY: Reentrancy due to Vyper compiler bug
 /*LN-10*/  *
 /*LN-11*/  * ROOT CAUSE:
-/*LN-12*/  * Harvest Finance vaults calculated the share price based on the total assets held,
-/*LN-13*/  * which included assets in external AMM pools (Curve y pool). An attacker could:
-/*LN-14*/  * 1. Take a flash loan
-/*LN-15*/  * 2. Manipulate the price in the Curve pool
-/*LN-16*/  * 3. Deposit into Harvest at the inflated price
-/*LN-17*/  * 4. Reverse the manipulation
-/*LN-18*/  * 5. Withdraw at a profit
-/*LN-19*/  *
-/*LN-20*/  * The vault's deposit/withdraw functions used spot prices from Curve without
-/*LN-21*/  * considering slippage protection or time-weighted average prices (TWAP).
-/*LN-22*/  *
-/*LN-23*/  * ATTACK VECTOR:
-/*LN-24*/  * 1. Attacker takes $50M USDC + $17M USDT flash loans from Uniswap
-/*LN-25*/  * 2. Swaps USDT -> USDC on Curve, inflating USDC price
-/*LN-26*/  * 3. Deposits 49M USDC into Harvest vault at inflated price (gets more fUSDC shares)
-/*LN-27*/  * 4. Swaps USDC -> USDT on Curve, deflating USDC price
-/*LN-28*/  * 5. Withdraws fUSDC from Harvest at normal price (gets more USDC than deposited)
-/*LN-29*/  * 6. Repeats the cycle multiple times to amplify profit
-/*LN-30*/  * 7. Repays flash loans, keeps profit (~$24M)
-/*LN-31*/  */
-/*LN-32*/ 
-/*LN-33*/ interface ICurvePool {
-/*LN-34*/     function exchange_underlying(
-/*LN-35*/         int128 i,
-/*LN-36*/         int128 j,
-/*LN-37*/         uint256 dx,
-/*LN-38*/         uint256 min_dy
-/*LN-39*/     ) external returns (uint256);
-/*LN-40*/ 
-/*LN-41*/     function get_dy_underlying(
-/*LN-42*/         int128 i,
-/*LN-43*/         int128 j,
-/*LN-44*/         uint256 dx
-/*LN-45*/     ) external view returns (uint256);
-/*LN-46*/ }
-/*LN-47*/ 
-/*LN-48*/ contract VulnerableHarvestVault {
-/*LN-49*/     address public underlyingToken; // e.g., USDC
-/*LN-50*/     ICurvePool public curvePool;
+/*LN-12*/  * Certain versions of the Vyper compiler (0.2.15, 0.2.16, 0.3.0) had a bug in
+/*LN-13*/  * handling reentrancy guards. The nonreentrant decorator did not properly protect
+/*LN-14*/  * functions when:
+/*LN-15*/  * 1. Multiple nonreentrant functions existed
+/*LN-16*/  * 2. Functions made external calls (like ETH transfers)
+/*LN-17*/  *
+/*LN-18*/  * In Curve pools, the add_liquidity() function:
+/*LN-19*/  * 1. Accepted ETH
+/*LN-20*/  * 2. Transferred ETH to update balances
+/*LN-21*/  * 3. The ETH transfer triggered receive()/fallback() in attacker contract
+/*LN-22*/  * 4. Attacker could call add_liquidity() again during this callback
+/*LN-23*/  * 5. The reentrancy guard failed to prevent this
+/*LN-24*/  *
+/*LN-25*/  * ATTACK VECTOR:
+/*LN-26*/  * 1. Attacker takes flash loan (80,000 ETH from Balancer)
+/*LN-27*/  * 2. Calls add_liquidity() with 40,000 ETH
+/*LN-28*/  * 3. During ETH transfer in add_liquidity(), receive() is triggered
+/*LN-29*/  * 4. In receive(), attacker calls add_liquidity() AGAIN with another 40,000 ETH
+/*LN-30*/  * 5. Pool's internal accounting gets confused - mints LP tokens twice
+/*LN-31*/  * 6. Attacker removes liquidity with inflated LP token balance
+/*LN-32*/  * 7. Extracts more assets than deposited
+/*LN-33*/  * 8. Repays flash loan with profit
+/*LN-34*/  *
+/*LN-35*/  * NOTE: This is a COMPILER BUG, not a logic error. The Solidity version below
+/*LN-36*/  * demonstrates the behavior, but the actual vulnerable code was in Vyper.
+/*LN-37*/  */
+/*LN-38*/ 
+/*LN-39*/ contract VulnerableCurvePool {
+/*LN-40*/     // Token balances in the pool
+/*LN-41*/     mapping(uint256 => uint256) public balances; // 0 = ETH, 1 = pETH
+/*LN-42*/ 
+/*LN-43*/     // LP token
+/*LN-44*/     mapping(address => uint256) public lpBalances;
+/*LN-45*/     uint256 public totalLPSupply;
+/*LN-46*/ 
+/*LN-47*/     // Reentrancy guard (VULNERABLE - doesn't work properly like in Vyper bug)
+/*LN-48*/     uint256 private _status;
+/*LN-49*/     uint256 private constant _NOT_ENTERED = 1;
+/*LN-50*/     uint256 private constant _ENTERED = 2;
 /*LN-51*/ 
-/*LN-52*/     uint256 public totalSupply; // Total fUSDC shares
-/*LN-53*/     mapping(address => uint256) public balanceOf;
-/*LN-54*/ 
-/*LN-55*/     // This tracks assets that are "working" in external protocols
-/*LN-56*/     uint256 public investedBalance;
-/*LN-57*/ 
-/*LN-58*/     event Deposit(address indexed user, uint256 amount, uint256 shares);
-/*LN-59*/     event Withdrawal(address indexed user, uint256 shares, uint256 amount);
-/*LN-60*/ 
-/*LN-61*/     constructor(address _token, address _curvePool) {
-/*LN-62*/         underlyingToken = _token;
-/*LN-63*/         curvePool = ICurvePool(_curvePool);
-/*LN-64*/     }
-/*LN-65*/ 
-/*LN-66*/     /**
-/*LN-67*/      * @notice Deposit tokens and receive vault shares
-/*LN-68*/      * @param amount Amount of underlying tokens to deposit
-/*LN-69*/      *
-/*LN-70*/      * VULNERABILITY:
-/*LN-71*/      * The share calculation uses getPricePerFullShare() which relies on
-/*LN-72*/      * current pool balances. This can be manipulated via flash loans.
-/*LN-73*/      */
-/*LN-74*/     function deposit(uint256 amount) external returns (uint256 shares) {
-/*LN-75*/         require(amount > 0, "Zero amount");
-/*LN-76*/ 
-/*LN-77*/         // Transfer tokens from user
-/*LN-78*/         // IERC20(underlyingToken).transferFrom(msg.sender, address(this), amount);
-/*LN-79*/ 
-/*LN-80*/         // Calculate shares based on current price
-/*LN-81*/         // VULNERABILITY: This price can be manipulated!
-/*LN-82*/         if (totalSupply == 0) {
-/*LN-83*/             shares = amount;
-/*LN-84*/         } else {
-/*LN-85*/             // shares = amount * totalSupply / totalAssets()
-/*LN-86*/             // If totalAssets() is artificially inflated via Curve manipulation,
-/*LN-87*/             // user gets fewer shares than they should
-/*LN-88*/             uint256 totalAssets = getTotalAssets();
-/*LN-89*/             shares = (amount * totalSupply) / totalAssets;
-/*LN-90*/         }
-/*LN-91*/ 
-/*LN-92*/         balanceOf[msg.sender] += shares;
-/*LN-93*/         totalSupply += shares;
-/*LN-94*/ 
-/*LN-95*/         // Strategy: Deploy funds to Curve for yield
-/*LN-96*/         _investInCurve(amount);
-/*LN-97*/ 
-/*LN-98*/         emit Deposit(msg.sender, amount, shares);
-/*LN-99*/         return shares;
-/*LN-100*/     }
-/*LN-101*/ 
-/*LN-102*/     /**
-/*LN-103*/      * @notice Withdraw underlying tokens by burning shares
-/*LN-104*/      * @param shares Amount of vault shares to burn
-/*LN-105*/      *
-/*LN-106*/      * VULNERABILITY:
-/*LN-107*/      * The withdraw amount calculation uses getPricePerFullShare() which can
-/*LN-108*/      * be manipulated. After manipulating Curve prices downward, attacker
-/*LN-109*/      * can withdraw more tokens than they should receive.
-/*LN-110*/      */
-/*LN-111*/     function withdraw(uint256 shares) external returns (uint256 amount) {
-/*LN-112*/         require(shares > 0, "Zero shares");
-/*LN-113*/         require(balanceOf[msg.sender] >= shares, "Insufficient balance");
-/*LN-114*/ 
-/*LN-115*/         // Calculate amount based on current price
-/*LN-116*/         // VULNERABILITY: This price can be manipulated!
-/*LN-117*/         uint256 totalAssets = getTotalAssets();
-/*LN-118*/         amount = (shares * totalAssets) / totalSupply;
+/*LN-52*/     event LiquidityAdded(
+/*LN-53*/         address indexed provider,
+/*LN-54*/         uint256[2] amounts,
+/*LN-55*/         uint256 lpMinted
+/*LN-56*/     );
+/*LN-57*/     event LiquidityRemoved(
+/*LN-58*/         address indexed provider,
+/*LN-59*/         uint256 lpBurned,
+/*LN-60*/         uint256[2] amounts
+/*LN-61*/     );
+/*LN-62*/ 
+/*LN-63*/     constructor() {
+/*LN-64*/         _status = _NOT_ENTERED;
+/*LN-65*/     }
+/*LN-66*/ 
+/*LN-67*/     /**
+/*LN-68*/      * @notice Add liquidity to the pool
+/*LN-69*/      * @param amounts Array of token amounts to deposit [ETH, pETH]
+/*LN-70*/      * @param min_mint_amount Minimum LP tokens to mint
+/*LN-71*/      *
+/*LN-72*/      * VULNERABILITY:
+/*LN-73*/      * The nonreentrant modifier in Vyper was supposed to prevent reentrancy,
+/*LN-74*/      * but due to a compiler bug, it failed when:
+/*LN-75*/      * 1. Function made external calls (ETH transfer)
+/*LN-76*/      * 2. Multiple nonreentrant functions existed
+/*LN-77*/      *
+/*LN-78*/      * This allowed attackers to call add_liquidity recursively.
+/*LN-79*/      */
+/*LN-80*/     function add_liquidity(
+/*LN-81*/         uint256[2] memory amounts,
+/*LN-82*/         uint256 min_mint_amount
+/*LN-83*/     ) external payable returns (uint256) {
+/*LN-84*/         // VULNERABILITY: Reentrancy guard doesn't work properly (Vyper bug simulation)
+/*LN-85*/         // In the real Vyper code, @nonreentrant decorator was present but ineffective
+/*LN-86*/ 
+/*LN-87*/         require(amounts[0] == msg.value, "ETH amount mismatch");
+/*LN-88*/ 
+/*LN-89*/         // Calculate LP tokens to mint
+/*LN-90*/         uint256 lpToMint;
+/*LN-91*/         if (totalLPSupply == 0) {
+/*LN-92*/             lpToMint = amounts[0] + amounts[1];
+/*LN-93*/         } else {
+/*LN-94*/             // Simplified: real formula is more complex
+/*LN-95*/             uint256 totalValue = balances[0] + balances[1];
+/*LN-96*/             lpToMint = ((amounts[0] + amounts[1]) * totalLPSupply) / totalValue;
+/*LN-97*/         }
+/*LN-98*/ 
+/*LN-99*/         require(lpToMint >= min_mint_amount, "Slippage");
+/*LN-100*/ 
+/*LN-101*/         // Update balances BEFORE external call (following CEI pattern)
+/*LN-102*/         // But Vyper bug allows reentrancy anyway
+/*LN-103*/         balances[0] += amounts[0];
+/*LN-104*/         balances[1] += amounts[1];
+/*LN-105*/ 
+/*LN-106*/         // Mint LP tokens
+/*LN-107*/         lpBalances[msg.sender] += lpToMint;
+/*LN-108*/         totalLPSupply += lpToMint;
+/*LN-109*/ 
+/*LN-110*/         // VULNERABILITY: ETH transfer can trigger reentrancy
+/*LN-111*/         // In Vyper, this line existed and triggered the attacker's receive()
+/*LN-112*/         // The @nonreentrant decorator SHOULD have prevented reentrancy but didn't
+/*LN-113*/         // due to compiler bug
+/*LN-114*/         if (amounts[0] > 0) {
+/*LN-115*/             // Simulate pool's internal operations that involve ETH transfer
+/*LN-116*/             // In reality, Curve pools update internal state during this
+/*LN-117*/             _handleETHTransfer(amounts[0]);
+/*LN-118*/         }
 /*LN-119*/ 
-/*LN-120*/         balanceOf[msg.sender] -= shares;
-/*LN-121*/         totalSupply -= shares;
-/*LN-122*/ 
-/*LN-123*/         // Withdraw from Curve strategy if needed
-/*LN-124*/         _withdrawFromCurve(amount);
-/*LN-125*/ 
-/*LN-126*/         // Transfer tokens to user
-/*LN-127*/         // IERC20(underlyingToken).transfer(msg.sender, amount);
-/*LN-128*/ 
-/*LN-129*/         emit Withdrawal(msg.sender, shares, amount);
-/*LN-130*/         return amount;
-/*LN-131*/     }
-/*LN-132*/ 
-/*LN-133*/     /**
-/*LN-134*/      * @notice Get total assets under management
-/*LN-135*/      * @dev VULNERABILITY: Uses spot prices from Curve, subject to manipulation
-/*LN-136*/      */
-/*LN-137*/     function getTotalAssets() public view returns (uint256) {
-/*LN-138*/         // Assets in vault + assets in Curve
-/*LN-139*/         // In reality, Harvest calculated this including Curve pool values
-/*LN-140*/         // which could be manipulated via large swaps
-/*LN-141*/ 
-/*LN-142*/         uint256 vaultBalance = 0; // IERC20(underlyingToken).balanceOf(address(this));
-/*LN-143*/         uint256 curveBalance = investedBalance;
-/*LN-144*/ 
-/*LN-145*/         // VULNERABILITY: curveBalance value can be inflated by manipulating
-/*LN-146*/         // the Curve pool's exchange rates
-/*LN-147*/         return vaultBalance + curveBalance;
-/*LN-148*/     }
-/*LN-149*/ 
-/*LN-150*/     /**
-/*LN-151*/      * @notice Get price per share
-/*LN-152*/      * @dev VULNERABILITY: Manipulable via Curve price manipulation
-/*LN-153*/      */
-/*LN-154*/     function getPricePerFullShare() public view returns (uint256) {
-/*LN-155*/         if (totalSupply == 0) return 1e18;
-/*LN-156*/         return (getTotalAssets() * 1e18) / totalSupply;
-/*LN-157*/     }
-/*LN-158*/ 
-/*LN-159*/     /**
-/*LN-160*/      * @notice Internal function to invest in Curve
-/*LN-161*/      * @dev Simplified - in reality, Harvest used Curve pools for yield
-/*LN-162*/      */
-/*LN-163*/     function _investInCurve(uint256 amount) internal {
-/*LN-164*/         investedBalance += amount;
-/*LN-165*/ 
-/*LN-166*/         // In reality, this would:
-/*LN-167*/         // 1. Add liquidity to Curve pool
-/*LN-168*/         // 2. Stake LP tokens
-/*LN-169*/         // 3. Track the invested amount
-/*LN-170*/     }
-/*LN-171*/ 
-/*LN-172*/     /**
-/*LN-173*/      * @notice Internal function to withdraw from Curve
-/*LN-174*/      * @dev Simplified - in reality, would unstake and remove liquidity
-/*LN-175*/      */
-/*LN-176*/     function _withdrawFromCurve(uint256 amount) internal {
-/*LN-177*/         require(investedBalance >= amount, "Insufficient invested");
-/*LN-178*/         investedBalance -= amount;
-/*LN-179*/ 
-/*LN-180*/         // In reality, this would:
-/*LN-181*/         // 1. Unstake LP tokens
-/*LN-182*/         // 2. Remove liquidity from Curve
-/*LN-183*/         // 3. Get underlying tokens back
-/*LN-184*/     }
-/*LN-185*/ }
-/*LN-186*/ 
-/*LN-187*/ /**
-/*LN-188*/  * REAL-WORLD IMPACT:
-/*LN-189*/  * - $24M stolen on October 26, 2020
-/*LN-190*/  * - Attacker repeated the attack cycle 6 times to maximize profit
-/*LN-191*/  * - Used flash loans from Uniswap V2 ($50M USDC + $17M USDT)
-/*LN-192*/  * - Manipulated Curve y pool prices via large swaps
-/*LN-193*/  * - One of the first major flash loan price manipulation attacks
-/*LN-194*/  *
-/*LN-195*/  * FIX:
-/*LN-196*/  * The fix requires:
-/*LN-197*/  * 1. Use Time-Weighted Average Price (TWAP) oracles instead of spot prices
-/*LN-198*/  * 2. Implement deposit/withdrawal fees to make flash loan attacks unprofitable
-/*LN-199*/  * 3. Add slippage protection on swaps
-/*LN-200*/  * 4. Limit maximum deposit/withdrawal amounts per block
-/*LN-201*/  * 5. Use multiple price sources (Chainlink, etc.) not just AMM pools
-/*LN-202*/  * 6. Implement commit-reveal pattern for deposits/withdrawals
-/*LN-203*/  * 7. Add time delay between deposit and withdrawal
-/*LN-204*/  *
-/*LN-205*/  * KEY LESSON:
-/*LN-206*/  * Vaults that use AMM pool prices for accounting are vulnerable to flash loan
-/*LN-207*/  * manipulation. Spot prices can be manipulated within a single transaction,
-/*LN-208*/  * allowing attackers to deposit at inflated prices and withdraw at deflated
-/*LN-209*/  * prices (or vice versa).
-/*LN-210*/  *
-/*LN-211*/  * The attack demonstrates the importance of oracle manipulation resistance.
-/*LN-212*/  * Any protocol that uses AMM spot prices for critical calculations is at risk.
-/*LN-213*/  *
-/*LN-214*/  *
-/*LN-215*/  * ATTACK FLOW:
-/*LN-216*/  * 1. Flash loan 50M USDC + 17M USDT
-/*LN-217*/  * 2. Swap USDT -> USDC on Curve (inflates USDC value in pool)
-/*LN-218*/  * 3. Deposit 49M USDC to Harvest (gets shares at inflated price - more shares)
-/*LN-219*/  * 4. Swap USDC -> USDT on Curve (deflates USDC value in pool)
-/*LN-220*/  * 5. Withdraw shares from Harvest (gets more USDC than deposited)
-/*LN-221*/  * 6. Repeat steps 2-5 six times
-/*LN-222*/  * 7. Repay flash loans, profit ~$24M
-/*LN-223*/  */
-/*LN-224*/ 
+/*LN-120*/         emit LiquidityAdded(msg.sender, amounts, lpToMint);
+/*LN-121*/         return lpToMint;
+/*LN-122*/     }
+/*LN-123*/ 
+/*LN-124*/     /**
+/*LN-125*/      * @notice Remove liquidity from the pool
+/*LN-126*/      * @param lpAmount Amount of LP tokens to burn
+/*LN-127*/      * @param min_amounts Minimum amounts to receive [ETH, pETH]
+/*LN-128*/      */
+/*LN-129*/     function remove_liquidity(
+/*LN-130*/         uint256 lpAmount,
+/*LN-131*/         uint256[2] memory min_amounts
+/*LN-132*/     ) external {
+/*LN-133*/         require(lpBalances[msg.sender] >= lpAmount, "Insufficient LP");
+/*LN-134*/ 
+/*LN-135*/         // Calculate amounts to return
+/*LN-136*/         uint256 amount0 = (lpAmount * balances[0]) / totalLPSupply;
+/*LN-137*/         uint256 amount1 = (lpAmount * balances[1]) / totalLPSupply;
+/*LN-138*/ 
+/*LN-139*/         require(
+/*LN-140*/             amount0 >= min_amounts[0] && amount1 >= min_amounts[1],
+/*LN-141*/             "Slippage"
+/*LN-142*/         );
+/*LN-143*/ 
+/*LN-144*/         // Burn LP tokens
+/*LN-145*/         lpBalances[msg.sender] -= lpAmount;
+/*LN-146*/         totalLPSupply -= lpAmount;
+/*LN-147*/ 
+/*LN-148*/         // Update balances
+/*LN-149*/         balances[0] -= amount0;
+/*LN-150*/         balances[1] -= amount1;
+/*LN-151*/ 
+/*LN-152*/         // Transfer tokens
+/*LN-153*/         if (amount0 > 0) {
+/*LN-154*/             payable(msg.sender).transfer(amount0);
+/*LN-155*/         }
+/*LN-156*/ 
+/*LN-157*/         uint256[2] memory amounts = [amount0, amount1];
+/*LN-158*/         emit LiquidityRemoved(msg.sender, lpAmount, amounts);
+/*LN-159*/     }
+/*LN-160*/ 
+/*LN-161*/     /**
+/*LN-162*/      * @notice Internal function that handles ETH operations
+/*LN-163*/      * @dev This is where the reentrancy vulnerability is exploited
+/*LN-164*/      */
+/*LN-165*/     function _handleETHTransfer(uint256 amount) internal {
+/*LN-166*/         // In the real Curve Vyper code, operations here triggered reentrancy
+/*LN-167*/         // The Vyper @nonreentrant decorator failed to prevent it
+/*LN-168*/ 
+/*LN-169*/         // Simulate operations that trigger external call
+/*LN-170*/         // In reality, this involved complex pool rebalancing
+/*LN-171*/         (bool success, ) = msg.sender.call{value: 0}("");
+/*LN-172*/         require(success, "Transfer failed");
+/*LN-173*/     }
+/*LN-174*/ 
+/*LN-175*/     /**
+/*LN-176*/      * @notice Exchange tokens (simplified)
+/*LN-177*/      * @param i Index of input token
+/*LN-178*/      * @param j Index of output token
+/*LN-179*/      * @param dx Input amount
+/*LN-180*/      * @param min_dy Minimum output amount
+/*LN-181*/      */
+/*LN-182*/     function exchange(
+/*LN-183*/         int128 i,
+/*LN-184*/         int128 j,
+/*LN-185*/         uint256 dx,
+/*LN-186*/         uint256 min_dy
+/*LN-187*/     ) external payable returns (uint256) {
+/*LN-188*/         uint256 ui = uint256(int256(i));
+/*LN-189*/         uint256 uj = uint256(int256(j));
+/*LN-190*/ 
+/*LN-191*/         require(ui < 2 && uj < 2 && ui != uj, "Invalid indices");
+/*LN-192*/ 
+/*LN-193*/         // Simplified exchange logic
+/*LN-194*/         uint256 dy = (dx * balances[uj]) / (balances[ui] + dx);
+/*LN-195*/         require(dy >= min_dy, "Slippage");
+/*LN-196*/ 
+/*LN-197*/         if (ui == 0) {
+/*LN-198*/             require(msg.value == dx, "ETH mismatch");
+/*LN-199*/             balances[0] += dx;
+/*LN-200*/         }
+/*LN-201*/ 
+/*LN-202*/         balances[ui] += dx;
+/*LN-203*/         balances[uj] -= dy;
+/*LN-204*/ 
+/*LN-205*/         if (uj == 0) {
+/*LN-206*/             payable(msg.sender).transfer(dy);
+/*LN-207*/         }
+/*LN-208*/ 
+/*LN-209*/         return dy;
+/*LN-210*/     }
+/*LN-211*/ 
+/*LN-212*/     receive() external payable {
+/*LN-213*/         // Attacker's contract would implement receive() to call add_liquidity() again
+/*LN-214*/         // This creates the reentrancy vulnerability
+/*LN-215*/     }
+/*LN-216*/ }
+/*LN-217*/ 
+/*LN-218*/ /**
+/*LN-219*/  * REAL-WORLD IMPACT:
+/*LN-220*/  * - ~$70M stolen across multiple Curve pools on July 30, 2023
+/*LN-221*/  * - Affected pools: pETH/ETH, msETH/ETH, alETH/ETH, CRV/ETH
+/*LN-222*/  * - Vyper versions 0.2.15, 0.2.16, 0.3.0 were vulnerable
+/*LN-223*/  * - Compiler bug, not a logic error in the contracts themselves
+/*LN-224*/  * - Multiple attackers exploited it within hours
+/*LN-225*/  *
+/*LN-226*/  * VYPER COMPILER BUG DETAILS:
+/*LN-227*/  * The @nonreentrant decorator in Vyper uses a storage variable to track
+/*LN-228*/  * reentrancy state. The bug occurred when:
+/*LN-229*/  * 1. Multiple functions had @nonreentrant decorator
+/*LN-230*/  * 2. The compiler generated incorrect bytecode for the guard
+/*LN-231*/  * 3. The guard checked a different storage slot than it should
+/*LN-232*/  * 4. This allowed reentrancy despite the decorator being present
+/*LN-233*/  *
+/*LN-234*/  * FIX:
+/*LN-235*/  * 1. Upgrade to patched Vyper versions (0.3.1+, 0.2.17+)
+/*LN-236*/  * 2. Recompile all contracts with fixed compiler
+/*LN-237*/  * 3. Redeploy affected pools
+/*LN-238*/  * 4. Add additional reentrancy guards at contract level
+/*LN-239*/  * 5. Follow Checks-Effects-Interactions pattern strictly
+/*LN-240*/  * 6. Minimize external calls in critical functions
+/*LN-241*/  *
+/*LN-242*/  * KEY LESSON:
+/*LN-243*/  * Compiler bugs can introduce vulnerabilities even in well-written code.
+/*LN-244*/  * The Curve contracts followed best practices and used @nonreentrant,
+/*LN-245*/  * but a compiler bug made the protection ineffective.
+/*LN-246*/  *
+/*LN-247*/  * This highlights the importance of:
+/*LN-248*/  * - Compiler audits and verification
+/*LN-249*/  * - Multiple layers of defense (not relying solely on language features)
+/*LN-250*/  * - Careful testing with different compiler versions
+/*LN-251*/  * - Following CEI pattern even when using reentrancy guards
+/*LN-252*/  *
+/*LN-253*/  *
+/*LN-254*/  * ATTACK FLOW:
+/*LN-255*/  * 1. Flash loan 80,000 ETH
+/*LN-256*/  * 2. Call add_liquidity() with 40,000 ETH
+/*LN-257*/  * 3. In receive(), detect reentrancy opportunity
+/*LN-258*/  * 4. Call add_liquidity() AGAIN with another 40,000 ETH (bypassing guard)
+/*LN-259*/  * 5. Pool mints LP tokens twice for overlapping deposits
+/*LN-260*/  * 6. Call remove_liquidity() with inflated LP balance
+/*LN-261*/  * 7. Extract more ETH/pETH than deposited
+/*LN-262*/  * 8. Swap pETH to ETH
+/*LN-263*/  * 9. Repay flash loan with profit
+/*LN-264*/  */
+/*LN-265*/ 

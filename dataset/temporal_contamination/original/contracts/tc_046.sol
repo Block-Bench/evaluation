@@ -2,172 +2,270 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * FIXEDFLOAT EXPLOIT (February 2024)
-/*LN-6*/  * Loss: $26 million
-/*LN-7*/  * Attack: Private Key Compromise + Unauthorized Withdrawals
+/*LN-5*/  * MUNCHABLES EXPLOIT (March 2024)
+/*LN-6*/  * Loss: $62 million (fully recovered)
+/*LN-7*/  * Attack: Developer Private Key Compromise + Malicious Contract Upgrade
 /*LN-8*/  *
 /*LN-9*/  * VULNERABILITY OVERVIEW:
-/*LN-10*/  * FixedFloat, a crypto exchange platform, suffered a massive exploit when attackers
-/*LN-11*/  * compromised private keys controlling the platform's hot wallets. The compromised keys
-/*LN-12*/  * allowed direct withdrawal of funds without any authorization checks or multi-sig protection.
+/*LN-10*/  * Munchables, a GameFi project on Blast L2, suffered an exploit when a rogue developer
+/*LN-11*/  * with access to privileged private keys upgraded contracts to malicious implementations.
+/*LN-12*/  * The attacker locked user funds by setting withdrawal addresses to their own control.
 /*LN-13*/  *
-/*LN-14*/  * ROOT CAUSE:
-/*LN-15*/  * 1. Single private key controlled withdrawal functions
-/*LN-16*/  * 2. No multi-signature requirement for large withdrawals
-/*LN-17*/  * 3. Missing timelock for critical operations
-/*LN-18*/  * 4. Insufficient monitoring and alerting
-/*LN-19*/  * 5. No withdrawal limits or rate limiting
-/*LN-20*/  *
-/*LN-21*/  * ATTACK FLOW:
-/*LN-22*/  * 1. Attackers compromised admin private keys (phishing/malware suspected)
-/*LN-23*/  * 2. Used compromised keys to call withdraw() directly
-/*LN-24*/  * 3. Drained Bitcoin and Ethereum from hot wallets
-/*LN-25*/  * 4. No timelock delayed the malicious withdrawals
-/*LN-26*/  * 5. Transferred stolen funds through mixers
-/*LN-27*/  * 6. Total loss: ~$26M in BTC and ETH
-/*LN-28*/  */
-/*LN-29*/ 
-/*LN-30*/ interface IERC20 {
-/*LN-31*/     function transfer(address to, uint256 amount) external returns (bool);
-/*LN-32*/ 
-/*LN-33*/     function balanceOf(address account) external view returns (uint256);
-/*LN-34*/ }
-/*LN-35*/ 
-/*LN-36*/ /**
-/*LN-37*/  * Simplified model of FixedFloat's vulnerable withdrawal system
-/*LN-38*/  */
-/*LN-39*/ contract FixedFloatHotWallet {
-/*LN-40*/     address public owner;
-/*LN-41*/ 
-/*LN-42*/     // VULNERABILITY 1: Single owner controls all funds
-/*LN-43*/     // No multi-sig, no timelock, no withdrawal limits
-/*LN-44*/ 
-/*LN-45*/     mapping(address => bool) public authorizedOperators;
-/*LN-46*/ 
-/*LN-47*/     event Withdrawal(address token, address to, uint256 amount);
-/*LN-48*/ 
-/*LN-49*/     constructor() {
-/*LN-50*/         owner = msg.sender;
-/*LN-51*/     }
+/*LN-14*/  * UNIQUE ASPECT: Funds were fully recovered after negotiations with the attacker,
+/*LN-15*/  * who turned out to be a North Korean developer hired by the project.
+/*LN-16*/  *
+/*LN-17*/  * ROOT CAUSE:
+/*LN-18*/  * 1. Single developer had access to critical private keys
+/*LN-19*/  * 2. No multi-signature requirement for contract upgrades
+/*LN-20*/  * 3. Missing timelock delay for critical operations
+/*LN-21*/  * 4. Insufficient background checks on developers with key access
+/*LN-22*/  * 5. No code review process for upgrades
+/*LN-23*/  *
+/*LN-24*/  * ATTACK FLOW:
+/*LN-25*/  * 1. Rogue developer prepared malicious contract implementation
+/*LN-26*/  * 2. Used admin keys to upgrade LockManager contract
+/*LN-27*/  * 3. Malicious contract allowed setting arbitrary lock recipients
+/*LN-28*/  * 4. Transferred all user funds to attacker-controlled addresses
+/*LN-29*/  * 5. $62M in ETH/WETH locked in attacker wallets
+/*LN-30*/  * 6. Project negotiated with attacker (revealed to be DPRK dev)
+/*LN-31*/  * 7. Full funds returned and project resumed operations
+/*LN-32*/  */
+/*LN-33*/ 
+/*LN-34*/ interface IERC20 {
+/*LN-35*/     function transfer(address to, uint256 amount) external returns (bool);
+/*LN-36*/ 
+/*LN-37*/     function transferFrom(
+/*LN-38*/         address from,
+/*LN-39*/         address to,
+/*LN-40*/         uint256 amount
+/*LN-41*/     ) external returns (bool);
+/*LN-42*/ 
+/*LN-43*/     function balanceOf(address account) external view returns (uint256);
+/*LN-44*/ }
+/*LN-45*/ 
+/*LN-46*/ /**
+/*LN-47*/  * Munchables Lock Manager (Vulnerable Version)
+/*LN-48*/  */
+/*LN-49*/ contract MunchablesLockManager {
+/*LN-50*/     address public admin;
+/*LN-51*/     address public configStorage;
 /*LN-52*/ 
-/*LN-53*/     /**
-/*LN-54*/      * @dev VULNERABILITY 2: Single private key compromise = total loss
-/*LN-55*/      * @dev VULNERABILITY 3: No multi-signature requirement
-/*LN-56*/      */
-/*LN-57*/     modifier onlyOwner() {
-/*LN-58*/         require(msg.sender == owner, "Not owner");
-/*LN-59*/         _;
-/*LN-60*/     }
-/*LN-61*/ 
-/*LN-62*/     /**
-/*LN-63*/      * @dev VULNERABILITY 4: No timelock delay for withdrawals
-/*LN-64*/      * @dev VULNERABILITY 5: No maximum withdrawal limits
-/*LN-65*/      * @dev VULNERABILITY 6: Can drain entire balance in single transaction
-/*LN-66*/      */
-/*LN-67*/     function withdraw(
-/*LN-68*/         address token,
-/*LN-69*/         address to,
-/*LN-70*/         uint256 amount
-/*LN-71*/     ) external onlyOwner {
-/*LN-72*/         // VULNERABILITY 7: No additional authorization checks
-/*LN-73*/         // VULNERABILITY 8: No rate limiting
-/*LN-74*/         // VULNERABILITY 9: No monitoring or pause mechanism
-/*LN-75*/ 
-/*LN-76*/         if (token == address(0)) {
-/*LN-77*/             // Withdraw ETH
-/*LN-78*/             payable(to).transfer(amount);
-/*LN-79*/         } else {
-/*LN-80*/             // Withdraw ERC20 tokens
-/*LN-81*/             IERC20(token).transfer(to, amount);
-/*LN-82*/         }
-/*LN-83*/ 
-/*LN-84*/         emit Withdrawal(token, to, amount);
-/*LN-85*/     }
-/*LN-86*/ 
-/*LN-87*/     /**
-/*LN-88*/      * @dev Emergency withdrawal - same vulnerability as regular withdraw
-/*LN-89*/      */
-/*LN-90*/     function emergencyWithdraw(address token) external onlyOwner {
-/*LN-91*/         // VULNERABILITY 10: Emergency function has same weak access control
-/*LN-92*/ 
-/*LN-93*/         uint256 balance;
-/*LN-94*/         if (token == address(0)) {
-/*LN-95*/             balance = address(this).balance;
-/*LN-96*/             payable(owner).transfer(balance);
-/*LN-97*/         } else {
-/*LN-98*/             balance = IERC20(token).balanceOf(address(this));
-/*LN-99*/             IERC20(token).transfer(owner, balance);
-/*LN-100*/         }
-/*LN-101*/ 
-/*LN-102*/         emit Withdrawal(token, owner, balance);
-/*LN-103*/     }
-/*LN-104*/ 
-/*LN-105*/     /**
-/*LN-106*/      * @dev Transfer ownership - critical function with no protection
-/*LN-107*/      */
-/*LN-108*/     function transferOwnership(address newOwner) external onlyOwner {
-/*LN-109*/         // VULNERABILITY 11: Ownership transfer has no timelock
-/*LN-110*/         // VULNERABILITY 12: No confirmation from new owner required
-/*LN-111*/         owner = newOwner;
-/*LN-112*/     }
-/*LN-113*/ 
-/*LN-114*/     receive() external payable {}
-/*LN-115*/ }
-/*LN-116*/ 
-/*LN-117*/ /**
-/*LN-118*/  * ATTACK SCENARIO:
-/*LN-119*/  *
-/*LN-120*/  * 1. Attacker compromises owner private key through:
-/*LN-121*/  *    - Phishing attack targeting FixedFloat admin
-/*LN-122*/  *    - Malware on admin's computer
-/*LN-123*/  *    - Social engineering
-/*LN-124*/  *
-/*LN-125*/  * 2. With compromised key, attacker calls:
-/*LN-126*/  *    hotWallet.withdraw(WBTC_ADDRESS, attackerAddress, balance)
-/*LN-127*/  *    hotWallet.withdraw(address(0), attackerAddress, ethBalance)
-/*LN-128*/  *
-/*LN-129*/  * 3. Funds transferred immediately with no delays:
-/*LN-130*/  *    - ~$15M in Bitcoin
-/*LN-131*/  *    - ~$11M in Ethereum
-/*LN-132*/  *
-/*LN-133*/  * 4. Attacker routes funds through mixers to obfuscate trail
-/*LN-134*/  *
-/*LN-135*/  * 5. No recovery possible due to irreversibility of blockchain transactions
-/*LN-136*/  *
-/*LN-137*/  * MITIGATION STRATEGIES:
-/*LN-138*/  *
-/*LN-139*/  * 1. Multi-Signature Wallet:
-/*LN-140*/  *    - Require 3-of-5 or 4-of-7 signatures for withdrawals
-/*LN-141*/  *    - Distribute keys across different individuals/locations
-/*LN-142*/  *
-/*LN-143*/  * 2. Timelock Mechanism:
-/*LN-144*/  *    - Add 24-48 hour delay for large withdrawals
-/*LN-145*/  *    - Allow time for detection and intervention
-/*LN-146*/  *
-/*LN-147*/  * 3. Withdrawal Limits:
-/*LN-148*/  *    - Implement daily/hourly withdrawal caps
-/*LN-149*/  *    - Require additional approvals for amounts exceeding limits
-/*LN-150*/  *
-/*LN-151*/  * 4. Hardware Security Modules (HSM):
-/*LN-152*/  *    - Store private keys in dedicated hardware
-/*LN-153*/  *    - Prevent key extraction even if system compromised
-/*LN-154*/  *
-/*LN-155*/  * 5. Monitoring and Alerts:
-/*LN-156*/  *    - Real-time monitoring of large withdrawals
-/*LN-157*/  *    - Automatic alerts to multiple team members
-/*LN-158*/  *    - Pause mechanism for suspicious activity
-/*LN-159*/  *
-/*LN-160*/  * 6. Cold Storage:
-/*LN-161*/  *    - Keep majority of funds in cold wallets
-/*LN-162*/  *    - Hot wallets hold only operational amounts
-/*LN-163*/  *
-/*LN-164*/  * 7. Key Rotation:
-/*LN-165*/  *    - Regular rotation of private keys
-/*LN-166*/  *    - Limit exposure window if key compromised
-/*LN-167*/  *
-/*LN-168*/  * 8. Access Control:
-/*LN-169*/  *    - Role-based permissions
-/*LN-170*/  *    - Separation of duties
-/*LN-171*/  *    - No single person has complete control
-/*LN-172*/  */
-/*LN-173*/ 
+/*LN-53*/     struct PlayerSettings {
+/*LN-54*/         uint256 lockedAmount;
+/*LN-55*/         address lockRecipient;
+/*LN-56*/         uint256 lockDuration;
+/*LN-57*/         uint256 lockStartTime;
+/*LN-58*/     }
+/*LN-59*/ 
+/*LN-60*/     // VULNERABILITY 1: Admin has unrestricted control
+/*LN-61*/     mapping(address => PlayerSettings) public playerSettings;
+/*LN-62*/     mapping(address => uint256) public playerBalances;
+/*LN-63*/ 
+/*LN-64*/     IERC20 public immutable weth;
+/*LN-65*/ 
+/*LN-66*/     event Locked(address player, uint256 amount, address recipient);
+/*LN-67*/     event ConfigUpdated(address oldConfig, address newConfig);
+/*LN-68*/ 
+/*LN-69*/     constructor(address _weth) {
+/*LN-70*/         admin = msg.sender;
+/*LN-71*/         weth = IERC20(_weth);
+/*LN-72*/     }
+/*LN-73*/ 
+/*LN-74*/     /**
+/*LN-75*/      * @dev VULNERABILITY 2: Single admin modifier, no multi-sig
+/*LN-76*/      */
+/*LN-77*/     modifier onlyAdmin() {
+/*LN-78*/         require(msg.sender == admin, "Not admin");
+/*LN-79*/         _;
+/*LN-80*/     }
+/*LN-81*/ 
+/*LN-82*/     /**
+/*LN-83*/      * @dev Users lock tokens to earn rewards
+/*LN-84*/      */
+/*LN-85*/     function lock(uint256 amount, uint256 duration) external {
+/*LN-86*/         require(amount > 0, "Zero amount");
+/*LN-87*/ 
+/*LN-88*/         weth.transferFrom(msg.sender, address(this), amount);
+/*LN-89*/ 
+/*LN-90*/         playerBalances[msg.sender] += amount;
+/*LN-91*/         playerSettings[msg.sender] = PlayerSettings({
+/*LN-92*/             lockedAmount: amount,
+/*LN-93*/             lockRecipient: msg.sender,
+/*LN-94*/             lockDuration: duration,
+/*LN-95*/             lockStartTime: block.timestamp
+/*LN-96*/         });
+/*LN-97*/ 
+/*LN-98*/         emit Locked(msg.sender, amount, msg.sender);
+/*LN-99*/     }
+/*LN-100*/ 
+/*LN-101*/     /**
+/*LN-102*/      * @dev VULNERABILITY 3: Admin can change configStorage without restrictions
+/*LN-103*/      * @dev VULNERABILITY 4: No timelock delay for critical changes
+/*LN-104*/      */
+/*LN-105*/     function setConfigStorage(address _configStorage) external onlyAdmin {
+/*LN-106*/         // VULNERABILITY 5: Immediate execution, no delay
+/*LN-107*/         address oldConfig = configStorage;
+/*LN-108*/         configStorage = _configStorage;
+/*LN-109*/ 
+/*LN-110*/         emit ConfigUpdated(oldConfig, _configStorage);
+/*LN-111*/     }
+/*LN-112*/ 
+/*LN-113*/     /**
+/*LN-114*/      * @dev VULNERABILITY 6: Admin can modify user settings arbitrarily
+/*LN-115*/      * @dev This is the key function exploited by rogue developer
+/*LN-116*/      */
+/*LN-117*/     function setLockRecipient(
+/*LN-118*/         address player,
+/*LN-119*/         address newRecipient
+/*LN-120*/     ) external onlyAdmin {
+/*LN-121*/         // VULNERABILITY 7: No validation of newRecipient
+/*LN-122*/         // VULNERABILITY 8: Can redirect all user funds to attacker
+/*LN-123*/         // VULNERABILITY 9: No user consent required
+/*LN-124*/ 
+/*LN-125*/         playerSettings[player].lockRecipient = newRecipient;
+/*LN-126*/     }
+/*LN-127*/ 
+/*LN-128*/     /**
+/*LN-129*/      * @dev Unlock funds after lock period expires
+/*LN-130*/      */
+/*LN-131*/     function unlock() external {
+/*LN-132*/         PlayerSettings memory settings = playerSettings[msg.sender];
+/*LN-133*/ 
+/*LN-134*/         require(settings.lockedAmount > 0, "No locked tokens");
+/*LN-135*/         require(
+/*LN-136*/             block.timestamp >= settings.lockStartTime + settings.lockDuration,
+/*LN-137*/             "Still locked"
+/*LN-138*/         );
+/*LN-139*/ 
+/*LN-140*/         uint256 amount = settings.lockedAmount;
+/*LN-141*/ 
+/*LN-142*/         // VULNERABILITY 10: Funds sent to potentially attacker-controlled recipient
+/*LN-143*/         address recipient = settings.lockRecipient;
+/*LN-144*/ 
+/*LN-145*/         delete playerSettings[msg.sender];
+/*LN-146*/         playerBalances[msg.sender] = 0;
+/*LN-147*/ 
+/*LN-148*/         weth.transfer(recipient, amount);
+/*LN-149*/     }
+/*LN-150*/ 
+/*LN-151*/     /**
+/*LN-152*/      * @dev VULNERABILITY 11: Emergency withdrawal also uses lockRecipient
+/*LN-153*/      */
+/*LN-154*/     function emergencyUnlock(address player) external onlyAdmin {
+/*LN-155*/         PlayerSettings memory settings = playerSettings[player];
+/*LN-156*/         uint256 amount = settings.lockedAmount;
+/*LN-157*/         address recipient = settings.lockRecipient;
+/*LN-158*/ 
+/*LN-159*/         delete playerSettings[player];
+/*LN-160*/         playerBalances[player] = 0;
+/*LN-161*/ 
+/*LN-162*/         // Sends to whoever admin set as lockRecipient
+/*LN-163*/         weth.transfer(recipient, amount);
+/*LN-164*/     }
+/*LN-165*/ 
+/*LN-166*/     /**
+/*LN-167*/      * @dev VULNERABILITY 12: Admin transfer with no restrictions
+/*LN-168*/      */
+/*LN-169*/     function transferAdmin(address newAdmin) external onlyAdmin {
+/*LN-170*/         // VULNERABILITY 13: No timelock, no multi-sig confirmation
+/*LN-171*/         admin = newAdmin;
+/*LN-172*/     }
+/*LN-173*/ }
+/*LN-174*/ 
+/*LN-175*/ /**
+/*LN-176*/  * ATTACK SCENARIO:
+/*LN-177*/  *
+/*LN-178*/  * Preparation Phase:
+/*LN-179*/  * 1. Rogue developer (later revealed as North Korean operative) gains employment
+/*LN-180*/  * 2. Developer given access to admin private keys for "development purposes"
+/*LN-181*/  * 3. Project has ~$62M in user deposits locked in contracts
+/*LN-182*/  *
+/*LN-183*/  * Exploitation Phase (March 26, 2024):
+/*LN-184*/  *
+/*LN-185*/  * Step 1: Upgrade to Malicious Implementation
+/*LN-186*/  * - Developer uses admin key to upgrade LockManager to malicious version
+/*LN-187*/  * - Malicious version allows arbitrary setLockRecipient calls
+/*LN-188*/  *
+/*LN-189*/  * Step 2: Redirect All User Funds
+/*LN-190*/  * - For each user with locked funds:
+/*LN-191*/  *   setLockRecipient(user, attackerWallet)
+/*LN-192*/  *
+/*LN-193*/  * Step 3: Trigger Emergency Unlocks
+/*LN-194*/  * - Call emergencyUnlock() for all users
+/*LN-195*/  * - Funds flow to attacker's lockRecipient addresses
+/*LN-196*/  * - Total drained: $62M in ETH/WETH
+/*LN-197*/  *
+/*LN-198*/  * Step 4: Transfer to External Wallets
+/*LN-199*/  * - Attacker moves funds across multiple wallets
+/*LN-200*/  * - Prepares for mixing/laundering
+/*LN-201*/  *
+/*LN-202*/  * Recovery Phase (Unusual Outcome):
+/*LN-203*/  *
+/*LN-204*/  * 1. Munchables team traces attacker identity
+/*LN-205*/  * 2. Discovers attacker is DPRK-linked developer
+/*LN-206*/  * 3. Opens negotiations through intermediaries
+/*LN-207*/  * 4. Attacker agrees to return all funds (reasons unclear)
+/*LN-208*/  * 5. All $62M returned to project
+/*LN-209*/  * 6. Project compensates affected users
+/*LN-210*/  * 7. Upgrades security and continues operations
+/*LN-211*/  *
+/*LN-212*/  * MITIGATION STRATEGIES:
+/*LN-213*/  *
+/*LN-214*/  * 1. Multi-Signature Requirements:
+/*LN-215*/  *    // Require 3-of-5 signatures for admin actions
+/*LN-216*/  *    modifier onlyMultiSig() {
+/*LN-217*/  *        require(multiSig.isConfirmed(msg.data), "Not confirmed");
+/*LN-218*/  *        _;
+/*LN-219*/  *    }
+/*LN-220*/  *
+/*LN-221*/  * 2. Timelock Delays:
+/*LN-222*/  *    uint256 public constant ADMIN_DELAY = 48 hours;
+/*LN-223*/  *    mapping(bytes32 => uint256) public scheduledActions;
+/*LN-224*/  *
+/*LN-225*/  *    function scheduleSetRecipient(...) external onlyAdmin {
+/*LN-226*/  *        bytes32 actionHash = keccak256(abi.encode(...));
+/*LN-227*/  *        scheduledActions[actionHash] = block.timestamp + ADMIN_DELAY;
+/*LN-228*/  *    }
+/*LN-229*/  *
+/*LN-230*/  * 3. User Consent Required:
+/*LN-231*/  *    function setLockRecipient(address newRecipient) external {
+/*LN-232*/  *        // Only users can change their own recipient
+/*LN-233*/  *        require(msg.sender == player, "Only user");
+/*LN-234*/  *        playerSettings[msg.sender].lockRecipient = newRecipient;
+/*LN-235*/  *    }
+/*LN-236*/  *
+/*LN-237*/  * 4. Immutable Critical Functions:
+/*LN-238*/  *    // Remove admin override capabilities
+/*LN-239*/  *    // Users have full control of their funds
+/*LN-240*/  *
+/*LN-241*/  * 5. Developer Vetting:
+/*LN-242*/  *    - Thorough background checks
+/*LN-243*/  *    - Principle of least privilege
+/*LN-244*/  *    - No single person has critical key access
+/*LN-245*/  *
+/*LN-246*/  * 6. Code Review Process:
+/*LN-247*/  *    - All upgrades reviewed by multiple team members
+/*LN-248*/  *    - External audit before deployment
+/*LN-249*/  *    - Community governance for changes
+/*LN-250*/  *
+/*LN-251*/  * 7. Hardware Security:
+/*LN-252*/  *    - Admin keys stored in HSMs
+/*LN-253*/  *    - Physical presence required
+/*LN-254*/  *    - Geographic distribution
+/*LN-255*/  *
+/*LN-256*/  * 8. Monitoring and Alerts:
+/*LN-257*/  *    - Real-time alerts on admin actions
+/*LN-258*/  *    - Automatic pause on suspicious activity
+/*LN-259*/  *    - Community oversight dashboard
+/*LN-260*/  *
+/*LN-261*/  * 9. Gradual Privilege Escalation:
+/*LN-262*/  *    - New developers start with limited access
+/*LN-263*/  *    - Increase privileges over time with trust
+/*LN-264*/  *    - Regular security training
+/*LN-265*/  *
+/*LN-266*/  * 10. Decentralized Governance:
+/*LN-267*/  *     - Move to DAO-controlled upgrades
+/*LN-268*/  *     - Token holder voting
+/*LN-269*/  *     - Eliminate single points of failure
+/*LN-270*/  */
+/*LN-271*/ 

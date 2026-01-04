@@ -1,55 +1,72 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import "forge-std/Test.sol";
+contract TokenWhale {
+    address player;
 
-contract Proxy {
-    address public owner = address(0xdeadbeef); // slot0
-    Delegate delegate;
+    uint256 public totalSupply;
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
 
-    constructor(address _delegateAddress) public {
-        delegate = Delegate(_delegateAddress);
+    string public name = "Simple ERC20 Token";
+    string public symbol = "SET";
+    uint8 public decimals = 18;
+
+    function TokenWhaleDeploy(address _player) public {
+        player = _player;
+        totalSupply = 1000;
+        balanceOf[player] = 1000;
     }
 
-    fallback() external {
-        (bool suc, ) = address(delegate).delegatecall(msg.data);
-        require(suc, "Delegatecall failed");
-    }
-}
-
-contract ContractTest is Test {
-    Proxy proxy;
-    Delegate DelegateContract;
-    address alice;
-
-    function setUp() public {
-        alice = vm.addr(1);
+    function isComplete() public view returns (bool) {
+        return balanceOf[player] >= 1000000; // 1 mil
     }
 
-    function testDelegatecall() public {
-        DelegateContract = new Delegate(); // logic contract
-        proxy = new Proxy(address(DelegateContract)); // proxy contract
+    event Transfer(address indexed from, address indexed to, uint256 value);
 
-        console.log("Alice address", alice);
-        console.log("DelegationContract owner", proxy.owner());
+    function _transfer(address to, uint256 value) internal {
+        balanceOf[msg.sender] -= value;
+        balanceOf[to] += value;
 
-        // Delegatecall allows a smart contract to dynamically load code from a different address at runtime.
-        console.log("Change DelegationContract owner to Alice...");
-        vm.prank(alice);
-        address(proxy).call(abi.encodeWithSignature("execute()"));
-        // Proxy.fallback() will delegatecall Delegate.execute()
-
-        console.log("DelegationContract owner", proxy.owner());
-        console.log(
-            "operate completed, proxy contract storage has been manipulated"
-        );
+        emit Transfer(msg.sender, to, value);
     }
-}
 
-contract Delegate {
-    address public owner; // slot0
+    function transfer(address to, uint256 value) public {
+        require(balanceOf[msg.sender] >= value);
+        require(balanceOf[to] + value >= balanceOf[to]);
 
-    function execute() public {
-        owner = msg.sender;
+        _transfer(to, value);
+    }
+
+    event Approval(
+        address indexed owner,
+        address indexed spender,
+        uint256 value
+    );
+
+    function approve(address spender, uint256 value) public {
+        allowance[msg.sender][spender] = value;
+        emit Approval(msg.sender, spender, value);
+    }
+
+    function transferFrom(address from, address to, uint256 value) public {
+        require(balanceOf[from] >= value);
+        require(balanceOf[to] + value >= balanceOf[to]);
+        require(allowance[from][msg.sender] >= value);
+
+        allowance[from][msg.sender] -= value;
+        _transfer(to, value);
+    }
+
+    function approveAndCallcode(
+        address _spender,
+        uint256 _value,
+        bytes memory _extraData
+    ) public {
+        allowance[msg.sender][_spender] = _value;
+
+        bool success;
+
+        (success, ) = _spender.call(_extraData);
     }
 }

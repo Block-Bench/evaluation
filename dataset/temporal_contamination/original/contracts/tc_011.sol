@@ -2,180 +2,191 @@
 /*LN-2*/ pragma solidity ^0.8.0;
 /*LN-3*/ 
 /*LN-4*/ /**
-/*LN-5*/  * @title Lendf.Me - ERC-777 Reentrancy Vulnerability
-/*LN-6*/  * @notice This contract demonstrates the vulnerability that led to the Lendf.Me hack
-/*LN-7*/  * @dev April 19, 2020 - $25M stolen through ERC-777 token hooks reentrancy
+/*LN-5*/  * @title PancakeHunny - Balance Calculation Vulnerability
+/*LN-6*/  * @notice This contract demonstrates the vulnerability that led to the PancakeHunny hack
+/*LN-7*/  * @dev May 20, 2021 - $45M stolen through incorrect balance calculation
 /*LN-8*/  *
-/*LN-9*/  * VULNERABILITY: ERC-777 reentrancy via tokensToSend hook
+/*LN-9*/  * VULNERABILITY: Using balanceOf for fee calculation allowing flash loan manipulation
 /*LN-10*/  *
 /*LN-11*/  * ROOT CAUSE:
-/*LN-12*/  * The withdraw() function transfers ERC-777 tokens BEFORE updating user balances.
-/*LN-13*/  * ERC-777 tokens trigger a tokensToSend() hook on the sender during transfer,
-/*LN-14*/  * allowing the attacker to re-enter withdraw() before their balance is updated.
-/*LN-15*/  *
-/*LN-16*/  * ATTACK VECTOR:
-/*LN-17*/  * 1. Attacker supplies ERC-777 tokens (imBTC) to the lending pool
-/*LN-18*/  * 2. Attacker calls withdraw() to withdraw tokens
-/*LN-19*/  * 3. During token transfer, ERC-777 calls attacker's tokensToSend() hook
-/*LN-20*/  * 4. In the hook, attacker calls withdraw() again
-/*LN-21*/  * 5. Since balance hasn't been updated, attacker withdraws again
-/*LN-22*/  * 6. Process repeats until pool is drained
-/*LN-23*/  *
-/*LN-24*/  * Unlike classic reentrancy which uses fallback(), this exploits ERC-777's
-/*LN-25*/  * tokensToSend hook mechanism.
+/*LN-12*/  * The mintFor() function calculates reward tokens based on contract's current token balance
+/*LN-13*/  * using balanceOf(address(this)). An attacker can artificially inflate this balance
+/*LN-14*/  * by sending tokens directly to the contract before calling the function, then
+/*LN-15*/  * immediately withdrawing after, tricking the contract into minting excessive rewards.
+/*LN-16*/  *
+/*LN-17*/  * ATTACK VECTOR:
+/*LN-18*/  * 1. Attacker deposits large amount of LP tokens to vault
+/*LN-19*/  * 2. Attacker transfers additional LP tokens directly to the minter contract
+/*LN-20*/  * 3. Attacker calls getReward() which triggers mintFor()
+/*LN-21*/  * 4. mintFor() sees inflated balance from step 2, mints excessive HUNNY rewards
+/*LN-22*/  * 5. Attacker receives far more HUNNY tokens than earned
+/*LN-23*/  * 6. Attacker sells HUNNY tokens for profit
+/*LN-24*/  *
+/*LN-25*/  * This vulnerability often combines with flash loans to amplify the attack.
 /*LN-26*/  */
 /*LN-27*/ 
-/*LN-28*/ interface IERC777 {
+/*LN-28*/ interface IERC20 {
 /*LN-29*/     function transfer(address to, uint256 amount) external returns (bool);
 /*LN-30*/ 
-/*LN-31*/     function balanceOf(address account) external view returns (uint256);
-/*LN-32*/ }
-/*LN-33*/ 
-/*LN-34*/ interface IERC1820Registry {
-/*LN-35*/     function setInterfaceImplementer(
-/*LN-36*/         address account,
-/*LN-37*/         bytes32 interfaceHash,
-/*LN-38*/         address implementer
-/*LN-39*/     ) external;
-/*LN-40*/ }
-/*LN-41*/ 
-/*LN-42*/ contract VulnerableLendingPool {
-/*LN-43*/     mapping(address => mapping(address => uint256)) public supplied;
-/*LN-44*/     mapping(address => uint256) public totalSupplied;
-/*LN-45*/ 
-/*LN-46*/     /**
-/*LN-47*/      * @notice Supply tokens to the lending pool
-/*LN-48*/      * @param asset The ERC-777 token to supply
-/*LN-49*/      * @param amount Amount to supply
-/*LN-50*/      */
-/*LN-51*/     function supply(address asset, uint256 amount) external returns (uint256) {
-/*LN-52*/         IERC777 token = IERC777(asset);
+/*LN-31*/     function transferFrom(
+/*LN-32*/         address from,
+/*LN-33*/         address to,
+/*LN-34*/         uint256 amount
+/*LN-35*/     ) external returns (bool);
+/*LN-36*/ 
+/*LN-37*/     function balanceOf(address account) external view returns (uint256);
+/*LN-38*/ }
+/*LN-39*/ 
+/*LN-40*/ interface IPancakeRouter {
+/*LN-41*/     function swapExactTokensForTokens(
+/*LN-42*/         uint amountIn,
+/*LN-43*/         uint amountOut,
+/*LN-44*/         address[] calldata path,
+/*LN-45*/         address to,
+/*LN-46*/         uint deadline
+/*LN-47*/     ) external returns (uint[] memory amounts);
+/*LN-48*/ }
+/*LN-49*/ 
+/*LN-50*/ contract VulnerableHunnyMinter {
+/*LN-51*/     IERC20 public lpToken; // LP token (e.g., CAKE-BNB)
+/*LN-52*/     IERC20 public rewardToken; // HUNNY reward token
 /*LN-53*/ 
-/*LN-54*/         // Transfer tokens from user
-/*LN-55*/         require(token.transfer(address(this), amount), "Transfer failed");
+/*LN-54*/     mapping(address => uint256) public depositedLP;
+/*LN-55*/     mapping(address => uint256) public earnedRewards;
 /*LN-56*/ 
-/*LN-57*/         // Update balances
-/*LN-58*/         supplied[msg.sender][asset] += amount;
-/*LN-59*/         totalSupplied[asset] += amount;
-/*LN-60*/ 
-/*LN-61*/         return amount;
+/*LN-57*/     uint256 public constant REWARD_RATE = 100; // 100 reward tokens per LP token
+/*LN-58*/ 
+/*LN-59*/     constructor(address _lpToken, address _rewardToken) {
+/*LN-60*/         lpToken = IERC20(_lpToken);
+/*LN-61*/         rewardToken = IERC20(_rewardToken);
 /*LN-62*/     }
 /*LN-63*/ 
 /*LN-64*/     /**
-/*LN-65*/      * @notice Withdraw supplied tokens
-/*LN-66*/      * @param asset The token to withdraw
-/*LN-67*/      * @param requestedAmount Amount to withdraw (type(uint256).max for all)
-/*LN-68*/      *
-/*LN-69*/      * VULNERABILITY IS HERE:
-/*LN-70*/      * The function transfers tokens BEFORE updating the user's balance.
-/*LN-71*/      * For ERC-777 tokens, the transfer triggers tokensToSend() hook on the sender,
-/*LN-72*/      * creating a reentrancy opportunity.
-/*LN-73*/      *
-/*LN-74*/      * Vulnerable pattern:
-/*LN-75*/      * 1. Calculate withdrawal amount (line 86-88)
-/*LN-76*/      * 2. Transfer tokens (line 91) <- EXTERNAL CALL WITH HOOK
-/*LN-77*/      * 3. Update balances (line 94-95) <- TOO LATE!
-/*LN-78*/      */
-/*LN-79*/     function withdraw(
-/*LN-80*/         address asset,
-/*LN-81*/         uint256 requestedAmount
-/*LN-82*/     ) external returns (uint256) {
-/*LN-83*/         uint256 userBalance = supplied[msg.sender][asset];
-/*LN-84*/         require(userBalance > 0, "No balance");
-/*LN-85*/ 
-/*LN-86*/         // Determine actual withdrawal amount
-/*LN-87*/         uint256 withdrawAmount = requestedAmount;
-/*LN-88*/         if (requestedAmount == type(uint256).max) {
-/*LN-89*/             withdrawAmount = userBalance;
-/*LN-90*/         }
-/*LN-91*/         require(withdrawAmount <= userBalance, "Insufficient balance");
-/*LN-92*/ 
-/*LN-93*/         // VULNERABLE: Transfer before state update
-/*LN-94*/         // For ERC-777, this triggers tokensToSend() callback
-/*LN-95*/         IERC777(asset).transfer(msg.sender, withdrawAmount);
-/*LN-96*/ 
-/*LN-97*/         // Update state (happens too late!)
-/*LN-98*/         supplied[msg.sender][asset] -= withdrawAmount;
-/*LN-99*/         totalSupplied[asset] -= withdrawAmount;
+/*LN-65*/      * @notice Deposit LP tokens to earn rewards
+/*LN-66*/      */
+/*LN-67*/     function deposit(uint256 amount) external {
+/*LN-68*/         lpToken.transferFrom(msg.sender, address(this), amount);
+/*LN-69*/         depositedLP[msg.sender] += amount;
+/*LN-70*/     }
+/*LN-71*/ 
+/*LN-72*/     /**
+/*LN-73*/      * @notice Calculate and mint rewards for user
+/*LN-74*/      * @param flip The LP token address
+/*LN-75*/      * @param _withdrawalFee Withdrawal fee amount
+/*LN-76*/      * @param _performanceFee Performance fee amount
+/*LN-77*/      * @param to Recipient address
+/*LN-78*/      *
+/*LN-79*/      * VULNERABILITY IS HERE:
+/*LN-80*/      * The function uses balanceOf(address(this)) to calculate rewards.
+/*LN-81*/      * This includes ALL tokens in the contract, not just legitimate deposits.
+/*LN-82*/      *
+/*LN-83*/      * Vulnerable sequence:
+/*LN-84*/      * 1. User has legitimately deposited some LP tokens
+/*LN-85*/      * 2. User transfers EXTRA LP tokens directly to contract (line 88)
+/*LN-86*/      * 3. mintFor() is called (line 90)
+/*LN-87*/      * 4. Line 95 uses balanceOf which includes the extra tokens
+/*LN-88*/      * 5. tokenToReward() calculates rewards based on inflated balance
+/*LN-89*/      * 6. User receives excessive rewards
+/*LN-90*/      * 7. Extra LP tokens can be withdrawn later
+/*LN-91*/      */
+/*LN-92*/     function mintFor(
+/*LN-93*/         address flip,
+/*LN-94*/         uint256 _withdrawalFee,
+/*LN-95*/         uint256 _performanceFee,
+/*LN-96*/         address to,
+/*LN-97*/         uint256 /* amount - unused */
+/*LN-98*/     ) external {
+/*LN-99*/         require(flip == address(lpToken), "Invalid token");
 /*LN-100*/ 
-/*LN-101*/         return withdrawAmount;
-/*LN-102*/     }
-/*LN-103*/ 
-/*LN-104*/     /**
-/*LN-105*/      * @notice Get user's supplied balance
-/*LN-106*/      */
-/*LN-107*/     function getSupplied(
-/*LN-108*/         address user,
-/*LN-109*/         address asset
-/*LN-110*/     ) external view returns (uint256) {
-/*LN-111*/         return supplied[user][asset];
-/*LN-112*/     }
-/*LN-113*/ }
+/*LN-101*/         // Transfer fees from caller
+/*LN-102*/         uint256 feeSum = _performanceFee + _withdrawalFee;
+/*LN-103*/         lpToken.transferFrom(msg.sender, address(this), feeSum);
+/*LN-104*/ 
+/*LN-105*/         // VULNERABLE: Use balanceOf to calculate rewards
+/*LN-106*/         // This includes tokens sent directly to contract, not just fees
+/*LN-107*/         uint256 hunnyRewardAmount = tokenToReward(
+/*LN-108*/             lpToken.balanceOf(address(this))
+/*LN-109*/         );
+/*LN-110*/ 
+/*LN-111*/         // Mint excessive rewards
+/*LN-112*/         earnedRewards[to] += hunnyRewardAmount;
+/*LN-113*/     }
 /*LN-114*/ 
-/*LN-115*/ /**
-/*LN-116*/  * Example ERC-777 attack contract:
-/*LN-117*/  *
-/*LN-118*/  * contract LendfMeAttacker {
-/*LN-119*/  *     VulnerableLendingPool public pool;
-/*LN-120*/  *     IERC777 public token;
-/*LN-121*/  *     uint256 public iterations = 0;
-/*LN-122*/  *
-/*LN-123*/  *     // ERC-777 tokensToSend hook - called during transfer
-/*LN-124*/  *     function tokensToSend(
-/*LN-125*/  *         address,
-/*LN-126*/  *         address,
-/*LN-127*/  *         address,
-/*LN-128*/  *         uint256 amount,
-/*LN-129*/  *         bytes calldata,
-/*LN-130*/  *         bytes calldata
-/*LN-131*/  *     ) external {
-/*LN-132*/  *         iterations++;
-/*LN-133*/  *         if (iterations < 10 && pool.totalSupplied(address(token)) > 0) {
-/*LN-134*/  *             pool.withdraw(address(token), type(uint256).max);  // Reenter!
-/*LN-135*/  *         }
-/*LN-136*/  *     }
-/*LN-137*/  *
-/*LN-138*/  *     function attack() external {
-/*LN-139*/  *         token.approve(address(pool), type(uint256).max);
-/*LN-140*/  *         pool.supply(address(token), 100 ether);
-/*LN-141*/  *         pool.withdraw(address(token), type(uint256).max);
-/*LN-142*/  *     }
-/*LN-143*/  * }
-/*LN-144*/  *
-/*LN-145*/  * REAL-WORLD IMPACT:
-/*LN-146*/  * - $25M stolen in April 2020
-/*LN-147*/  * - All funds eventually recovered through whitehat/negotiations
-/*LN-148*/  * - Highlighted dangers of ERC-777 token standard
-/*LN-149*/  * - Led to reduced adoption of ERC-777 in DeFi
-/*LN-150*/  *
-/*LN-151*/  * FIX:
-/*LN-152*/  * Update state BEFORE transferring tokens:
-/*LN-153*/  *
-/*LN-154*/  * function withdraw(address asset, uint256 requestedAmount) external returns (uint256) {
-/*LN-155*/  *     uint256 userBalance = supplied[msg.sender][asset];
-/*LN-156*/  *     require(userBalance > 0, "No balance");
-/*LN-157*/  *
-/*LN-158*/  *     uint256 withdrawAmount = requestedAmount == type(uint256).max
-/*LN-159*/  *         ? userBalance
-/*LN-160*/  *         : requestedAmount;
-/*LN-161*/  *     require(withdrawAmount <= userBalance, "Insufficient balance");
-/*LN-162*/  *
-/*LN-163*/  *     // Update state FIRST
-/*LN-164*/  *     supplied[msg.sender][asset] -= withdrawAmount;
-/*LN-165*/  *     totalSupplied[asset] -= withdrawAmount;
+/*LN-115*/     /**
+/*LN-116*/      * @notice Convert LP token amount to reward amount
+/*LN-117*/      * @dev This is called with the inflated balance
+/*LN-118*/      */
+/*LN-119*/     function tokenToReward(uint256 lpAmount) internal pure returns (uint256) {
+/*LN-120*/         return lpAmount * REWARD_RATE;
+/*LN-121*/     }
+/*LN-122*/ 
+/*LN-123*/     /**
+/*LN-124*/      * @notice Claim earned rewards
+/*LN-125*/      */
+/*LN-126*/     function getReward() external {
+/*LN-127*/         uint256 reward = earnedRewards[msg.sender];
+/*LN-128*/         require(reward > 0, "No rewards");
+/*LN-129*/ 
+/*LN-130*/         earnedRewards[msg.sender] = 0;
+/*LN-131*/         rewardToken.transfer(msg.sender, reward);
+/*LN-132*/     }
+/*LN-133*/ 
+/*LN-134*/     /**
+/*LN-135*/      * @notice Withdraw deposited LP tokens
+/*LN-136*/      */
+/*LN-137*/     function withdraw(uint256 amount) external {
+/*LN-138*/         require(depositedLP[msg.sender] >= amount, "Insufficient balance");
+/*LN-139*/         depositedLP[msg.sender] -= amount;
+/*LN-140*/         lpToken.transfer(msg.sender, amount);
+/*LN-141*/     }
+/*LN-142*/ }
+/*LN-143*/ 
+/*LN-144*/ /**
+/*LN-145*/  * Example attack flow:
+/*LN-146*/  *
+/*LN-147*/  * 1. Attacker obtains large amount of LP tokens (via flash loan)
+/*LN-148*/  * 2. Attacker deposits small amount to vault: deposit(1 ether)
+/*LN-149*/  * 3. Attacker transfers large amount directly to minter: lpToken.transfer(minter, 100 ether)
+/*LN-150*/  * 4. Vault calls mintFor() on behalf of attacker
+/*LN-151*/  * 5. mintFor() calculates: tokenToReward(101 ether) = 10,100 HUNNY
+/*LN-152*/  * 6. Attacker should only get tokenToReward(1 ether) = 100 HUNNY
+/*LN-153*/  * 7. Attacker received 101x more rewards than deserved
+/*LN-154*/  * 8. Attacker swaps HUNNY for profit, repays flash loan
+/*LN-155*/  *
+/*LN-156*/  * REAL-WORLD IMPACT:
+/*LN-157*/  * - $45M stolen in May 2021
+/*LN-158*/  * - HUNNY token price crashed 99%
+/*LN-159*/  * - Multiple vaults affected
+/*LN-160*/  * - Attacker used flash loans to amplify the attack
+/*LN-161*/  *
+/*LN-162*/  * FIX:
+/*LN-163*/  * Never use balanceOf for reward calculations. Track deposits explicitly:
+/*LN-164*/  *
+/*LN-165*/  * mapping(address => uint256) public totalDeposited;
 /*LN-166*/  *
-/*LN-167*/  *     // Then transfer
-/*LN-168*/  *     IERC777(asset).transfer(msg.sender, withdrawAmount);
-/*LN-169*/  *
-/*LN-170*/  *     return withdrawAmount;
-/*LN-171*/  * }
-/*LN-172*/  *
-/*LN-173*/  * Or use ReentrancyGuard modifier.
+/*LN-167*/  * function mintFor(...) external {
+/*LN-168*/  *     uint256 feeSum = _performanceFee + _withdrawalFee;
+/*LN-169*/  *     lpToken.transferFrom(msg.sender, address(this), feeSum);
+/*LN-170*/  *
+/*LN-171*/  *     // Use tracked amount, not balanceOf
+/*LN-172*/  *     totalDeposited += feeSum;
+/*LN-173*/  *     uint256 hunnyRewardAmount = tokenToReward(feeSum);  // Only use actual fees
 /*LN-174*/  *
-/*LN-175*/  *
-/*LN-176*/  * KEY LESSON:
-/*LN-177*/  * ERC-777 tokens can trigger callbacks during transfers.
-/*LN-178*/  * Always update state before any token transfer, not just ETH transfers.
-/*LN-179*/  * Consider ERC-777 hooks as potential reentrancy vectors.
-/*LN-180*/  */
-/*LN-181*/ 
+/*LN-175*/  *     earnedRewards[to] += hunnyRewardAmount;
+/*LN-176*/  * }
+/*LN-177*/  *
+/*LN-178*/  * Alternative: Store balance before transfer, calculate delta:
+/*LN-179*/  *
+/*LN-180*/  * uint256 balanceBefore = lpToken.balanceOf(address(this));
+/*LN-181*/  * lpToken.transferFrom(msg.sender, address(this), feeSum);
+/*LN-182*/  * uint256 actualReceived = lpToken.balanceOf(address(this)) - balanceBefore;
+/*LN-183*/  * uint256 hunnyRewardAmount = tokenToReward(actualReceived);
+/*LN-184*/  *
+/*LN-185*/  *
+/*LN-186*/  * KEY LESSON:
+/*LN-187*/  * Never use balanceOf(address(this)) for business logic.
+/*LN-188*/  * Anyone can inflate contract's balance by sending tokens directly.
+/*LN-189*/  * Always track deposits/transfers explicitly or calculate delta.
+/*LN-190*/  * Be especially careful with flash loan-amplified attacks.
+/*LN-191*/  */
+/*LN-192*/ 

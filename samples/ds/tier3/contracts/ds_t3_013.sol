@@ -1,36 +1,64 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
-import "forge-std/Test.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+contract BankManager {
+    struct Bank {
+        address bankAddress;
+        string bankName;
+    }
 
-interface USDT {
-    function transfer(address to, uint256 value) external;
+    Bank[] public banks;
 
-    function balanceOf(address account) external view returns (uint256);
+    // Add multiple banks
+    function addBanks(
+        address[] memory addresses,
+        string[] memory names
+    ) public {
+        require(
+            addresses.length == names.length,
+            "Arrays must have the same length"
+        );
 
-    function approve(address spender, uint256 value) external;
+        for (uint i = 0; i < addresses.length; i++) {
+            banks.push(Bank(addresses[i], names[i]));
+        }
+    }
+
+    // Get the number of banks
+    function getBankCount() public view returns (uint) {
+        return banks.length;
+    }
+
+    // Get a specific bank
+    function getBank(uint index) public view returns (address, string memory) {
+        require(index < banks.length, "Index out of bounds");
+        return (banks[index].bankAddress, banks[index].bankName);
+    }
+
+    // Helper function to remove a bank at a specific index
+    function _removeBank(uint index) internal {
+        require(index < banks.length, "Index out of bounds");
+
+        // Move the last element to the deleted position
+        if (index < banks.length - 1) {
+            banks[index] = banks[banks.length - 1];
+        }
+
+        // Remove the last element
+        banks.pop();
+    }
 }
 
-contract ContractTest is Test {
-    using SafeERC20 for IERC20;
-    IERC20 constant usdt = IERC20(0xdAC17F958D2ee523a2206206994597C13D831ec7);
-
-    function setUp() public {
-        vm.createSelectFork("mainnet", 16138254);
+contract BankManagerA is BankManager {
+    // Remove all banks in the provided list
+    function removeBanksMethodA(address[] memory banksToRemove) public {
+        for (uint i = 0; i < banks.length; i++) {
+            for (uint j = 0; j < banksToRemove.length; j++) {
+                if (banks[i].bankAddress == banksToRemove[j]) {
+                    _removeBank(i);
+                    return;
+                }
+            }
+        }
     }
-
-    function testTransfer() public {
-        vm.startPrank(0xef0DCc839c1490cEbC7209BAa11f46cfe83805ab);
-        usdt.transfer(address(this), 123); //revert
-        vm.stopPrank();
-    }
-
-    function testSafeTransfer() public {
-        vm.startPrank(0xef0DCc839c1490cEbC7209BAa11f46cfe83805ab);
-        usdt.safeTransfer(address(this), 123);
-        vm.stopPrank();
-    }
-
-    receive() external payable {}
 }
