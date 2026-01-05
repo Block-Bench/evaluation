@@ -44,8 +44,17 @@ def parse_json_response(raw: str):
             if lf > m.end():
                 js = s[m.end():lf].strip()
     if js is None:
-        m = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw, re.DOTALL)
-        js = m.group(1).strip() if m else s
+        # Look for ```json block - use rfind for closing ``` to handle nested code blocks
+        json_start = raw.find('```json')
+        if json_start >= 0:
+            content_start = json_start + 7  # len('```json')
+            last_backticks = raw.rfind('```')
+            if last_backticks > content_start:
+                js = raw[content_start:last_backticks].strip()
+        if js is None:
+            # Fallback: try any code block
+            m = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', raw, re.DOTALL)
+            js = m.group(1).strip() if m else s
     try:
         return json.loads(js), []
     except:
