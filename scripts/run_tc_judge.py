@@ -38,18 +38,10 @@ def run_judge_on_tc_sample(
     with open(detection_path) as f:
         detection = json.load(f)
 
-    # Load metadata (ground truth)
-    meta_path = PROJECT_ROOT / f"samples/tc/{variant}/metadata/{sample_id}.json"
-    with open(meta_path) as f:
-        metadata = json.load(f)
-
-    # Build ground truth dict in expected format
-    ground_truth = {
-        "vulnerability_type": metadata.get("vulnerability_type", "unknown"),
-        "vulnerable_functions": [metadata.get("vulnerable_function", "")] if metadata.get("vulnerable_function") else [],
-        "severity": metadata.get("severity", "unknown"),
-        "description": metadata.get("description", f"Target vulnerability: {metadata.get('vulnerability_type', 'unknown')}")
-    }
+    # Load ground truth
+    gt_path = PROJECT_ROOT / f"samples/tc/{variant}/ground_truth/{sample_id}.json"
+    with open(gt_path) as f:
+        ground_truth = json.load(f)
 
     # Load contract code
     code_path = PROJECT_ROOT / f"samples/tc/{variant}/contracts/{sample_id}.sol"
