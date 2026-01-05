@@ -18,8 +18,12 @@ Validation is done by recomputing the full tier summary from the `j_*.json` file
 ## TL;DR Result
 
 - **Total tier summaries checked**: 86
-- **PASS (exact match)**: 67
-- **FAIL (mismatched)**: 19
+- **PASS (exact match)**: 69
+- **FAIL (mismatched)**: **17** ⚠️
+
+**Status Update (2026-01-05):**
+- ✅ **2 fixed**: `codestral/deepseek-v3-2/ds/tier1`, `mimo-v2-flash/grok-4-fast/ds/tier1`
+- ❌ **17 REMAINING FAILURES** — **These have NOT been fixed and still need attention**
 
 Artifacts:
 
@@ -45,29 +49,36 @@ Most common diff families (count of diff keys across all failing summaries):
 
 This strongly suggests that at least some stored `_tier_summary.json` files are **stale** relative to the current `j_*.json` contents, and/or some tier summaries were generated with **different inclusion/exclusion rules** than what the per-sample folder currently contains.
 
-## Failing tier summaries (exact paths)
+## ✅ Fixed (2)
 
-These 19 `_tier_summary.json` files did NOT match recomputation:
+The following tier summaries have been **fixed** and now pass validation:
 
-1. `results/detection_evaluation/llm-judge/codestral/deepseek-v3-2/ds/tier1/_tier_summary.json`
-2. `results/detection_evaluation/llm-judge/codestral/gemini-3-pro/ds/tier1/_tier_summary.json`
-3. `results/detection_evaluation/llm-judge/codestral/gpt-5.2/ds/tier3/_tier_summary.json`
-4. `results/detection_evaluation/llm-judge/codestral/grok-4-fast/ds/tier2/_tier_summary.json`
-5. `results/detection_evaluation/llm-judge/codestral/grok-4-fast/ds/tier3/_tier_summary.json`
-6. `results/detection_evaluation/llm-judge/codestral/llama-4-maverick/ds/tier2/_tier_summary.json`
-7. `results/detection_evaluation/llm-judge/codestral/llama-4-maverick/ds/tier3/_tier_summary.json`
-8. `results/detection_evaluation/llm-judge/codestral/qwen3-coder-plus/ds/tier3/_tier_summary.json`
-9. `results/detection_evaluation/llm-judge/mimo-v2-flash/claude-opus-4-5/ds/tier3/_tier_summary.json`
-10. `results/detection_evaluation/llm-judge/mimo-v2-flash/deepseek-v3-2/ds/tier2/_tier_summary.json`
-11. `results/detection_evaluation/llm-judge/mimo-v2-flash/deepseek-v3-2/ds/tier3/_tier_summary.json`
-12. `results/detection_evaluation/llm-judge/mimo-v2-flash/gpt-5.2/ds/tier3/_tier_summary.json`
-13. `results/detection_evaluation/llm-judge/mimo-v2-flash/grok-4-fast/ds/tier1/_tier_summary.json`
-14. `results/detection_evaluation/llm-judge/mimo-v2-flash/grok-4-fast/ds/tier3/_tier_summary.json`
-15. `results/detection_evaluation/llm-judge/mimo-v2-flash/grok-4-fast/ds/tier4/_tier_summary.json`
-16. `results/detection_evaluation/llm-judge/mimo-v2-flash/llama-4-maverick/ds/tier3/_tier_summary.json`
-17. `results/detection_evaluation/llm-judge/mimo-v2-flash/qwen3-coder-plus/ds/tier1/_tier_summary.json`
-18. `results/detection_evaluation/llm-judge/mimo-v2-flash/qwen3-coder-plus/ds/tier2/_tier_summary.json`
-19. `results/detection_evaluation/llm-judge/mimo-v2-flash/qwen3-coder-plus/ds/tier4/_tier_summary.json`
+1. ✅ `results/detection_evaluation/llm-judge/codestral/deepseek-v3-2/ds/tier1/_tier_summary.json`
+2. ✅ `results/detection_evaluation/llm-judge/mimo-v2-flash/grok-4-fast/ds/tier1/_tier_summary.json`
+
+---
+
+## ❌ Remaining Failures (17) — **NOT FIXED**
+
+**These 17 `_tier_summary.json` files still do NOT match recomputation and require attention:**
+
+1. `results/detection_evaluation/llm-judge/codestral/gemini-3-pro/ds/tier1/_tier_summary.json`
+2. `results/detection_evaluation/llm-judge/codestral/gpt-5.2/ds/tier3/_tier_summary.json`
+3. `results/detection_evaluation/llm-judge/codestral/grok-4-fast/ds/tier2/_tier_summary.json`
+4. `results/detection_evaluation/llm-judge/codestral/grok-4-fast/ds/tier3/_tier_summary.json`
+5. `results/detection_evaluation/llm-judge/codestral/llama-4-maverick/ds/tier2/_tier_summary.json`
+6. `results/detection_evaluation/llm-judge/codestral/llama-4-maverick/ds/tier3/_tier_summary.json`
+7. `results/detection_evaluation/llm-judge/codestral/qwen3-coder-plus/ds/tier3/_tier_summary.json`
+8. `results/detection_evaluation/llm-judge/mimo-v2-flash/claude-opus-4-5/ds/tier3/_tier_summary.json`
+9. `results/detection_evaluation/llm-judge/mimo-v2-flash/deepseek-v3-2/ds/tier2/_tier_summary.json`
+10. `results/detection_evaluation/llm-judge/mimo-v2-flash/deepseek-v3-2/ds/tier3/_tier_summary.json`
+11. `results/detection_evaluation/llm-judge/mimo-v2-flash/gpt-5.2/ds/tier3/_tier_summary.json`
+12. `results/detection_evaluation/llm-judge/mimo-v2-flash/grok-4-fast/ds/tier3/_tier_summary.json`
+13. `results/detection_evaluation/llm-judge/mimo-v2-flash/grok-4-fast/ds/tier4/_tier_summary.json`
+14. `results/detection_evaluation/llm-judge/mimo-v2-flash/llama-4-maverick/ds/tier3/_tier_summary.json`
+15. `results/detection_evaluation/llm-judge/mimo-v2-flash/qwen3-coder-plus/ds/tier1/_tier_summary.json`
+16. `results/detection_evaluation/llm-judge/mimo-v2-flash/qwen3-coder-plus/ds/tier2/_tier_summary.json`
+17. `results/detection_evaluation/llm-judge/mimo-v2-flash/qwen3-coder-plus/ds/tier4/_tier_summary.json`
 
 ## Representative mismatch signatures (high-signal)
 
@@ -78,12 +89,12 @@ The failures tend to look like one of:
   - the tier summary was computed from a different set of `j_*.json`, or
   - the tier summary code applied filtering (failed evals / invalid JSON / missing fields) that no longer matches current files.
 
-Examples (first few diff keys per file):
+Examples (first few diff keys per file — **all from remaining failures**):
 
-- `codestral/deepseek-v3-2/ds/tier1`: access_control aggregates disagree (e.g., ancillary rate, avg findings/sample, target_matches).
 - `codestral/gemini-3-pro/ds/tier1`: weak_randomness classification totals differ by 1 target match.
 - `codestral/grok-4-fast/ds/tier2`: `dos.total_samples` expected 3 vs actual 4.
 - `mimo-v2-flash/grok-4-fast/ds/tier4`: `inflation_attack.total_findings` expected 1 vs actual 0.
+- `codestral/gpt-5.2/ds/tier3`: unchecked_call aggregates disagree (target_matches, false_positives).
 
 For exact keys/values, see `quickvalidation/all_tier_summaries/all_results.json` (each record has `diffs{}`).
 
@@ -116,8 +127,9 @@ Then inspect:
 
 ## Recommended next steps
 
-1. **Determine whether the 19 failing `_tier_summary.json` files are stale**
+1. **Determine whether the remaining 17 failing `_tier_summary.json` files are stale**
    - Re-run the official aggregation pipeline for those exact directories and compare.
+   - **Note**: 2 have been fixed (see above), but 17 still require regeneration.
 
 2. **Audit “failed_evaluations” logic**
    - At least one failing case appears to mark `failed_evaluations=1` while the directory currently contains 20 readable `j_*.json` files.
@@ -131,7 +143,19 @@ Then inspect:
      - classification counting source (prefer `summary` section in each `j_*.json` to avoid double counting)
      - how “bonus_valid” affects lucky-guess accounting
 
-If you want, I can also generate a “focused” per-file debug bundle for each failing summary (list of included samples + recomputed vs expected subtrees) to speed up pinpointing exactly which sample(s) cause the mismatch.
+If you want, I can also generate a "focused" per-file debug bundle for each of the **remaining 17 failing summaries** (list of included samples + recomputed vs expected subtrees) to speed up pinpointing exactly which sample(s) cause the mismatch.
+
+---
+
+## ⚠️ Action Required
+
+**The 17 remaining failures listed above have NOT been fixed and still need to be addressed.** The validation script can be re-run at any time to verify fixes:
+
+```bash
+python3 quickvalidation/validate_all_tier_summaries.py \
+  --out_dir quickvalidation/all_tier_summaries \
+  --tol 1e-9
+```
 
 
 

@@ -1,0 +1,68 @@
+{
+  "sample_id": "tr_tc_015",
+  "variant": "trojan",
+  "detector_model": "grok-4-fast",
+  "prompt_type": "direct",
+  "judge_model": "mimo-v2-flash",
+  "timestamp": "2026-01-05T08:10:10.892677+00:00",
+  "overall_verdict": {
+    "said_vulnerable": true,
+    "confidence_expressed": 1.0
+  },
+  "findings": [
+    {
+      "finding_id": 0,
+      "description": "The addToken function overwrites the Token struct for an existing token address without checking if it already exists, resetting balance to 0 and weight to initialWeight. This locks real tokens in the contract since balances track 0, preventing swaps out (balance check fails), with no withdrawal mechanism.",
+      "vulnerability_type_claimed": "Overwriting Existing Token State",
+      "severity_claimed": "critical",
+      "location_claimed": "addToken function",
+      "matches_target": false,
+      "is_valid_concern": true,
+      "classification": "BONUS_VALID",
+      "reasoning": "The code in addToken (line 38) does indeed overwrite the Token struct without checking for existence. This is a real vulnerability: if a token already exists with a non-zero balance, overwriting it to balance=0 effectively locks those funds because the contract's internal accounting loses track of them, and the swap function's balance check (line 56) would fail. The attack scenario is concrete and exploitable by anyone calling addToken on an existing token. It does not match the target vulnerability (pool_manipulation via _updateWeights), but it is a distinct, valid, and severe issue."
+    },
+    {
+      "finding_id": 1,
+      "description": "Incoming IERC20.transfer calls do not check the bool return value. Non-reverting ERC20s can fail silently, but the contract updates internal balance anyway, inflating tracked balances without actual deposits, enabling fake liquidity and drains.",
+      "vulnerability_type_claimed": "Unchecked ERC20 Transfer Return Value",
+      "severity_claimed": "high",
+      "location_claimed": "swap and addLiquidity functions",
+      "matches_target": false,
+      "is_valid_concern": true,
+      "classification": "BONUS_VALID",
+      "reasoning": "The code uses IERC20(tokenIn).transfer(address(this), amountIn) on line 50 and similar in addLiquidity (line 111) without checking the return value. While standard ERC20s revert on failure, non-compliant ones can return false. If such a token is used, the contract updates its internal balance (line 51) without receiving tokens, allowing an attacker to create fake liquidity and drain real tokens via swap. The attack scenario is concrete and exploitable without privileged access. It is a valid concern distinct from the target."
+    },
+    {
+      "finding_id": 2,
+      "description": "Anyone can call setDynamicWeightBypass(true), skipping _updateWeights in swap/addLiquidity. This keeps weights static while balances change, causing mispriced swaps where new liquidity can be arbitraged cheaply, leading to LP losses.",
+      "vulnerability_type_claimed": "Permissionless Critical Parameter Control",
+      "severity_claimed": "high",
+      "location_claimed": "setDynamicWeightBypass function",
+      "matches_target": false,
+      "is_valid_concern": true,
+      "classification": "BONUS_VALID",
+      "reasoning": "The function setDynamicWeightBypass (line 117) is external with no access control, allowing anyone to set dynamicWeightBypass=true. This causes _updateWeights (line 89) to return early, so weights don't update after swaps or liquidity additions. The attack scenario describes a frontrunning arbitrage where an attacker exploits stale weights to get favorable swaps. This is a real, exploitable issue with material impact (LP losses). It is not the target vulnerability, which is about the weight calculation logic itself, not bypassing it."
+    }
+  ],
+  "target_assessment": {
+    "found": false,
+    "finding_id": null,
+    "type_match": "not_mentioned",
+    "type_match_reasoning": "None of the findings mention or describe the target vulnerability type 'pool_manipulation' related to _updateWeights using instantaneous balances instead of time-weighted averages. The findings focus on unrelated issues: token overwriting, unchecked transfers, and permissionless bypass."
+  },
+  "summary": {
+    "total_findings": 3,
+    "target_matches": 0,
+    "partial_matches": 0,
+    "bonus_valid": 3,
+    "hallucinated": 0,
+    "mischaracterized": 0,
+    "design_choice": 0,
+    "out_of_scope": 0,
+    "security_theater": 0,
+    "informational": 0
+  },
+  "notes": "The LLM identified three distinct, valid vulnerabilities (BONUS_VALID) that are not the target but are real and severe. The target vulnerability (pool manipulation via _updateWeights using instantaneous balances) was not detected. The code in _updateWeights (lines 89-103) does calculate weights based on current balances, which matches the ground truth description, but no finding addresses this.",
+  "judge_latency_ms": 10231.339931488037,
+  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 1.0\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"description\": \"The addToken function overwrites the Token struct for an existing token address without checking if it already exists, resetting balance to 0 and weight to initialWeight. This locks real tokens in the contract since balances track 0, preventing swaps out (balance check fails), with no withdrawal mechanism.\",\n      \"vulnerability_type_claimed\": \"Overwriting Existing Token State\",\n      \"severity_claimed\": \"critical\",\n      \"location_claimed\": \"addToken function\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"The code in addToken (line 38) does indeed overwrite the Token struct without checking for existence. This is a real vulnerability: if a token already exists with a non-zero balance, overwriting it to balance=0 effectively locks those funds because the contract's internal accounting loses track of them, and the swap function's balance check (line 56) would fail. The attack scenario is concrete and exploitable by anyone calling addToken on an existing token. It does not match the target vulnerability (pool_manipulation via _updateWeights), but it is a distinct, valid, and severe issue.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"description\": \"Incoming IERC20.transfer calls do not check the bool return value. Non-reverting ERC20s can fail silently, but the contract updates internal balance anyway, inflating tracked balances without actual deposits, enabling fake liquidity and drains.\",\n      \"vulnerability_type_claimed\": \"Unchecked ERC20 Transfer Return Value\",\n      \"severity_claimed\": \"high\",\n      \"location_claimed\": \"swap and addLiquidity functions\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"The code uses IERC20(tokenIn).transfer(address(this), amountIn) on line 50 and similar in addLiquidity (line 111) without checking the return value. While standard ERC20s revert on failure, non-compliant ones can return false. If such a token is used, the contract updates its internal balance (line 51) without receiving tokens, allowing an attacker to create fake liquidity and drain real tokens via swap. The attack scenario is concrete and exploitable without privileged access. It is a valid concern distinct from the target.\"\n    },\n    {\n      \"finding_id\": 2,\n      \"description\": \"Anyone can call setDynamicWeightBypass(true), skipping _updateWeights in swap/addLiquidity. This keeps weights static while balances change, causing mispriced swaps where new liquidity can be arbitraged cheaply, leading to LP losses.\",\n      \"vulnerability_type_claimed\": \"Permissionless Critical Parameter Control\",\n      \"severity_claimed\": \"high\",\n      \"location_claimed\": \"setDynamicWeightBypass function\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"The function setDynamicWeightBypass (line 117) is external with no access control, allowing anyone to set dynamicWeightBypass=true. This causes _updateWeights (line 89) to return early, so weights don't update after swaps or liquidity additions. The attack scenario describes a frontrunning arbitrage where an attacker exploits stale weights to get favorable swaps. This is a real, exploitable issue with material impact (LP losses). It is not the target vulnerability, which is about the weight calculation logic itself, not bypassing it.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": false,\n    \"finding_id\": null,\n    \"type_match\": \"not_mentioned\",\n    \"type_match_reasoning\": \"None of the findings mention or describe the target vulnerability type 'pool_manipulation' related to _updateWeights using instantaneous balances instead of time-weighted averages. The findings focus on unrelated issues: token overwriting, unchecked transfers, and permissionless bypass.\"\n  },\n  \"summary\": {\n    \"total_findings\": 3,\n    \"target_matches\": 0,\n    \"partial_matches\": 0,\n    \"bonus_valid\": 3,\n    \"hallucinated\": 0,\n    \"mischaracterized\": 0,\n    \"design_choice\": 0,\n    \"out_of_scope\": 0,\n    \"security_theater\": 0,\n    \"informational\": 0\n  },\n  \"notes\": \"The LLM identified three distinct, valid vulnerabilities (BONUS_VALID) that are not the target but are real and severe. The target vulnerability (pool manipulation via _updateWeights using instantaneous balances) was not detected. The code in _updateWeights (lines 89-103) does calculate weights based on current balances, which matches the ground truth description, but no finding addresses this.\"\n}\n```"
+}
