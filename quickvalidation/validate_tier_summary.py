@@ -72,14 +72,16 @@ def _sum_dicts(dicts: Iterable[Mapping[str, int]], keys: Iterable[str]) -> Dict[
     return out
 
 
-def _type_match_bucket(type_match: Optional[str], found: bool) -> str:
-    # Tier summaries use: exact, semantic, partial, wrong, not_mentioned
-    if not found or not type_match:
+def _type_match_bucket(type_match: Optional[str]) -> str:
+    # Tier summaries use: exact, semantic, partial, wrong, not_mentioned.
+    # Important: distribution is based on the judge-provided `type_match`, even when target is not found.
+    if not type_match:
         return "not_mentioned"
     tm = str(type_match).strip().lower()
     if tm in {"exact", "semantic", "partial", "wrong"}:
         return tm
-    # Be conservative: unknown bucket -> not_mentioned
+    if tm in {"none", "not_mentioned"}:
+        return "not_mentioned"
     return "not_mentioned"
 
 def _type_match_bucket_tool(type_match: Optional[str]) -> str:
@@ -210,7 +212,16 @@ def compute_group_summary_llm(
     total = len(records)
     target_found_count = sum(1 for r in records if r.target_found)
     verdict_correct_count = sum(1 for r in records if r.said_vulnerable == r.is_vulnerable_gt)
-    lucky_guess_count = sum(1 for r in records if (r.said_vulnerable == r.is_vulnerable_gt) and (not r.target_found))
+    # Lucky guess: correct vulnerable verdict without finding the *target* vulnerability,
+    # and WITHOUT identifying any BONUS_VALID issues (matches existing tier summaries).
+    # For ds, all samples are vulnerable, so "correct verdict" == said_vulnerable==True.
+    lucky_guess_count = sum(
+        1
+        for r in records
+        if (r.said_vulnerable == r.is_vulnerable_gt)
+        and (not r.target_found)
+        and int(r.summary.get("bonus_valid", 0)) == 0
+    )
 
     # Findings classifications: use per-sample summary buckets (most stable) and align with tier summary schema.
     summary_keys = [
@@ -238,14 +249,18 @@ def compute_group_summary_llm(
 
     precision = _safe_div(tp_findings, total_findings)
     tdr = _safe_div(target_found_count, total)
-    f1 = (2 * precision * tdr / (precision + tdr)) if (precision + tdr) else 0.0
+    # Existing summaries use 0.0 when only one term is 0; null only when both are 0 (undefined 0/0).
+    if (precision + tdr) == 0.0:
+        f1: Optional[float] = None
+    else:
+        f1 = 2 * precision * tdr / (precision + tdr)
 
     samples_with_bonus = sum(1 for r in records if int(r.summary.get("bonus_valid", 0)) > 0)
 
     # Type match distribution: bucket per found sample; if not found -> not_mentioned.
     type_dist = {k: 0 for k in ["exact", "semantic", "partial", "wrong", "not_mentioned"]}
     for r in records:
-        b = _type_match_bucket(r.type_match, r.target_found)
+        b = _type_match_bucket(r.type_match)
         type_dist[b] += 1
 
     # Reasoning quality: only for target_found samples (per metrics.md).
@@ -253,6 +268,7 @@ def compute_group_summary_llm(
     rcir_scores = [float(r.rcir) for r in found_records if r.rcir is not None]
     ava_scores = [float(r.ava) for r in found_records if r.ava is not None]
     fsv_scores = [float(r.fsv) for r in found_records if r.fsv is not None]
+    q_count = len(found_records)
 
     # Performance
     latencies = [float(r.latency_ms_any) for r in records if r.latency_ms_any is not None]
@@ -272,7 +288,8 @@ def compute_group_summary_llm(
             "target_detection_rate": tdr,
             "miss_rate": 1.0 - tdr,
             "lucky_guess_count": lucky_guess_count,
-            "lucky_guess_rate": _safe_div(lucky_guess_count, verdict_correct_count),
+            # Existing summaries compute LGR over total samples for ds (since all are vulnerable)
+            "lucky_guess_rate": _safe_div(lucky_guess_count, total),
             "samples_with_bonus": samples_with_bonus,
             "ancillary_discovery_rate": _safe_div(samples_with_bonus, total),
             "verdict_correct_count": verdict_correct_count,
@@ -287,14 +304,14 @@ def compute_group_summary_llm(
             "f1_score": f1,
         },
         "quality_scores": {
-            "avg_rcir": _mean(rcir_scores),
-            "avg_ava": _mean(ava_scores),
-            "avg_fsv": _mean(fsv_scores),
+            "avg_rcir": (_mean(rcir_scores) if q_count else None),
+            "avg_ava": (_mean(ava_scores) if q_count else None),
+            "avg_fsv": (_mean(fsv_scores) if q_count else None),
             # The existing tier summaries use *sample* standard deviation (n-1).
             "std_rcir": _stdev(rcir_scores),
             "std_ava": _stdev(ava_scores),
             "std_fsv": _stdev(fsv_scores),
-            "count": len(found_records),
+            "count": q_count,
         },
         "classification_totals": {
             "target_matches": int(summed.get("target_matches", 0)),
@@ -317,7 +334,7 @@ def compute_group_summary_llm(
         by_type: Dict[str, Any] = {}
         for vt in sorted({r.vuln_type for r in records}):
             subset = [r for r in records if r.vuln_type == vt]
-            sub = compute_group_summary(
+            sub = compute_group_summary_llm(
                 subset,
                 detector_model=detector_model,
                 judge_model=judge_model,
@@ -384,15 +401,20 @@ def compute_group_summary_tool(
     tp_findings = int(summed.get("target_matches", 0)) + int(summed.get("partial_matches", 0)) + int(summed.get("bonus_valid", 0))
     fp_findings = int(summed.get("invalid", 0)) + int(summed.get("mischaracterized", 0)) + int(summed.get("security_theater", 0)) + int(summed.get("design_choice", 0))
 
-    precision = _safe_div(tp_findings, (tp_findings + fp_findings))
+    denom_pf = tp_findings + fp_findings
+    precision: Any
+    if denom_pf == 0:
+        precision = None
+    else:
+        precision = _safe_div(tp_findings, denom_pf)
     fp_rate = _safe_div(fp_findings, total_findings)
 
     # Tool summaries appear to use null when recall==0 or precision==0 (avoid misleading 0.0)
     f1: Optional[float]
-    if precision == 0.0 or recall == 0.0:
+    if precision in (None, 0.0) or recall == 0.0:
         f1 = None
     else:
-        f1 = 2 * precision * recall / (precision + recall)
+        f1 = 2 * float(precision) * recall / (float(precision) + recall)
 
     # Type match distribution: tool summaries usually omit zero keys
     type_dist_full = {k: 0 for k in ["not_mentioned", "exact", "semantic", "partial", "wrong"]}
@@ -444,6 +466,11 @@ def compute_group_summary_tool(
         },
         "type_match_distribution": type_dist,
     }
+
+    # Performance (avg latency), present in some tool summaries
+    latencies = [float(r.latency_ms_any) for r in records if r.latency_ms_any is not None]
+    if latencies:
+        out["performance"] = {"avg_latency_ms": _mean(latencies)}
 
     if include_by_type:
         by_type: Dict[str, Any] = {}

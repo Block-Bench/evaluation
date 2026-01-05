@@ -1,0 +1,205 @@
+# All Tier Summary Validation Report
+
+- total summaries: 86
+- pass: 67
+- fail: 19
+- skipped: 0
+- tolerance: 1e-09
+
+## Failures
+
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/codestral/deepseek-v3-2/ds/tier1/_tier_summary.json` (diffs=47, records=20, failures=0)
+  - `by_vulnerability_type.access_control.ancillary_discovery_rate` expected=0.5 actual=0.3333333333333333 delta=-0.16666666666666669
+  - `by_vulnerability_type.access_control.avg_findings_per_sample` expected=3.0 actual=2.3333333333333335 delta=-0.6666666666666665
+  - `by_vulnerability_type.access_control.classifications.target_matches` expected=1 actual=2 delta=1.0
+  - `by_vulnerability_type.access_control.f1_score` expected=0.5 actual=0.6153846153846153 delta=0.11538461538461531
+  - `by_vulnerability_type.access_control.false_alarm_density` expected=1.5 actual=1.0 delta=-0.5
+  - `by_vulnerability_type.access_control.invalid_finding_rate` expected=0.5 actual=0.4285714285714285 delta=-0.07142857142857151
+  - `by_vulnerability_type.access_control.miss_rate` expected=0.5 actual=0.3333333333333334 delta=-0.16666666666666657
+  - `by_vulnerability_type.access_control.precision` expected=0.5 actual=0.5714285714285714 delta=0.0714285714285714
+  - `by_vulnerability_type.access_control.quality_scores.avg_ava` expected=0.9 actual=0.8500000000000001 delta=-0.04999999999999993
+  - `by_vulnerability_type.access_control.quality_scores.avg_fsv` expected=0.7 actual=0.8 delta=0.10000000000000009
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/codestral/gemini-3-pro/ds/tier1/_tier_summary.json` (diffs=14, records=20, failures=0)
+  - `by_vulnerability_type.weak_randomness.classifications.target_matches` expected=2 actual=1 delta=-1.0
+  - `by_vulnerability_type.weak_randomness.f1_score` expected=1.0 actual=0.6666666666666666 delta=-0.33333333333333337
+  - `by_vulnerability_type.weak_randomness.false_alarm_density` expected=0.0 actual=1.0 delta=1.0
+  - `by_vulnerability_type.weak_randomness.false_positives` expected=0 actual=1 delta=1.0
+  - `by_vulnerability_type.weak_randomness.invalid_finding_rate` expected=0.0 actual=0.5 delta=0.5
+  - `by_vulnerability_type.weak_randomness.precision` expected=1.0 actual=0.5 delta=-0.5
+  - `by_vulnerability_type.weak_randomness.true_positives` expected=2 actual=1 delta=-1.0
+  - `classification_totals.target_matches` expected=16 actual=15 delta=-1.0
+  - `detection_metrics.f1_score` expected=0.8076923076923077 actual=0.7941176470588235 delta=-0.013574660633484226
+  - `detection_metrics.false_alarm_density` expected=0.2 actual=0.25 delta=0.04999999999999999
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/codestral/gpt-5.2/ds/tier3/_tier_summary.json` (diffs=14, records=30, failures=0)
+  - `by_vulnerability_type.unchecked_call.classifications.target_matches` expected=1 actual=0 delta=-1.0
+  - `by_vulnerability_type.unchecked_call.f1_score` expected=0.0 actual=None delta=None
+  - `by_vulnerability_type.unchecked_call.false_alarm_density` expected=0.0 actual=0.5 delta=0.5
+  - `by_vulnerability_type.unchecked_call.false_positives` expected=0 actual=1 delta=1.0
+  - `by_vulnerability_type.unchecked_call.invalid_finding_rate` expected=0.0 actual=1.0 delta=1.0
+  - `by_vulnerability_type.unchecked_call.precision` expected=1.0 actual=0.0 delta=-1.0
+  - `by_vulnerability_type.unchecked_call.true_positives` expected=1 actual=0 delta=-1.0
+  - `classification_totals.target_matches` expected=12 actual=11 delta=-1.0
+  - `detection_metrics.f1_score` expected=0.5323843416370106 actual=0.5279999999999999 delta=-0.004384341637010736
+  - `detection_metrics.false_alarm_density` expected=0.0333333333333333 actual=0.0666666666666667 delta=0.033333333333333395
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/codestral/grok-4-fast/ds/tier2/_tier_summary.json` (diffs=18, records=37, failures=0)
+  - `by_vulnerability_type.dos.avg_findings_per_sample` expected=0.3333333333333333 actual=0.25 delta=-0.08333333333333331
+  - `by_vulnerability_type.dos.f1_score` expected=0.5 actual=0.4 delta=-0.09999999999999998
+  - `by_vulnerability_type.dos.miss_rate` expected=0.6666666666666667 actual=0.75 delta=0.08333333333333326
+  - `by_vulnerability_type.dos.target_detection_rate` expected=0.3333333333333333 actual=0.25 delta=-0.08333333333333331
+  - `by_vulnerability_type.dos.total_samples` expected=3 actual=4 delta=1.0
+  - `by_vulnerability_type.dos.type_match_distribution.not_mentioned` expected=2 actual=3 delta=1.0
+  - `by_vulnerability_type.dos.verdict_accuracy` expected=0.3333333333333333 actual=0.25 delta=-0.08333333333333331
+  - `detection_metrics.ancillary_discovery_rate` expected=0.0277777777777778 actual=0.027027027027027 delta=-0.0007507507507507998
+  - `detection_metrics.avg_findings_per_sample` expected=0.6388888888888888 actual=0.6216216216216216 delta=-0.01726726726726724
+  - `detection_metrics.f1_score` expected=0.5529622980251347 actual=0.5422535211267606 delta=-0.010708776898374128
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/codestral/grok-4-fast/ds/tier3/_tier_summary.json` (diffs=14, records=30, failures=0)
+  - `by_vulnerability_type.logic_error.classifications.target_matches` expected=5 actual=4 delta=-1.0
+  - `by_vulnerability_type.logic_error.f1_score` expected=0.6 actual=0.5581395348837209 delta=-0.041860465116279055
+  - `by_vulnerability_type.logic_error.false_alarm_density` expected=0.0 actual=0.1428571428571428 delta=0.1428571428571428
+  - `by_vulnerability_type.logic_error.false_positives` expected=0 actual=1 delta=1.0
+  - `by_vulnerability_type.logic_error.invalid_finding_rate` expected=0.0 actual=0.2 delta=0.2
+  - `by_vulnerability_type.logic_error.precision` expected=1.0 actual=0.8 delta=-0.19999999999999996
+  - `by_vulnerability_type.logic_error.true_positives` expected=5 actual=4 delta=-1.0
+  - `classification_totals.target_matches` expected=12 actual=11 delta=-1.0
+  - `detection_metrics.f1_score` expected=0.4943820224719101 actual=0.4883720930232557 delta=-0.006009929448654416
+  - `detection_metrics.false_alarm_density` expected=0.0333333333333333 actual=0.0666666666666667 delta=0.033333333333333395
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/codestral/llama-4-maverick/ds/tier2/_tier_summary.json` (diffs=14, records=37, failures=0)
+  - `by_vulnerability_type.dos.classifications.target_matches` expected=4 actual=3 delta=-1.0
+  - `by_vulnerability_type.dos.f1_score` expected=0.7741935483870969 actual=0.7241379310344827 delta=-0.05005561735261421
+  - `by_vulnerability_type.dos.false_alarm_density` expected=0.5 actual=0.75 delta=0.25
+  - `by_vulnerability_type.dos.false_positives` expected=2 actual=3 delta=1.0
+  - `by_vulnerability_type.dos.invalid_finding_rate` expected=0.2 actual=0.3 delta=0.09999999999999998
+  - `by_vulnerability_type.dos.precision` expected=0.8 actual=0.7 delta=-0.10000000000000009
+  - `by_vulnerability_type.dos.true_positives` expected=8 actual=7 delta=-1.0
+  - `classification_totals.target_matches` expected=22 actual=21 delta=-1.0
+  - `detection_metrics.f1_score` expected=0.5810850874592352 actual=0.5755395683453237 delta=-0.005545519113911435
+  - `detection_metrics.false_alarm_density` expected=0.7837837837837838 actual=0.8108108108108109 delta=0.027027027027027084
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/codestral/llama-4-maverick/ds/tier3/_tier_summary.json` (diffs=18, records=30, failures=0)
+  - `by_vulnerability_type.reentrancy.ancillary_discovery_rate` expected=1.0 actual=0.5 delta=-0.5
+  - `by_vulnerability_type.reentrancy.avg_findings_per_sample` expected=2.0 actual=1.0 delta=-1.0
+  - `by_vulnerability_type.reentrancy.total_samples` expected=1 actual=2 delta=1.0
+  - `by_vulnerability_type.reentrancy.type_match_distribution.not_mentioned` expected=1 actual=2 delta=1.0
+  - `by_vulnerability_type.reentrancy.verdict_accuracy` expected=1.0 actual=0.5 delta=-0.5
+  - `by_vulnerability_type.unchecked_return.classifications.mischaracterized` expected=3 actual=4 delta=1.0
+  - `classification_totals.mischaracterized` expected=5 actual=6 delta=1.0
+  - `detection_metrics.ancillary_discovery_rate` expected=0.3103448275862069 actual=0.3 delta=-0.010344827586206917
+  - `detection_metrics.avg_findings_per_sample` expected=2.206896551724138 actual=2.1333333333333333 delta=-0.0735632183908046
+  - `detection_metrics.f1_score` expected=0.5075528700906345 actual=0.4970414201183432 delta=-0.010511449972291365
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/codestral/qwen3-coder-plus/ds/tier3/_tier_summary.json` (diffs=13, records=30, failures=0)
+  - `by_vulnerability_type.approval_scam.classifications.target_matches` expected=1 actual=0 delta=-1.0
+  - `by_vulnerability_type.approval_scam.false_alarm_density` expected=0.0 actual=1.0 delta=1.0
+  - `by_vulnerability_type.approval_scam.false_positives` expected=0 actual=1 delta=1.0
+  - `by_vulnerability_type.approval_scam.invalid_finding_rate` expected=0.0 actual=0.5 delta=0.5
+  - `by_vulnerability_type.approval_scam.precision` expected=1.0 actual=0.5 delta=-0.5
+  - `by_vulnerability_type.approval_scam.true_positives` expected=2 actual=1 delta=-1.0
+  - `classification_totals.target_matches` expected=14 actual=13 delta=-1.0
+  - `detection_metrics.f1_score` expected=0.5714285714285715 actual=0.5679012345679012 delta=-0.003527336860670305
+  - `detection_metrics.false_alarm_density` expected=0.0 actual=0.0333333333333333 delta=0.0333333333333333
+  - `detection_metrics.false_positives` expected=0 actual=1 delta=1.0
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/mimo-v2-flash/claude-opus-4-5/ds/tier3/_tier_summary.json` (diffs=16, records=30, failures=0)
+  - `by_vulnerability_type.reentrancy.classifications.bonus_valid` expected=4 actual=3 delta=-1.0
+  - `by_vulnerability_type.reentrancy.f1_score` expected=0.625 actual=0.5714285714285715 delta=-0.05357142857142849
+  - `by_vulnerability_type.reentrancy.false_alarm_density` expected=0.5 actual=1.0 delta=0.5
+  - `by_vulnerability_type.reentrancy.false_positives` expected=1 actual=2 delta=1.0
+  - `by_vulnerability_type.reentrancy.invalid_finding_rate` expected=0.1666666666666667 actual=0.3333333333333333 delta=0.1666666666666666
+  - `by_vulnerability_type.reentrancy.precision` expected=0.8333333333333334 actual=0.6666666666666666 delta=-0.16666666666666674
+  - `by_vulnerability_type.reentrancy.true_positives` expected=5 actual=4 delta=-1.0
+  - `by_vulnerability_type.unchecked_call.classifications.mischaracterized` expected=1 actual=2 delta=1.0
+  - `classification_totals.bonus_valid` expected=34 actual=33 delta=-1.0
+  - `classification_totals.mischaracterized` expected=9 actual=10 delta=1.0
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/mimo-v2-flash/deepseek-v3-2/ds/tier2/_tier_summary.json` (diffs=20, records=37, failures=0)
+  - `by_vulnerability_type.dos.ancillary_discovery_rate` expected=0.3333333333333333 actual=0.25 delta=-0.08333333333333331
+  - `by_vulnerability_type.dos.avg_findings_per_sample` expected=1.3333333333333333 actual=1.0 delta=-0.33333333333333326
+  - `by_vulnerability_type.dos.f1_score` expected=0.7058823529411765 actual=0.6 delta=-0.10588235294117654
+  - `by_vulnerability_type.dos.false_alarm_density` expected=0.3333333333333333 actual=0.25 delta=-0.08333333333333331
+  - `by_vulnerability_type.dos.miss_rate` expected=0.3333333333333334 actual=0.5 delta=0.16666666666666657
+  - `by_vulnerability_type.dos.target_detection_rate` expected=0.6666666666666666 actual=0.5 delta=-0.16666666666666663
+  - `by_vulnerability_type.dos.total_samples` expected=3 actual=4 delta=1.0
+  - `by_vulnerability_type.dos.type_match_distribution.not_mentioned` expected=1 actual=2 delta=1.0
+  - `by_vulnerability_type.dos.verdict_accuracy` expected=0.6666666666666666 actual=0.5 delta=-0.16666666666666663
+  - `detection_metrics.ancillary_discovery_rate` expected=0.2777777777777778 actual=0.2702702702702703 delta=-0.007507507507507505
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/mimo-v2-flash/deepseek-v3-2/ds/tier3/_tier_summary.json` (diffs=4, records=30, failures=0)
+  - `by_vulnerability_type.logic_error.classifications.mischaracterized` expected=4 actual=5 delta=1.0
+  - `by_vulnerability_type.logic_error.classifications.security_theater` expected=1 actual=0 delta=-1.0
+  - `classification_totals.mischaracterized` expected=13 actual=14 delta=1.0
+  - `classification_totals.security_theater` expected=5 actual=4 delta=-1.0
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/mimo-v2-flash/gpt-5.2/ds/tier3/_tier_summary.json` (diffs=16, records=30, failures=0)
+  - `by_vulnerability_type.honeypot.avg_findings_per_sample` expected=0.5 actual=0.4 delta=-0.09999999999999998
+  - `by_vulnerability_type.honeypot.f1_score` expected=0.6666666666666666 actual=0.5714285714285715 delta=-0.09523809523809512
+  - `by_vulnerability_type.honeypot.miss_rate` expected=0.5 actual=0.6 delta=0.09999999999999998
+  - `by_vulnerability_type.honeypot.target_detection_rate` expected=0.5 actual=0.4 delta=-0.09999999999999998
+  - `by_vulnerability_type.honeypot.total_samples` expected=4 actual=5 delta=1.0
+  - `by_vulnerability_type.honeypot.type_match_distribution.not_mentioned` expected=2 actual=3 delta=1.0
+  - `by_vulnerability_type.honeypot.verdict_accuracy` expected=0.5 actual=0.4 delta=-0.09999999999999998
+  - `detection_metrics.ancillary_discovery_rate` expected=0.5517241379310345 actual=0.5333333333333333 delta=-0.01839080459770115
+  - `detection_metrics.avg_findings_per_sample` expected=1.1724137931034482 actual=1.1333333333333333 delta=-0.03908045977011487
+  - `detection_metrics.f1_score` expected=0.5853658536585366 actual=0.5714285714285715 delta=-0.013937282229965042
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/mimo-v2-flash/grok-4-fast/ds/tier1/_tier_summary.json` (diffs=55, records=20, failures=0)
+  - `by_vulnerability_type.access_control.ancillary_discovery_rate` expected=0.5 actual=0.3333333333333333 delta=-0.16666666666666669
+  - `by_vulnerability_type.access_control.classifications.target_matches` expected=1 actual=2 delta=1.0
+  - `by_vulnerability_type.access_control.f1_score` expected=0.6666666666666666 actual=0.8 delta=0.13333333333333341
+  - `by_vulnerability_type.access_control.miss_rate` expected=0.5 actual=0.3333333333333334 delta=-0.16666666666666657
+  - `by_vulnerability_type.access_control.quality_scores.avg_rcir` expected=0.9 actual=0.95 delta=0.04999999999999993
+  - `by_vulnerability_type.access_control.quality_scores.count` expected=1 actual=2 delta=1.0
+  - `by_vulnerability_type.access_control.quality_scores.std_ava` expected=None actual=0.0 delta=None
+  - `by_vulnerability_type.access_control.quality_scores.std_fsv` expected=None actual=0.0 delta=None
+  - `by_vulnerability_type.access_control.quality_scores.std_rcir` expected=None actual=0.0707106781186547 delta=None
+  - `by_vulnerability_type.access_control.target_detection_rate` expected=0.5 actual=0.6666666666666666 delta=0.16666666666666663
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/mimo-v2-flash/grok-4-fast/ds/tier3/_tier_summary.json` (diffs=13, records=30, failures=0)
+  - `by_vulnerability_type.honeypot.classifications.partial_matches` expected=0 actual=1 delta=1.0
+  - `by_vulnerability_type.honeypot.false_alarm_density` expected=0.2 actual=0.0 delta=-0.2
+  - `by_vulnerability_type.honeypot.false_positives` expected=1 actual=0 delta=-1.0
+  - `by_vulnerability_type.honeypot.invalid_finding_rate` expected=0.25 actual=0.0 delta=-0.25
+  - `by_vulnerability_type.honeypot.precision` expected=0.75 actual=1.0 delta=0.25
+  - `by_vulnerability_type.honeypot.true_positives` expected=3 actual=4 delta=1.0
+  - `classification_totals.partial_matches` expected=0 actual=1 delta=1.0
+  - `detection_metrics.f1_score` expected=0.4943820224719101 actual=0.5 delta=0.005617977528089901
+  - `detection_metrics.false_alarm_density` expected=0.0333333333333333 actual=0.0 delta=-0.0333333333333333
+  - `detection_metrics.false_positives` expected=1 actual=0 delta=-1.0
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/mimo-v2-flash/grok-4-fast/ds/tier4/_tier_summary.json` (diffs=12, records=13, failures=0)
+  - `by_vulnerability_type.inflation_attack.avg_findings_per_sample` expected=1.0 actual=0.0 delta=-1.0
+  - `by_vulnerability_type.inflation_attack.false_alarm_density` expected=1.0 actual=0.0 delta=-1.0
+  - `by_vulnerability_type.inflation_attack.false_positives` expected=1 actual=0 delta=-1.0
+  - `by_vulnerability_type.inflation_attack.invalid_finding_rate` expected=1.0 actual=0.0 delta=-1.0
+  - `by_vulnerability_type.inflation_attack.total_findings` expected=1 actual=0 delta=-1.0
+  - `detection_metrics.avg_findings_per_sample` expected=0.6153846153846154 actual=0.5384615384615384 delta=-0.07692307692307698
+  - `detection_metrics.f1_score` expected=0.4552845528455285 actual=0.4705882352941176 delta=0.015303682448589095
+  - `detection_metrics.false_alarm_density` expected=0.0769230769230769 actual=0.0 delta=-0.0769230769230769
+  - `detection_metrics.false_positives` expected=1 actual=0 delta=-1.0
+  - `detection_metrics.invalid_finding_rate` expected=0.125 actual=0.0 delta=-0.125
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/mimo-v2-flash/llama-4-maverick/ds/tier3/_tier_summary.json` (diffs=39, records=30, failures=0)
+  - `by_vulnerability_type.access_control.ancillary_discovery_rate` expected=0.0 actual=0.5 delta=0.5
+  - `by_vulnerability_type.access_control.classifications.bonus_valid` expected=0 actual=1 delta=1.0
+  - `by_vulnerability_type.access_control.classifications.mischaracterized` expected=2 actual=1 delta=-1.0
+  - `by_vulnerability_type.access_control.f1_score` expected=None actual=0.0 delta=None
+  - `by_vulnerability_type.access_control.false_alarm_density` expected=2.0 actual=1.5 delta=-0.5
+  - `by_vulnerability_type.access_control.false_positives` expected=4 actual=3 delta=-1.0
+  - `by_vulnerability_type.access_control.invalid_finding_rate` expected=1.0 actual=0.75 delta=-0.25
+  - `by_vulnerability_type.access_control.lucky_guess_count` expected=2 actual=1 delta=-1.0
+  - `by_vulnerability_type.access_control.lucky_guess_rate` expected=1.0 actual=0.5 delta=-0.5
+  - `by_vulnerability_type.access_control.precision` expected=0.0 actual=0.25 delta=0.25
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/mimo-v2-flash/qwen3-coder-plus/ds/tier1/_tier_summary.json` (diffs=24, records=20, failures=0)
+  - `by_vulnerability_type.unchecked_return.ancillary_discovery_rate` expected=0.7142857142857143 actual=0.5714285714285714 delta=-0.1428571428571429
+  - `by_vulnerability_type.unchecked_return.classifications.bonus_valid` expected=6 actual=5 delta=-1.0
+  - `by_vulnerability_type.unchecked_return.classifications.mischaracterized` expected=5 actual=6 delta=1.0
+  - `by_vulnerability_type.unchecked_return.f1_score` expected=0.5142857142857143 actual=0.4897959183673469 delta=-0.02448979591836742
+  - `by_vulnerability_type.unchecked_return.false_alarm_density` expected=0.7142857142857143 actual=0.8571428571428571 delta=0.1428571428571428
+  - `by_vulnerability_type.unchecked_return.false_positives` expected=5 actual=6 delta=1.0
+  - `by_vulnerability_type.unchecked_return.invalid_finding_rate` expected=0.3571428571428572 actual=0.4285714285714285 delta=0.07142857142857129
+  - `by_vulnerability_type.unchecked_return.lucky_guess_count` expected=0 actual=1 delta=1.0
+  - `by_vulnerability_type.unchecked_return.lucky_guess_rate` expected=0.0 actual=0.1428571428571428 delta=0.1428571428571428
+  - `by_vulnerability_type.unchecked_return.precision` expected=0.6428571428571429 actual=0.5714285714285714 delta=-0.07142857142857151
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/mimo-v2-flash/qwen3-coder-plus/ds/tier2/_tier_summary.json` (diffs=45, records=37, failures=0)
+  - `by_vulnerability_type.access_control.ancillary_discovery_rate` expected=0.3333333333333333 actual=0.25 delta=-0.08333333333333331
+  - `by_vulnerability_type.access_control.avg_findings_per_sample` expected=1.0 actual=0.75 delta=-0.25
+  - `by_vulnerability_type.access_control.f1_score` expected=0.8 actual=0.6666666666666666 delta=-0.13333333333333341
+  - `by_vulnerability_type.access_control.miss_rate` expected=0.3333333333333334 actual=0.5 delta=0.16666666666666657
+  - `by_vulnerability_type.access_control.target_detection_rate` expected=0.6666666666666666 actual=0.5 delta=-0.16666666666666663
+  - `by_vulnerability_type.access_control.total_samples` expected=3 actual=4 delta=1.0
+  - `by_vulnerability_type.access_control.type_match_distribution.not_mentioned` expected=1 actual=2 delta=1.0
+  - `by_vulnerability_type.access_control.verdict_accuracy` expected=1.0 actual=0.75 delta=-0.25
+  - `by_vulnerability_type.dos.ancillary_discovery_rate` expected=0.6666666666666666 actual=0.5 delta=-0.16666666666666663
+  - `by_vulnerability_type.dos.avg_findings_per_sample` expected=2.0 actual=1.5 delta=-0.5
+- `/Users/poamen/projects/grace/blockbench/evaluation/results/detection_evaluation/llm-judge/mimo-v2-flash/qwen3-coder-plus/ds/tier4/_tier_summary.json` (diffs=2, records=13, failures=0)
+  - `by_vulnerability_type.weak_randomness.classifications.mischaracterized` expected=3 actual=4 delta=1.0
+  - `classification_totals.mischaracterized` expected=6 actual=7 delta=1.0
