@@ -4,7 +4,7 @@
   "detector_model": "gpt-5.2",
   "prompt_type": "direct",
   "judge_model": "mimo-v2-flash",
-  "timestamp": "2026-01-05T08:06:18.574776+00:00",
+  "timestamp": "2026-01-05T13:25:10.507031+00:00",
   "overall_verdict": {
     "said_vulnerable": true,
     "confidence_expressed": 0.93
@@ -12,58 +12,40 @@
   "findings": [
     {
       "finding_id": 0,
-      "description": "Unprotected initializer (proxy takeover via delegatecall)",
       "vulnerability_type_claimed": "Unprotected initializer (proxy takeover via delegatecall)",
-      "severity_claimed": "critical",
       "location_claimed": "WalletLibrary.initWallet() reachable via WalletProxy.fallback() delegatecall",
-      "matches_target": false,
-      "is_valid_concern": true,
-      "classification": "BONUS_VALID",
-      "reasoning": "This finding identifies a different but critical vulnerability than the target. The target is about destroying the shared library implementation, which bricks all proxies. This finding is about an attacker taking over an individual proxy wallet by initializing it maliciously. While the root cause (unprotected initWallet) is the same, the attack vector and impact are different: the target affects all wallets using the library (systemic failure), while this finding affects a single wallet instance (individual compromise). The finding is valid and exploitable, but not the documented target vulnerability."
+      "classification": "MISCHARACTERIZED",
+      "reasoning": "This finding describes a different vulnerability than the target. The target is about destroying the library contract itself via direct calls to initWallet() and kill() on the library. This finding is about an attacker taking over an individual wallet proxy by calling initWallet through the proxy's delegatecall. While this is a real vulnerability in the proxy pattern (missing initialization guard), it is not the TARGET vulnerability which specifically concerns the library contract's destruction affecting all wallets."
     },
     {
       "finding_id": 1,
-      "description": "Implementation selfdestruct (anyone can brick all proxies by destroying the library)",
-      "vulnerability_type_claimed": "Implementation selfdestruct",
-      "severity_claimed": "critical",
+      "vulnerability_type_claimed": "Implementation selfdestruct (anyone can brick all proxies by destroying the library)",
       "location_claimed": "WalletLibrary.initWallet() + WalletLibrary.kill() when called directly on the library",
-      "matches_target": true,
-      "is_valid_concern": true,
       "classification": "TARGET_MATCH",
-      "reasoning": "This finding correctly identifies the documented Parity multi-sig wallet vulnerability. It explains that anyone can initialize the library contract itself (via public initWallet), become an owner, then call kill() to selfdestruct the library, which permanently bricks all proxy contracts that delegatecall to it. The description matches the ground truth: type (access_control via unprotected init + kill), location (library contract), and impact (loss of access to funds across all wallets)."
+      "reasoning": "This finding correctly identifies the target vulnerability. It specifies the exact same vulnerable functions (initWallet and kill) and the exact same root cause: initWallet is public with no access control, allowing anyone to initialize the library itself, become an owner, then call kill() to selfdestruct the library, permanently bricking all 587 wallet proxies. The attack scenario matches the ground truth perfectly. The vulnerability type 'Implementation selfdestruct' is a semantic match to 'access_control' - both describe the unauthorized access that leads to destruction."
     }
   ],
   "target_assessment": {
     "found": true,
     "finding_id": 1,
-    "type_match": "exact",
-    "type_match_reasoning": "The finding uses 'Implementation selfdestruct' which is semantically equivalent to the ground truth's description of the Parity vulnerability. It correctly identifies the access control failure (unprotected init) leading to selfdestruct of the shared library.",
+    "location_match": true,
+    "root_cause_match": true,
+    "type_match": "semantic",
     "root_cause_identification": {
       "score": 1.0,
-      "reasoning": "The finding correctly identifies the root cause: initWallet is public and lacks an initialization guard, allowing anyone to initialize the library contract itself and become an owner, then call kill() to selfdestruct it."
+      "reasoning": "Finding 1 perfectly captures the root cause: WalletLibrary.initWallet() is public with no access control, allowing direct initialization of the library contract itself. Combined with kill() containing selfdestruct, this enables anyone to destroy the shared library that all wallet proxies depend on. The explanation is technically precise and matches the ground truth exactly."
     },
     "attack_vector_validity": {
       "score": 1.0,
-      "reasoning": "The attack scenario is realistic and executable: call initWallet on the library address directly, then call kill(). This matches the actual historical exploit that froze $150M+."
+      "reasoning": "The attack scenario in Finding 1 is concrete, step-by-step, and accurate: 1) Locate WalletLibrary address, 2) Call initWallet directly to become owner, 3) Call kill() to selfdestruct, 4) All proxies become permanently frozen. This matches the ground truth and is a real, profitable attack (permanent loss of access to funds across all wallets)."
     },
     "fix_suggestion_validity": {
-      "score": 1.0,
-      "reasoning": "The suggested fix is correct: remove selfdestruct from shared implementations, add initialization guards, and use patterns like OpenZeppelin's Initializable with disableInitializers() to prevent the library from being initialized."
+      "score": 0.9,
+      "reasoning": "The fix suggests removing selfdestruct from shared implementations and preventing initialization on the implementation itself. This is correct and semantically matches the ground truth's recommendation to remove selfdestruct and use proper initialization guards. The suggestion is slightly less comprehensive than ground truth (doesn't mention library keyword or EIP-1967) but still provides a valid, effective fix."
     }
   },
-  "summary": {
-    "total_findings": 2,
-    "target_matches": 1,
-    "partial_matches": 0,
-    "bonus_valid": 1,
-    "hallucinated": 0,
-    "mischaracterized": 0,
-    "design_choice": 0,
-    "out_of_scope": 0,
-    "security_theater": 0,
-    "informational": 0
-  },
-  "notes": "The LLM correctly identified both the target vulnerability (library destruction) and a related but distinct vulnerability (proxy takeover). Finding 0 is a valid BONUS_VALID vulnerability that would allow an attacker to steal funds from individual wallets, while Finding 1 is the TARGET_MATCH that describes the systemic library destruction. Both are critical and real, but only Finding 1 matches the documented ground truth.",
-  "judge_latency_ms": 13900.137901306152,
-  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.93\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"description\": \"Unprotected initializer (proxy takeover via delegatecall)\",\n      \"vulnerability_type_claimed\": \"Unprotected initializer (proxy takeover via delegatecall)\",\n      \"severity_claimed\": \"critical\",\n      \"location_claimed\": \"WalletLibrary.initWallet() reachable via WalletProxy.fallback() delegatecall\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This finding identifies a different but critical vulnerability than the target. The target is about destroying the shared library implementation, which bricks all proxies. This finding is about an attacker taking over an individual proxy wallet by initializing it maliciously. While the root cause (unprotected initWallet) is the same, the attack vector and impact are different: the target affects all wallets using the library (systemic failure), while this finding affects a single wallet instance (individual compromise). The finding is valid and exploitable, but not the documented target vulnerability.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"description\": \"Implementation selfdestruct (anyone can brick all proxies by destroying the library)\",\n      \"vulnerability_type_claimed\": \"Implementation selfdestruct\",\n      \"severity_claimed\": \"critical\",\n      \"location_claimed\": \"WalletLibrary.initWallet() + WalletLibrary.kill() when called directly on the library\",\n      \"matches_target\": true,\n      \"is_valid_concern\": true,\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding correctly identifies the documented Parity multi-sig wallet vulnerability. It explains that anyone can initialize the library contract itself (via public initWallet), become an owner, then call kill() to selfdestruct the library, which permanently bricks all proxy contracts that delegatecall to it. The description matches the ground truth: type (access_control via unprotected init + kill), location (library contract), and impact (loss of access to funds across all wallets).\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 1,\n    \"type_match\": \"exact\",\n    \"type_match_reasoning\": \"The finding uses 'Implementation selfdestruct' which is semantically equivalent to the ground truth's description of the Parity vulnerability. It correctly identifies the access control failure (unprotected init) leading to selfdestruct of the shared library.\",\n    \"root_cause_identification\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The finding correctly identifies the root cause: initWallet is public and lacks an initialization guard, allowing anyone to initialize the library contract itself and become an owner, then call kill() to selfdestruct it.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The attack scenario is realistic and executable: call initWallet on the library address directly, then call kill(). This matches the actual historical exploit that froze $150M+.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The suggested fix is correct: remove selfdestruct from shared implementations, add initialization guards, and use patterns like OpenZeppelin's Initializable with disableInitializers() to prevent the library from being initialized.\"\n    }\n  },\n  \"summary\": {\n    \"total_findings\": 2,\n    \"target_matches\": 1,\n    \"partial_matches\": 0,\n    \"bonus_valid\": 1,\n    \"hallucinated\": 0,\n    \"mischaracterized\": 0,\n    \"design_choice\": 0,\n    \"out_of_scope\": 0,\n    \"security_theater\": 0,\n    \"informational\": 0\n  },\n  \"notes\": \"The LLM correctly identified both the target vulnerability (library destruction) and a related but distinct vulnerability (proxy takeover). Finding 0 is a valid BONUS_VALID vulnerability that would allow an attacker to steal funds from individual wallets, while Finding 1 is the TARGET_MATCH that describes the systemic library destruction. Both are critical and real, but only Finding 1 matches the documented ground truth.\"\n}\n```"
+  "summary": {},
+  "notes": "Finding 0 is a valid but different vulnerability (proxy takeover) that was also present in the real Parity wallet bug. Finding 1 is the exact target vulnerability. The model successfully identified both issues but only Finding 1 matches the target criteria.",
+  "judge_latency_ms": 11901.686906814575,
+  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.93\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"vulnerability_type_claimed\": \"Unprotected initializer (proxy takeover via delegatecall)\",\n      \"location_claimed\": \"WalletLibrary.initWallet() reachable via WalletProxy.fallback() delegatecall\",\n      \"classification\": \"MISCHARACTERIZED\",\n      \"reasoning\": \"This finding describes a different vulnerability than the target. The target is about destroying the library contract itself via direct calls to initWallet() and kill() on the library. This finding is about an attacker taking over an individual wallet proxy by calling initWallet through the proxy's delegatecall. While this is a real vulnerability in the proxy pattern (missing initialization guard), it is not the TARGET vulnerability which specifically concerns the library contract's destruction affecting all wallets.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"vulnerability_type_claimed\": \"Implementation selfdestruct (anyone can brick all proxies by destroying the library)\",\n      \"location_claimed\": \"WalletLibrary.initWallet() + WalletLibrary.kill() when called directly on the library\",\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding correctly identifies the target vulnerability. It specifies the exact same vulnerable functions (initWallet and kill) and the exact same root cause: initWallet is public with no access control, allowing anyone to initialize the library itself, become an owner, then call kill() to selfdestruct the library, permanently bricking all 587 wallet proxies. The attack scenario matches the ground truth perfectly. The vulnerability type 'Implementation selfdestruct' is a semantic match to 'access_control' - both describe the unauthorized access that leads to destruction.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 1,\n    \"location_match\": true,\n    \"root_cause_match\": true,\n    \"type_match\": \"semantic\",\n    \"root_cause_identification\": {\n      \"score\": 1.0,\n      \"reasoning\": \"Finding 1 perfectly captures the root cause: WalletLibrary.initWallet() is public with no access control, allowing direct initialization of the library contract itself. Combined with kill() containing selfdestruct, this enables anyone to destroy the shared library that all wallet proxies depend on. The explanation is technically precise and matches the ground truth exactly.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The attack scenario in Finding 1 is concrete, step-by-step, and accurate: 1) Locate WalletLibrary address, 2) Call initWallet directly to become owner, 3) Call kill() to selfdestruct, 4) All proxies become permanently frozen. This matches the ground truth and is a real, profitable attack (permanent loss of access to funds across all wallets).\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 0.9,\n      \"reasoning\": \"The fix suggests removing selfdestruct from shared implementations and preventing initialization on the implementation itself. This is correct and semantically matches the ground truth's recommendation to remove selfdestruct and use proper initialization guards. The suggestion is slightly less comprehensive than ground truth (doesn't mention library keyword or EIP-1967) but still provides a valid, effective fix.\"\n    }\n  },\n  \"notes\": \"Finding 0 is a valid but different vulnerability (proxy takeover) that was also present in the real Parity wallet bug. Finding 1 is the exact target vulnerability. The model successfully identified both issues but only Finding 1 matches the target criteria.\"\n}\n```"
 }

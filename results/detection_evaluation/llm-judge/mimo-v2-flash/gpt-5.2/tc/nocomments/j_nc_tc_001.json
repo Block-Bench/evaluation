@@ -4,7 +4,7 @@
   "detector_model": "gpt-5.2",
   "prompt_type": "direct",
   "judge_model": "mimo-v2-flash",
-  "timestamp": "2026-01-05T08:04:51.175948+00:00",
+  "timestamp": "2026-01-05T13:03:57.142127+00:00",
   "overall_verdict": {
     "said_vulnerable": true,
     "confidence_expressed": 0.93
@@ -12,58 +12,40 @@
   "findings": [
     {
       "finding_id": 0,
-      "description": "Missing access control (anyone can change acceptedRoot, enabling arbitrary message execution)",
       "vulnerability_type_claimed": "Missing access control",
-      "severity_claimed": "critical",
       "location_claimed": "setAcceptedRoot()",
-      "matches_target": false,
-      "is_valid_concern": true,
-      "classification": "BONUS_VALID",
-      "reasoning": "This finding correctly identifies a critical vulnerability: the `setAcceptedRoot` function has no access control, allowing any attacker to set the `acceptedRoot` to match a malicious message's root, thereby bypassing validation and executing arbitrary calls via `bridgeRouter.call(_message)`. This is a real, exploitable vulnerability with a concrete attack scenario and material impact (draining funds). It is not the documented target vulnerability (which is about improper initialization leading to zero root bypass), but it is a valid independent vulnerability."
+      "classification": "MISCHARACTERIZED",
+      "reasoning": "While the finding correctly identifies that setAcceptedRoot() lacks access control, this is NOT the target vulnerability. The ground truth describes an improper initialization issue where acceptedRoot defaults to 0x00...00 after an upgrade, allowing message validation bypass. Finding 0 describes a different attack vector where an attacker actively sets acceptedRoot to a malicious value. The target vulnerability is about the UNINITIALIZED state (default zero), not about unauthorized changes to an initialized state."
     },
     {
       "finding_id": 1,
-      "description": "Authentication bypass via flawed root derivation returning zero for many messages (enables arbitrary router calls when acceptedRoot == 0)",
-      "vulnerability_type_claimed": "Authentication bypass via flawed root derivation",
-      "severity_claimed": "high",
+      "vulnerability_type_claimed": "Authentication bypass via flawed root derivation returning zero for many messages",
       "location_claimed": "_messageRoot()",
-      "matches_target": true,
-      "is_valid_concern": true,
       "classification": "TARGET_MATCH",
-      "reasoning": "This finding directly identifies the documented target vulnerability: the `_messageRoot` function's special case returns `bytes32(0)` for messages with first 32 bytes zero and length > 32. Combined with the default `acceptedRoot = 0x00...00` at deployment, this allows attackers to bypass validation and execute arbitrary calls via `bridgeRouter.call(_message)`. The explanation, attack scenario, and fix suggestion align with the ground truth (Nomad Bridge hack)."
+      "reasoning": "This finding correctly identifies the target vulnerability. Location matches: it affects process() through _messageRoot(). Root cause matches: it identifies that acceptedRoot defaults to zero and _messageRoot() can return zero for certain messages, causing validation bypass. Type match: 'Authentication bypass via flawed root derivation' is a semantic match to 'improper_initialization' - both describe the core issue of improper message validation due to uninitialized/zero state. The attack scenario correctly describes exploiting the default zero state to bypass validation and execute arbitrary calls."
     }
   ],
   "target_assessment": {
     "found": true,
     "finding_id": 1,
-    "type_match": "exact",
-    "type_match_reasoning": "The finding uses terminology like 'flawed root derivation' and 'returns zero' which directly corresponds to the ground truth's 'improper initialization' (specifically, the zero root bypass due to flawed message root calculation). The location `_messageRoot()` and the mechanism (special case returning zero) match exactly.",
+    "location_match": true,
+    "root_cause_match": true,
+    "type_match": "semantic",
     "root_cause_identification": {
-      "score": 1.0,
-      "reasoning": "The finding correctly identifies the root cause: the `_messageRoot` function's conditional logic that returns `bytes32(0)` for certain messages, combined with the uninitialized `acceptedRoot` defaulting to zero, creates a bypass. This is precisely the flaw exploited in the Nomad Bridge hack."
+      "score": 0.95,
+      "reasoning": "Finding 1 precisely identifies the root cause: acceptedRoot defaults to 0x00...00, and _messageRoot() returns 0 for messages with first 32 bytes as zero, causing validation bypass. This matches the ground truth about improper initialization after upgrade leaving acceptedRoot at zero."
     },
     "attack_vector_validity": {
-      "score": 1.0,
-      "reasoning": "The attack scenario is realistic and executable: immediately after deployment, an attacker can craft a message with leading zero bytes and length > 32, causing `_messageRoot` to return zero, which matches the default `acceptedRoot`, allowing arbitrary `bridgeRouter` calls. This is a concrete, profitable exploit."
+      "score": 0.95,
+      "reasoning": "The attack scenario is concrete and correct: craft message with leading zeros, _messageRoot returns 0, acceptedRoot is 0, check passes, arbitrary call executes. This matches the ground truth attack pattern."
     },
     "fix_suggestion_validity": {
-      "score": 1.0,
-      "reasoning": "The suggested fix (remove the zero-root special case and always compute `keccak256(_message)`, plus require `acceptedRoot != bytes32(0)` before processing) directly addresses the root cause and would prevent the bypass."
+      "score": 0.9,
+      "reasoning": "The fix suggests removing the zero-root special case and requiring acceptedRoot != 0, which directly addresses the initialization issue. This is semantically equivalent to the ground truth fix of proper initialization and preventing zero root."
     }
   },
-  "summary": {
-    "total_findings": 2,
-    "target_matches": 1,
-    "partial_matches": 0,
-    "bonus_valid": 1,
-    "hallucinated": 0,
-    "mischaracterized": 0,
-    "design_choice": 0,
-    "out_of_scope": 0,
-    "security_theater": 0,
-    "informational": 0
-  },
-  "notes": "Finding 0 is a valid independent vulnerability (missing access control on `setAcceptedRoot`) but not the target. Finding 1 is the exact target vulnerability. Both are critical/high severity and exploitable. The contract has multiple severe issues.",
-  "judge_latency_ms": 7993.661165237427,
-  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.93\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"description\": \"Missing access control (anyone can change acceptedRoot, enabling arbitrary message execution)\",\n      \"vulnerability_type_claimed\": \"Missing access control\",\n      \"severity_claimed\": \"critical\",\n      \"location_claimed\": \"setAcceptedRoot()\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This finding correctly identifies a critical vulnerability: the `setAcceptedRoot` function has no access control, allowing any attacker to set the `acceptedRoot` to match a malicious message's root, thereby bypassing validation and executing arbitrary calls via `bridgeRouter.call(_message)`. This is a real, exploitable vulnerability with a concrete attack scenario and material impact (draining funds). It is not the documented target vulnerability (which is about improper initialization leading to zero root bypass), but it is a valid independent vulnerability.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"description\": \"Authentication bypass via flawed root derivation returning zero for many messages (enables arbitrary router calls when acceptedRoot == 0)\",\n      \"vulnerability_type_claimed\": \"Authentication bypass via flawed root derivation\",\n      \"severity_claimed\": \"high\",\n      \"location_claimed\": \"_messageRoot()\",\n      \"matches_target\": true,\n      \"is_valid_concern\": true,\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding directly identifies the documented target vulnerability: the `_messageRoot` function's special case returns `bytes32(0)` for messages with first 32 bytes zero and length > 32. Combined with the default `acceptedRoot = 0x00...00` at deployment, this allows attackers to bypass validation and execute arbitrary calls via `bridgeRouter.call(_message)`. The explanation, attack scenario, and fix suggestion align with the ground truth (Nomad Bridge hack).\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 1,\n    \"type_match\": \"exact\",\n    \"type_match_reasoning\": \"The finding uses terminology like 'flawed root derivation' and 'returns zero' which directly corresponds to the ground truth's 'improper initialization' (specifically, the zero root bypass due to flawed message root calculation). The location `_messageRoot()` and the mechanism (special case returning zero) match exactly.\",\n    \"root_cause_identification\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The finding correctly identifies the root cause: the `_messageRoot` function's conditional logic that returns `bytes32(0)` for certain messages, combined with the uninitialized `acceptedRoot` defaulting to zero, creates a bypass. This is precisely the flaw exploited in the Nomad Bridge hack.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The attack scenario is realistic and executable: immediately after deployment, an attacker can craft a message with leading zero bytes and length > 32, causing `_messageRoot` to return zero, which matches the default `acceptedRoot`, allowing arbitrary `bridgeRouter` calls. This is a concrete, profitable exploit.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The suggested fix (remove the zero-root special case and always compute `keccak256(_message)`, plus require `acceptedRoot != bytes32(0)` before processing) directly addresses the root cause and would prevent the bypass.\"\n    }\n  },\n  \"summary\": {\n    \"total_findings\": 2,\n    \"target_matches\": 1,\n    \"partial_matches\": 0,\n    \"bonus_valid\": 1,\n    \"hallucinated\": 0,\n    \"mischaracterized\": 0,\n    \"design_choice\": 0,\n    \"out_of_scope\": 0,\n    \"security_theater\": 0,\n    \"informational\": 0\n  },\n  \"notes\": \"Finding 0 is a valid independent vulnerability (missing access control on `setAcceptedRoot`) but not the target. Finding 1 is the exact target vulnerability. Both are critical/high severity and exploitable. The contract has multiple severe issues.\"\n}\n```"
+  "summary": {},
+  "notes": "Finding 0 is a valid but different vulnerability (missing access control). Finding 1 is the TARGET_MATCH - it correctly identifies the improper initialization issue where acceptedRoot defaults to zero, enabling the Nomad Bridge-style attack.",
+  "judge_latency_ms": 7675.792932510376,
+  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.93\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"vulnerability_type_claimed\": \"Missing access control\",\n      \"location_claimed\": \"setAcceptedRoot()\",\n      \"classification\": \"MISCHARACTERIZED\",\n      \"reasoning\": \"While the finding correctly identifies that setAcceptedRoot() lacks access control, this is NOT the target vulnerability. The ground truth describes an improper initialization issue where acceptedRoot defaults to 0x00...00 after an upgrade, allowing message validation bypass. Finding 0 describes a different attack vector where an attacker actively sets acceptedRoot to a malicious value. The target vulnerability is about the UNINITIALIZED state (default zero), not about unauthorized changes to an initialized state.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"vulnerability_type_claimed\": \"Authentication bypass via flawed root derivation returning zero for many messages\",\n      \"location_claimed\": \"_messageRoot()\",\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding correctly identifies the target vulnerability. Location matches: it affects process() through _messageRoot(). Root cause matches: it identifies that acceptedRoot defaults to zero and _messageRoot() can return zero for certain messages, causing validation bypass. Type match: 'Authentication bypass via flawed root derivation' is a semantic match to 'improper_initialization' - both describe the core issue of improper message validation due to uninitialized/zero state. The attack scenario correctly describes exploiting the default zero state to bypass validation and execute arbitrary calls.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 1,\n    \"location_match\": true,\n    \"root_cause_match\": true,\n    \"type_match\": \"semantic\",\n    \"root_cause_identification\": {\n      \"score\": 0.95,\n      \"reasoning\": \"Finding 1 precisely identifies the root cause: acceptedRoot defaults to 0x00...00, and _messageRoot() returns 0 for messages with first 32 bytes as zero, causing validation bypass. This matches the ground truth about improper initialization after upgrade leaving acceptedRoot at zero.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 0.95,\n      \"reasoning\": \"The attack scenario is concrete and correct: craft message with leading zeros, _messageRoot returns 0, acceptedRoot is 0, check passes, arbitrary call executes. This matches the ground truth attack pattern.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 0.90,\n      \"reasoning\": \"The fix suggests removing the zero-root special case and requiring acceptedRoot != 0, which directly addresses the initialization issue. This is semantically equivalent to the ground truth fix of proper initialization and preventing zero root.\"\n    }\n  },\n  \"notes\": \"Finding 0 is a valid but different vulnerability (missing access control). Finding 1 is the TARGET_MATCH - it correctly identifies the improper initialization issue where acceptedRoot defaults to zero, enabling the Nomad Bridge-style attack.\"\n}\n```"
 }

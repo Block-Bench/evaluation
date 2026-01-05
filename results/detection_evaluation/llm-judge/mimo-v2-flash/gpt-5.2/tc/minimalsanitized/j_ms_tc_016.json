@@ -4,7 +4,7 @@
   "detector_model": "gpt-5.2",
   "prompt_type": "direct",
   "judge_model": "mimo-v2-flash",
-  "timestamp": "2026-01-05T08:06:31.444637+00:00",
+  "timestamp": "2026-01-05T13:26:36.295441+00:00",
   "overall_verdict": {
     "said_vulnerable": true,
     "confidence_expressed": 0.9
@@ -12,69 +12,47 @@
   "findings": [
     {
       "finding_id": 0,
-      "description": "Missing access control (arbitrary resourceID -> token mapping)",
-      "vulnerability_type_claimed": "Missing access control",
-      "severity_claimed": "critical",
+      "vulnerability_type_claimed": "Missing access control (arbitrary resourceID -> token mapping)",
       "location_claimed": "QBridgeHandler.setResource",
-      "matches_target": false,
-      "is_valid_concern": true,
       "classification": "BONUS_VALID",
-      "reasoning": "This finding identifies a real, critical vulnerability: the setResource function is publicly callable, allowing an attacker to remap resource IDs to malicious token contracts. This enables unbacked minting on the destination chain by bypassing the intended token locking mechanism. The attack scenario is concrete and exploitable without privileged roles, with material financial impact. It is distinct from the target vulnerability (validation_bypass of zero address) but is a valid, independent critical issue."
+      "reasoning": "This finding correctly identifies a real, critical vulnerability in the code. The setResource function is indeed publicly callable and allows arbitrary mapping of resourceID to token addresses. This is a separate but valid vulnerability from the target. The attack scenario is concrete and would enable unbacked minting on destination chains."
     },
     {
       "finding_id": 1,
-      "description": "Unchecked ERC20 transferFrom return value (deposit can succeed without locking funds)",
-      "vulnerability_type_claimed": "Unchecked ERC20 transferFrom return value",
-      "severity_claimed": "high",
+      "vulnerability_type_claimed": "Unchecked ERC20 transferFrom return value (deposit can succeed without locking funds)",
       "location_claimed": "QBridgeHandler.deposit",
-      "matches_target": true,
-      "is_valid_concern": true,
       "classification": "TARGET_MATCH",
-      "reasoning": "This finding correctly identifies the core issue from the ground truth: the deposit function does not validate the token contract address (allowing address(0)) and ignores the return value of transferFrom. An attacker can pass address(0) as the token, which does not revert in the EVM, and transferFrom effectively does nothing (or returns false, but the call doesn't revert). The bridge still emits a deposit event, leading to unbacked minting on the destination chain. The explanation, attack scenario, and suggested fix align with the documented Qubit Bridge exploit."
+      "reasoning": "This finding correctly identifies the target vulnerability. Location matches (deposit function). Root cause matches: the transferFrom call's return value is ignored, allowing silent failures. This is semantically equivalent to the ground truth's description of calls to address(0) succeeding without transferring tokens. The type 'Unchecked ERC20 transferFrom return value' is a semantic match to 'validation_bypass' - both describe failure to properly validate the token transfer."
     },
     {
       "finding_id": 2,
-      "description": "Unrestricted handler deposit allows third-party forced transfers from approved users (griefing/loss)",
-      "vulnerability_type_claimed": "Unrestricted handler deposit",
-      "severity_claimed": "medium",
+      "vulnerability_type_claimed": "Unrestricted handler deposit allows third-party forced transfers from approved users (griefing/loss)",
       "location_claimed": "QBridgeHandler.deposit",
-      "matches_target": false,
-      "is_valid_concern": true,
       "classification": "BONUS_VALID",
-      "reasoning": "This finding highlights a valid vulnerability: the deposit function is publicly callable with an arbitrary depositer parameter, allowing an attacker to drain tokens from any user who has approved the handler. This is a real exploit vector (unauthorized token movement) with concrete steps and material impact (fund locking/loss). It is not the target vulnerability but is a legitimate, independent issue."
+      "reasoning": "This finding identifies a real vulnerability: the deposit function is publicly callable with an arbitrary depositer parameter, allowing anyone to trigger transfers from users who have approved the handler. This is a separate issue from the target but is a valid, exploitable vulnerability that could cause unauthorized token movement and fund locking."
     }
   ],
   "target_assessment": {
     "found": true,
     "finding_id": 1,
+    "location_match": true,
+    "root_cause_match": true,
     "type_match": "semantic",
-    "type_match_reasoning": "The finding uses 'Unchecked ERC20 transferFrom return value' which semantically aligns with the ground truth's 'validation_bypass' (specifically, bypassing validation of token address and transfer success). The core issue\u2014allowing deposits without actual token transfers\u2014is captured correctly, even if the terminology differs slightly.",
     "root_cause_identification": {
       "score": 0.9,
-      "reasoning": "The finding correctly identifies the root cause: ignoring the transferFrom return value and not validating the token contract (implicitly allowing address(0)). This directly enables the exploit described in the ground truth."
+      "reasoning": "Finding 1 correctly identifies that the transferFrom call's return value is ignored, which is the core issue. This is semantically equivalent to the ground truth's description - both describe how the handler fails to properly validate that tokens were actually transferred, allowing silent failures that result in unbacked deposits."
     },
     "attack_vector_validity": {
-      "score": 1.0,
-      "reasoning": "The attack scenario is realistic and executable: using address(0) or a malicious token that returns false/true without transferring funds, leading to unbacked minting. It mirrors the actual Qubit Bridge attack."
+      "score": 0.9,
+      "reasoning": "The attack scenario described is valid and concrete: use a token that returns false on failed transferFrom (or a lying malicious token), call deposit with insufficient balance/allowance, and the handler proceeds without actually receiving tokens while still emitting the deposit event."
     },
     "fix_suggestion_validity": {
       "score": 0.9,
-      "reasoning": "The suggested fix (using SafeERC20 or explicit checks) would prevent the exploit by ensuring transfers succeed and revert on failure. It directly addresses the root cause."
+      "reasoning": "The suggested fix using SafeERC20.safeTransferFrom or explicitly checking the return value is correct and would remediate the issue. This matches the spirit of the ground truth fix (proper validation)."
     }
   },
-  "summary": {
-    "total_findings": 3,
-    "target_matches": 1,
-    "partial_matches": 0,
-    "bonus_valid": 2,
-    "hallucinated": 0,
-    "mischaracterized": 0,
-    "design_choice": 0,
-    "out_of_scope": 0,
-    "security_theater": 0,
-    "informational": 0
-  },
-  "notes": "The audit output correctly identifies the target vulnerability (Finding 1) and additionally surfaces two other valid critical/high-severity issues (unprotected setResource and unrestricted deposit). All findings are concrete and exploitable. No hallucinations or mischaracterizations present.",
-  "judge_latency_ms": 9025.917768478394,
-  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.9\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"description\": \"Missing access control (arbitrary resourceID -> token mapping)\",\n      \"vulnerability_type_claimed\": \"Missing access control\",\n      \"severity_claimed\": \"critical\",\n      \"location_claimed\": \"QBridgeHandler.setResource\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This finding identifies a real, critical vulnerability: the setResource function is publicly callable, allowing an attacker to remap resource IDs to malicious token contracts. This enables unbacked minting on the destination chain by bypassing the intended token locking mechanism. The attack scenario is concrete and exploitable without privileged roles, with material financial impact. It is distinct from the target vulnerability (validation_bypass of zero address) but is a valid, independent critical issue.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"description\": \"Unchecked ERC20 transferFrom return value (deposit can succeed without locking funds)\",\n      \"vulnerability_type_claimed\": \"Unchecked ERC20 transferFrom return value\",\n      \"severity_claimed\": \"high\",\n      \"location_claimed\": \"QBridgeHandler.deposit\",\n      \"matches_target\": true,\n      \"is_valid_concern\": true,\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding correctly identifies the core issue from the ground truth: the deposit function does not validate the token contract address (allowing address(0)) and ignores the return value of transferFrom. An attacker can pass address(0) as the token, which does not revert in the EVM, and transferFrom effectively does nothing (or returns false, but the call doesn't revert). The bridge still emits a deposit event, leading to unbacked minting on the destination chain. The explanation, attack scenario, and suggested fix align with the documented Qubit Bridge exploit.\"\n    },\n    {\n      \"finding_id\": 2,\n      \"description\": \"Unrestricted handler deposit allows third-party forced transfers from approved users (griefing/loss)\",\n      \"vulnerability_type_claimed\": \"Unrestricted handler deposit\",\n      \"severity_claimed\": \"medium\",\n      \"location_claimed\": \"QBridgeHandler.deposit\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This finding highlights a valid vulnerability: the deposit function is publicly callable with an arbitrary depositer parameter, allowing an attacker to drain tokens from any user who has approved the handler. This is a real exploit vector (unauthorized token movement) with concrete steps and material impact (fund locking/loss). It is not the target vulnerability but is a legitimate, independent issue.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 1,\n    \"type_match\": \"semantic\",\n    \"type_match_reasoning\": \"The finding uses 'Unchecked ERC20 transferFrom return value' which semantically aligns with the ground truth's 'validation_bypass' (specifically, bypassing validation of token address and transfer success). The core issue\u2014allowing deposits without actual token transfers\u2014is captured correctly, even if the terminology differs slightly.\",\n    \"root_cause_identification\": {\n      \"score\": 0.9,\n      \"reasoning\": \"The finding correctly identifies the root cause: ignoring the transferFrom return value and not validating the token contract (implicitly allowing address(0)). This directly enables the exploit described in the ground truth.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The attack scenario is realistic and executable: using address(0) or a malicious token that returns false/true without transferring funds, leading to unbacked minting. It mirrors the actual Qubit Bridge attack.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 0.9,\n      \"reasoning\": \"The suggested fix (using SafeERC20 or explicit checks) would prevent the exploit by ensuring transfers succeed and revert on failure. It directly addresses the root cause.\"\n    }\n  },\n  \"summary\": {\n    \"total_findings\": 3,\n    \"target_matches\": 1,\n    \"partial_matches\": 0,\n    \"bonus_valid\": 2,\n    \"hallucinated\": 0,\n    \"mischaracterized\": 0,\n    \"design_choice\": 0,\n    \"out_of_scope\": 0,\n    \"security_theater\": 0,\n    \"informational\": 0\n  },\n  \"notes\": \"The audit output correctly identifies the target vulnerability (Finding 1) and additionally surfaces two other valid critical/high-severity issues (unprotected setResource and unrestricted deposit). All findings are concrete and exploitable. No hallucinations or mischaracterizations present.\"\n}\n```"
+  "summary": {},
+  "notes": "The model found 3 vulnerabilities total: 1 target match (Finding 1) and 2 bonus valid vulnerabilities (Findings 0 and 2). All three are real issues in the code. Finding 1 correctly identifies the target vulnerability with proper root cause understanding, though it uses more specific terminology ('Unchecked ERC20 transferFrom return value') rather than the broader 'validation_bypass' from ground truth.",
+  "judge_latency_ms": 7878.580093383789,
+  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.9\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"vulnerability_type_claimed\": \"Missing access control (arbitrary resourceID -> token mapping)\",\n      \"location_claimed\": \"QBridgeHandler.setResource\",\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This finding correctly identifies a real, critical vulnerability in the code. The setResource function is indeed publicly callable and allows arbitrary mapping of resourceID to token addresses. This is a separate but valid vulnerability from the target. The attack scenario is concrete and would enable unbacked minting on destination chains.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"vulnerability_type_claimed\": \"Unchecked ERC20 transferFrom return value (deposit can succeed without locking funds)\",\n      \"location_claimed\": \"QBridgeHandler.deposit\",\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding correctly identifies the target vulnerability. Location matches (deposit function). Root cause matches: the transferFrom call's return value is ignored, allowing silent failures. This is semantically equivalent to the ground truth's description of calls to address(0) succeeding without transferring tokens. The type 'Unchecked ERC20 transferFrom return value' is a semantic match to 'validation_bypass' - both describe failure to properly validate the token transfer.\"\n    },\n    {\n      \"finding_id\": 2,\n      \"vulnerability_type_claimed\": \"Unrestricted handler deposit allows third-party forced transfers from approved users (griefing/loss)\",\n      \"location_claimed\": \"QBridgeHandler.deposit\",\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This finding identifies a real vulnerability: the deposit function is publicly callable with an arbitrary depositer parameter, allowing anyone to trigger transfers from users who have approved the handler. This is a separate issue from the target but is a valid, exploitable vulnerability that could cause unauthorized token movement and fund locking.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 1,\n    \"location_match\": true,\n    \"root_cause_match\": true,\n    \"type_match\": \"semantic\",\n    \"root_cause_identification\": {\n      \"score\": 0.9,\n      \"reasoning\": \"Finding 1 correctly identifies that the transferFrom call's return value is ignored, which is the core issue. This is semantically equivalent to the ground truth's description - both describe how the handler fails to properly validate that tokens were actually transferred, allowing silent failures that result in unbacked deposits.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 0.9,\n      \"reasoning\": \"The attack scenario described is valid and concrete: use a token that returns false on failed transferFrom (or a lying malicious token), call deposit with insufficient balance/allowance, and the handler proceeds without actually receiving tokens while still emitting the deposit event.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 0.9,\n      \"reasoning\": \"The suggested fix using SafeERC20.safeTransferFrom or explicitly checking the return value is correct and would remediate the issue. This matches the spirit of the ground truth fix (proper validation).\"\n    }\n  },\n  \"notes\": \"The model found 3 vulnerabilities total: 1 target match (Finding 1) and 2 bonus valid vulnerabilities (Findings 0 and 2). All three are real issues in the code. Finding 1 correctly identifies the target vulnerability with proper root cause understanding, though it uses more specific terminology ('Unchecked ERC20 transferFrom return value') rather than the broader 'validation_bypass' from ground truth.\"\n}\n```"
 }

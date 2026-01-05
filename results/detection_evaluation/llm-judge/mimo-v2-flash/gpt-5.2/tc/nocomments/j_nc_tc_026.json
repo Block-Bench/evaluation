@@ -4,7 +4,7 @@
   "detector_model": "gpt-5.2",
   "prompt_type": "direct",
   "judge_model": "mimo-v2-flash",
-  "timestamp": "2026-01-05T08:08:28.772301+00:00",
+  "timestamp": "2026-01-05T13:07:28.733543+00:00",
   "overall_verdict": {
     "said_vulnerable": true,
     "confidence_expressed": 0.82
@@ -12,58 +12,40 @@
   "findings": [
     {
       "finding_id": 0,
-      "description": "Unchecked ERC20 return value enables free share minting (if token returns false instead of reverting)",
-      "vulnerability_type_claimed": "Unchecked return value",
-      "severity_claimed": "high",
+      "vulnerability_type_claimed": "Unchecked ERC20 return value",
       "location_claimed": "deposit() / withdraw() external token transfers",
-      "matches_target": false,
-      "is_valid_concern": true,
-      "classification": "BONUS_VALID",
-      "reasoning": "This is a real, distinct vulnerability from the target. The finding correctly identifies that ignoring ERC20 return values allows state corruption (minting shares without payment). The attack scenario is concrete and exploitable without special privileges. It has material impact (theft of funds)."
+      "classification": "MISCHARACTERIZED",
+      "reasoning": "The contract uses Solidity ^0.8.0, where ERC20 transferFrom and transfer calls that return false will revert automatically due to the strict checking. The finding assumes a pre-Solidity 0.8 behavior where false returns could be ignored. In this version, the transfers will revert on failure, preventing the described state corruption. The issue is theoretical and does not exist in the provided code."
     },
     {
       "finding_id": 1,
-      "description": "Oracle price manipulation / incorrect share accounting allows value extraction",
-      "vulnerability_type_claimed": "Oracle price manipulation",
-      "severity_claimed": "critical",
+      "vulnerability_type_claimed": "Oracle price manipulation / incorrect share accounting",
       "location_claimed": "deposit() and withdraw() share/amount calculations",
-      "matches_target": true,
-      "is_valid_concern": true,
       "classification": "TARGET_MATCH",
-      "reasoning": "This finding directly matches the ground truth vulnerability. It correctly identifies the type (price_oracle_manipulation), the mechanism (manipulating price to mint disproportionate shares then withdrawing after price recovery), and the location (deposit/withdraw calculations). The explanation accurately describes how the oracle price is used incorrectly in the share math."
+      "reasoning": "This finding correctly identifies the target vulnerability. It matches the location (deposit function), root cause (share calculations use manipulatable instantaneous oracle price), and type (price_oracle_manipulation). The attack scenario describes exactly the flash loan manipulation cycle: push price down, deposit to get more shares, restore price, withdraw to steal value. The fix suggestion correctly recommends removing oracle price from single-asset vault math."
     }
   ],
   "target_assessment": {
     "found": true,
     "finding_id": 1,
-    "type_match": "exact",
-    "type_match_reasoning": "The finding uses the exact terminology 'Oracle price manipulation' and describes the same attack pattern as the ground truth: flash-loan to manipulate price, deposit when price is low to get more shares, withdraw after price recovers to steal value.",
+    "location_match": true,
+    "root_cause_match": true,
+    "type_match": "semantic",
     "root_cause_identification": {
       "score": 1.0,
-      "reasoning": "The explanation correctly identifies the root cause: share minting/redemption incorrectly incorporates external oracle price into calculations while the vault only holds wantToken units. It explains the inverse/proportional relationships that enable the exploit."
+      "reasoning": "The finding precisely identifies that share minting/redemption incorrectly uses external oracle price, making sharesAdded inversely proportional to price and withdraw amount proportional to price. This matches the ground truth root cause about vault share pricing relying on manipulatable instantaneous oracle values without TWAP resistance."
     },
     "attack_vector_validity": {
       "score": 1.0,
-      "reasoning": "The attack scenario is realistic and executable. It describes using a flash loan to manipulate a spot price oracle, depositing during the manipulation window, and withdrawing after price recovery. This is exactly how the Belt Finance exploit occurred."
+      "reasoning": "The attack scenario is concrete and valid: 1) Manipulate oracle price down via flash loan, 2) Deposit during low price to mint inflated shares, 3) Restore price, 4) Withdraw to extract disproportionate value. This matches the ground truth scenario and is technically sound."
     },
     "fix_suggestion_validity": {
       "score": 1.0,
-      "reasoning": "The suggested fix is correct: remove oracle price from share math and use standard vault accounting (sharesAdded = amount * totalShares / pool, amount = sharesAmount * pool / totalShares). This eliminates the oracle dependency entirely."
+      "reasoning": "The fix correctly recommends removing oracle price from single-asset vault accounting and using standard pro-rata share calculations: sharesAdded = (amount * totalShares) / pool and amount = (sharesAmount * pool) / totalShares. This directly addresses the root cause and matches the intended fix pattern."
     }
   },
-  "summary": {
-    "total_findings": 2,
-    "target_matches": 1,
-    "partial_matches": 0,
-    "bonus_valid": 1,
-    "hallucinated": 0,
-    "mischaracterized": 0,
-    "design_choice": 0,
-    "out_of_scope": 0,
-    "security_theater": 0,
-    "informational": 0
-  },
-  "notes": "The LLM output is excellent. It not only correctly identified the target vulnerability with high precision, but also found a separate valid vulnerability (unchecked return values) that is a BONUS_VALID finding. Both findings are actionable and have concrete attack scenarios. The target finding scores perfectly across all quality metrics.",
-  "judge_latency_ms": 7716.181039810181,
-  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.82\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"description\": \"Unchecked ERC20 return value enables free share minting (if token returns false instead of reverting)\",\n      \"vulnerability_type_claimed\": \"Unchecked return value\",\n      \"severity_claimed\": \"high\",\n      \"location_claimed\": \"deposit() / withdraw() external token transfers\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This is a real, distinct vulnerability from the target. The finding correctly identifies that ignoring ERC20 return values allows state corruption (minting shares without payment). The attack scenario is concrete and exploitable without special privileges. It has material impact (theft of funds).\"\n    },\n    {\n      \"finding_id\": 1,\n      \"description\": \"Oracle price manipulation / incorrect share accounting allows value extraction\",\n      \"vulnerability_type_claimed\": \"Oracle price manipulation\",\n      \"severity_claimed\": \"critical\",\n      \"location_claimed\": \"deposit() and withdraw() share/amount calculations\",\n      \"matches_target\": true,\n      \"is_valid_concern\": true,\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding directly matches the ground truth vulnerability. It correctly identifies the type (price_oracle_manipulation), the mechanism (manipulating price to mint disproportionate shares then withdrawing after price recovery), and the location (deposit/withdraw calculations). The explanation accurately describes how the oracle price is used incorrectly in the share math.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 1,\n    \"type_match\": \"exact\",\n    \"type_match_reasoning\": \"The finding uses the exact terminology 'Oracle price manipulation' and describes the same attack pattern as the ground truth: flash-loan to manipulate price, deposit when price is low to get more shares, withdraw after price recovers to steal value.\",\n    \"root_cause_identification\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The explanation correctly identifies the root cause: share minting/redemption incorrectly incorporates external oracle price into calculations while the vault only holds wantToken units. It explains the inverse/proportional relationships that enable the exploit.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The attack scenario is realistic and executable. It describes using a flash loan to manipulate a spot price oracle, depositing during the manipulation window, and withdrawing after price recovery. This is exactly how the Belt Finance exploit occurred.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The suggested fix is correct: remove oracle price from share math and use standard vault accounting (sharesAdded = amount * totalShares / pool, amount = sharesAmount * pool / totalShares). This eliminates the oracle dependency entirely.\"\n    }\n  },\n  \"summary\": {\n    \"total_findings\": 2,\n    \"target_matches\": 1,\n    \"partial_matches\": 0,\n    \"bonus_valid\": 1,\n    \"hallucinated\": 0,\n    \"mischaracterized\": 0,\n    \"design_choice\": 0,\n    \"out_of_scope\": 0,\n    \"security_theater\": 0,\n    \"informational\": 0\n  },\n  \"notes\": \"The LLM output is excellent. It not only correctly identified the target vulnerability with high precision, but also found a separate valid vulnerability (unchecked return values) that is a BONUS_VALID finding. Both findings are actionable and have concrete attack scenarios. The target finding scores perfectly across all quality metrics.\"\n}\n```"
+  "summary": {},
+  "notes": "Finding 0 is invalid due to Solidity 0.8.0 behavior. Finding 1 is a perfect target match with comprehensive understanding of the oracle manipulation vulnerability.",
+  "judge_latency_ms": 6564.10813331604,
+  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.82\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"vulnerability_type_claimed\": \"Unchecked ERC20 return value\",\n      \"location_claimed\": \"deposit() / withdraw() external token transfers\",\n      \"classification\": \"MISCHARACTERIZED\",\n      \"reasoning\": \"The contract uses Solidity ^0.8.0, where ERC20 transferFrom and transfer calls that return false will revert automatically due to the strict checking. The finding assumes a pre-Solidity 0.8 behavior where false returns could be ignored. In this version, the transfers will revert on failure, preventing the described state corruption. The issue is theoretical and does not exist in the provided code.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"vulnerability_type_claimed\": \"Oracle price manipulation / incorrect share accounting\",\n      \"location_claimed\": \"deposit() and withdraw() share/amount calculations\",\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding correctly identifies the target vulnerability. It matches the location (deposit function), root cause (share calculations use manipulatable instantaneous oracle price), and type (price_oracle_manipulation). The attack scenario describes exactly the flash loan manipulation cycle: push price down, deposit to get more shares, restore price, withdraw to steal value. The fix suggestion correctly recommends removing oracle price from single-asset vault math.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 1,\n    \"location_match\": true,\n    \"root_cause_match\": true,\n    \"type_match\": \"semantic\",\n    \"root_cause_identification\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The finding precisely identifies that share minting/redemption incorrectly uses external oracle price, making sharesAdded inversely proportional to price and withdraw amount proportional to price. This matches the ground truth root cause about vault share pricing relying on manipulatable instantaneous oracle values without TWAP resistance.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The attack scenario is concrete and valid: 1) Manipulate oracle price down via flash loan, 2) Deposit during low price to mint inflated shares, 3) Restore price, 4) Withdraw to extract disproportionate value. This matches the ground truth scenario and is technically sound.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The fix correctly recommends removing oracle price from single-asset vault accounting and using standard pro-rata share calculations: sharesAdded = (amount * totalShares) / pool and amount = (sharesAmount * pool) / totalShares. This directly addresses the root cause and matches the intended fix pattern.\"\n    }\n  },\n  \"notes\": \"Finding 0 is invalid due to Solidity 0.8.0 behavior. Finding 1 is a perfect target match with comprehensive understanding of the oracle manipulation vulnerability.\"\n}\n```"
 }

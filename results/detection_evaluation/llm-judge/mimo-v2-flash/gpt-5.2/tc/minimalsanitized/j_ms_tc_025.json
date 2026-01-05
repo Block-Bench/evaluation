@@ -4,7 +4,7 @@
   "detector_model": "gpt-5.2",
   "prompt_type": "direct",
   "judge_model": "mimo-v2-flash",
-  "timestamp": "2026-01-05T08:07:38.773039+00:00",
+  "timestamp": "2026-01-05T13:27:34.542010+00:00",
   "overall_verdict": {
     "said_vulnerable": true,
     "confidence_expressed": 0.93
@@ -12,58 +12,40 @@
   "findings": [
     {
       "finding_id": 0,
-      "description": "DeflatToken implements transferFrom without any allowance/approval mechanism. There is no check that `msg.sender` is authorized to move tokens belonging to `from`. As a result, any external account can call `transferFrom(victim, attacker, amount)` and forcibly move/burn the victim\u2019s tokens (10% burned, 90% transferred), limited only by the victim\u2019s balance. This also means any tokens held by other contracts (e.g., the Vault) can be stolen by anyone.",
       "vulnerability_type_claimed": "Missing allowance/authorization in transferFrom (arbitrary token theft)",
-      "severity_claimed": "critical",
       "location_claimed": "DeflatToken.transferFrom",
-      "matches_target": false,
-      "is_valid_concern": true,
-      "classification": "BONUS_VALID",
-      "reasoning": "The finding identifies a critical vulnerability in the DeflatToken contract: the lack of allowance checks in transferFrom allows arbitrary theft of tokens. This is a real, exploitable vulnerability not mentioned in the ground truth. The attack is concrete (anyone can drain any account), requires no trusted roles, and has material impact (loss of funds)."
+      "classification": "HALLUCINATED",
+      "reasoning": "The finding claims DeflatToken.transferFrom lacks allowance checks, but the contract code (LN-26-35) does not implement any allowance mechanism at all - it directly manipulates balances. This is not a missing check; it's a non-standard ERC20 implementation. The described attack (anyone calling transferFrom to steal tokens) is impossible because transferFrom doesn't exist in the interface used by Vault (LN-4-8), and the Vault only calls transfer (LN-60). The finding invents a vulnerability in a function that doesn't support the claimed attack vector."
     },
     {
       "finding_id": 1,
-      "description": "Vault credits `deposits[msg.sender] += amount` based on the user-supplied `amount` rather than the actual tokens received. With DeflatToken, the Vault receives `amountAfterFee` but records `amount`, making `sum(deposits)` exceed the Vault\u2019s real token balance, causing insolvency and failed/partial withdrawals for later users. Additionally, Vault ignores the boolean return values from `transferFrom` and `transfer`; with tokens that return `false` instead of reverting, deposits could be credited without receiving funds, enabling withdrawal of other users\u2019 funds.",
       "vulnerability_type_claimed": "Incorrect Vault accounting with fee-on-transfer tokens + unchecked ERC20 return values",
-      "severity_claimed": "high",
       "location_claimed": "Vault.deposit / Vault.withdraw",
-      "matches_target": true,
-      "is_valid_concern": true,
       "classification": "TARGET_MATCH",
-      "reasoning": "This finding correctly identifies the ground truth vulnerability: the Vault does not account for deflationary tokens. It credits the full amount but receives less due to the fee, leading to insolvency. The explanation is accurate and covers the root cause (accounting error due to fee-on-transfer). The additional mention of unchecked return values is a valid but secondary concern."
+      "reasoning": "This finding correctly identifies the target vulnerability. Location matches: deposit function (LN-46-52). Root cause matches: Vault credits deposits[msg.sender] += amount (LN-50) without verifying actual tokens received, causing accounting mismatch with deflationary tokens. Attack scenario matches ground truth: deposits credit full amount but Vault receives less due to fees, leading to insolvency. Type match is semantic: 'Incorrect Vault accounting' = 'accounting_error'. The fix suggestion (compute actual received via balance checks, use SafeERC20) directly addresses the root cause."
     }
   ],
   "target_assessment": {
     "found": true,
     "finding_id": 1,
+    "location_match": true,
+    "root_cause_match": true,
     "type_match": "semantic",
-    "type_match_reasoning": "The ground truth uses the term 'accounting_error'. The finding describes the mechanism ('credits users for the full deposit amount but only received a reduced amount after fees') which is semantically equivalent to 'incorrect Vault accounting with fee-on-transfer tokens'. The type is not named identically but the description matches the meaning.",
     "root_cause_identification": {
       "score": 1.0,
-      "reasoning": "The finding explicitly states the root cause: 'Vault credits deposits[msg.sender] += amount based on the user-supplied amount rather than the actual tokens received.' This is the exact reason the vulnerability exists."
+      "reasoning": "Finding 1 explicitly states Vault credits deposits[msg.sender] += amount based on user-supplied amount rather than actual tokens received, which is the exact root cause from ground truth. It correctly identifies the accounting mismatch with deflationary tokens."
     },
     "attack_vector_validity": {
       "score": 1.0,
-      "reasoning": "The attack scenario is realistic and executable: users deposit, Vault credits more than it receives, eventually leading to insolvency where withdrawals fail or are partial. This is a direct consequence of the accounting error."
+      "reasoning": "Attack scenario is concrete and matches ground truth: users deposit, Vault receives 90% but credits 100%, leading to eventual insolvency where later withdrawals cannot be honored. This is a step-by-step exploit that drains other users' funds."
     },
     "fix_suggestion_validity": {
       "score": 1.0,
-      "reasoning": "The suggested fix is correct: 'In deposit, compute actual received: read Vault balance before/after transferFrom and credit deposits by received.' This directly addresses the accounting error by ensuring the credited amount matches the actual tokens received."
+      "reasoning": "Fix suggests computing actual received via balance before/after transfer and crediting that amount, plus using SafeERC20. This directly remediates the accounting error by ensuring deposits reflect actual token holdings."
     }
   },
-  "summary": {
-    "total_findings": 2,
-    "target_matches": 1,
-    "partial_matches": 0,
-    "bonus_valid": 1,
-    "hallucinated": 0,
-    "mischaracterized": 0,
-    "design_choice": 0,
-    "out_of_scope": 0,
-    "security_theater": 0,
-    "informational": 0
-  },
-  "notes": "Finding 0 is a valid critical vulnerability (arbitrary token theft due to missing allowance checks) that is not part of the ground truth but is a real bonus finding. Finding 1 is a precise match for the ground truth target vulnerability.",
-  "judge_latency_ms": 8365.73600769043,
-  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.93\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"description\": \"DeflatToken implements transferFrom without any allowance/approval mechanism. There is no check that `msg.sender` is authorized to move tokens belonging to `from`. As a result, any external account can call `transferFrom(victim, attacker, amount)` and forcibly move/burn the victim\u2019s tokens (10% burned, 90% transferred), limited only by the victim\u2019s balance. This also means any tokens held by other contracts (e.g., the Vault) can be stolen by anyone.\",\n      \"vulnerability_type_claimed\": \"Missing allowance/authorization in transferFrom (arbitrary token theft)\",\n      \"severity_claimed\": \"critical\",\n      \"location_claimed\": \"DeflatToken.transferFrom\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"The finding identifies a critical vulnerability in the DeflatToken contract: the lack of allowance checks in transferFrom allows arbitrary theft of tokens. This is a real, exploitable vulnerability not mentioned in the ground truth. The attack is concrete (anyone can drain any account), requires no trusted roles, and has material impact (loss of funds).\"\n    },\n    {\n      \"finding_id\": 1,\n      \"description\": \"Vault credits `deposits[msg.sender] += amount` based on the user-supplied `amount` rather than the actual tokens received. With DeflatToken, the Vault receives `amountAfterFee` but records `amount`, making `sum(deposits)` exceed the Vault\u2019s real token balance, causing insolvency and failed/partial withdrawals for later users. Additionally, Vault ignores the boolean return values from `transferFrom` and `transfer`; with tokens that return `false` instead of reverting, deposits could be credited without receiving funds, enabling withdrawal of other users\u2019 funds.\",\n      \"vulnerability_type_claimed\": \"Incorrect Vault accounting with fee-on-transfer tokens + unchecked ERC20 return values\",\n      \"severity_claimed\": \"high\",\n      \"location_claimed\": \"Vault.deposit / Vault.withdraw\",\n      \"matches_target\": true,\n      \"is_valid_concern\": true,\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding correctly identifies the ground truth vulnerability: the Vault does not account for deflationary tokens. It credits the full amount but receives less due to the fee, leading to insolvency. The explanation is accurate and covers the root cause (accounting error due to fee-on-transfer). The additional mention of unchecked return values is a valid but secondary concern.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 1,\n    \"type_match\": \"semantic\",\n    \"type_match_reasoning\": \"The ground truth uses the term 'accounting_error'. The finding describes the mechanism ('credits users for the full deposit amount but only received a reduced amount after fees') which is semantically equivalent to 'incorrect Vault accounting with fee-on-transfer tokens'. The type is not named identically but the description matches the meaning.\",\n    \"root_cause_identification\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The finding explicitly states the root cause: 'Vault credits deposits[msg.sender] += amount based on the user-supplied amount rather than the actual tokens received.' This is the exact reason the vulnerability exists.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The attack scenario is realistic and executable: users deposit, Vault credits more than it receives, eventually leading to insolvency where withdrawals fail or are partial. This is a direct consequence of the accounting error.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The suggested fix is correct: 'In deposit, compute actual received: read Vault balance before/after transferFrom and credit deposits by received.' This directly addresses the accounting error by ensuring the credited amount matches the actual tokens received.\"\n    }\n  },\n  \"summary\": {\n    \"total_findings\": 2,\n    \"target_matches\": 1,\n    \"partial_matches\": 0,\n    \"bonus_valid\": 1,\n    \"hallucinated\": 0,\n    \"mischaracterized\": 0,\n    \"design_choice\": 0,\n    \"out_of_scope\": 0,\n    \"security_theater\": 0,\n    \"informational\": 0\n  },\n  \"notes\": \"Finding 0 is a valid critical vulnerability (arbitrary token theft due to missing allowance checks) that is not part of the ground truth but is a real bonus finding. Finding 1 is a precise match for the ground truth target vulnerability.\"\n}\n```"
+  "summary": {},
+  "notes": "Finding 0 is a hallucination - it claims transferFrom lacks allowance checks, but the contract has no allowance mechanism at all. The Vault doesn't use transferFrom (it uses transfer in withdraw), making the claimed attack irrelevant. Finding 1 is a perfect target match, correctly identifying the deflationary token accounting error in deposit().",
+  "judge_latency_ms": 6720.96586227417,
+  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.93\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"vulnerability_type_claimed\": \"Missing allowance/authorization in transferFrom (arbitrary token theft)\",\n      \"location_claimed\": \"DeflatToken.transferFrom\",\n      \"classification\": \"HALLUCINATED\",\n      \"reasoning\": \"The finding claims DeflatToken.transferFrom lacks allowance checks, but the contract code (LN-26-35) does not implement any allowance mechanism at all - it directly manipulates balances. This is not a missing check; it's a non-standard ERC20 implementation. The described attack (anyone calling transferFrom to steal tokens) is impossible because transferFrom doesn't exist in the interface used by Vault (LN-4-8), and the Vault only calls transfer (LN-60). The finding invents a vulnerability in a function that doesn't support the claimed attack vector.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"vulnerability_type_claimed\": \"Incorrect Vault accounting with fee-on-transfer tokens + unchecked ERC20 return values\",\n      \"location_claimed\": \"Vault.deposit / Vault.withdraw\",\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding correctly identifies the target vulnerability. Location matches: deposit function (LN-46-52). Root cause matches: Vault credits deposits[msg.sender] += amount (LN-50) without verifying actual tokens received, causing accounting mismatch with deflationary tokens. Attack scenario matches ground truth: deposits credit full amount but Vault receives less due to fees, leading to insolvency. Type match is semantic: 'Incorrect Vault accounting' = 'accounting_error'. The fix suggestion (compute actual received via balance checks, use SafeERC20) directly addresses the root cause.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 1,\n    \"location_match\": true,\n    \"root_cause_match\": true,\n    \"type_match\": \"semantic\",\n    \"root_cause_identification\": {\n      \"score\": 1.0,\n      \"reasoning\": \"Finding 1 explicitly states Vault credits deposits[msg.sender] += amount based on user-supplied amount rather than actual tokens received, which is the exact root cause from ground truth. It correctly identifies the accounting mismatch with deflationary tokens.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"Attack scenario is concrete and matches ground truth: users deposit, Vault receives 90% but credits 100%, leading to eventual insolvency where later withdrawals cannot be honored. This is a step-by-step exploit that drains other users' funds.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"Fix suggests computing actual received via balance before/after transfer and crediting that amount, plus using SafeERC20. This directly remediates the accounting error by ensuring deposits reflect actual token holdings.\"\n    }\n  },\n  \"notes\": \"Finding 0 is a hallucination - it claims transferFrom lacks allowance checks, but the contract has no allowance mechanism at all. The Vault doesn't use transferFrom (it uses transfer in withdraw), making the claimed attack irrelevant. Finding 1 is a perfect target match, correctly identifying the deflationary token accounting error in deposit().\"\n}\n```"
 }

@@ -4,7 +4,7 @@
   "detector_model": "gpt-5.2",
   "prompt_type": "direct",
   "judge_model": "mimo-v2-flash",
-  "timestamp": "2026-01-05T08:08:07.362760+00:00",
+  "timestamp": "2026-01-05T13:28:01.998421+00:00",
   "overall_verdict": {
     "said_vulnerable": true,
     "confidence_expressed": 0.96
@@ -12,49 +12,42 @@
   "findings": [
     {
       "finding_id": 0,
-      "description": "The contract never verifies that the provided (v,r,s) signatures actually sign a withdrawal message, nor that recovered signers are in the validator set. The only checks performed are signature array length and matching array sizes. As a result, any caller can supply arbitrary signature data, pick any token/amount, and the contract will mark the txHash as processed and attempt to transfer tokens to an arbitrary recipient.",
       "vulnerability_type_claimed": "Missing signature verification / Unauthenticated withdrawal",
-      "severity_claimed": "critical",
       "location_claimed": "withdraw()",
-      "matches_target": false,
-      "is_valid_concern": true,
-      "classification": "BONUS_VALID",
-      "reasoning": "This finding correctly identifies a critical vulnerability that is NOT the documented target. The target vulnerability is about validator key compromise (off-chain issue), but this finding identifies a missing signature verification flaw in the smart contract itself. This is a separate, real vulnerability that allows anyone to steal funds without compromising any keys. The attack scenario is concrete and executable, and the impact is material (theft of bridge liquidity). This qualifies as BONUS_VALID."
+      "classification": "TARGET_MATCH",
+      "reasoning": "Finding 0 correctly identifies the critical vulnerability in the withdraw() function. The ground truth describes an $81M exploit where compromised validator keys allowed fraudulent withdrawals, but the code shows the actual root cause: the contract never verifies signatures at all. Finding 0's explanation that 'the contract never verifies that the provided (v,r,s) signatures actually sign a withdrawal message, nor that recovered signers are in the validator set' directly addresses this. The attack scenario demonstrates how anyone can steal funds without any validator compromise. The suggested fix properly addresses implementing signature verification with EIP-191/EIP-712 and validator checking. This is a semantic match to 'bridge_security' - both describe the bridge's failure to properly authenticate withdrawal requests.",
+      "target_match": true
     },
     {
       "finding_id": 1,
-      "description": "The contract marks a txHash as processed before confirming that the token transfer succeeded, and ignores the boolean return value from IERC20(token).transfer(...). For non-standard ERC20s that return false instead of reverting, the function will still succeed, emit the event, and permanently block re-processing of the legitimate withdrawal for that txHash.",
       "vulnerability_type_claimed": "Permanent denial-of-service via unchecked ERC20 transfer return + premature processed flag",
-      "severity_claimed": "medium",
       "location_claimed": "withdraw()",
-      "matches_target": false,
-      "is_valid_concern": true,
       "classification": "BONUS_VALID",
-      "reasoning": "This finding identifies a valid vulnerability (DoS/griefing) that is NOT the documented target. The attack scenario is realistic: an attacker can front-run a legitimate withdrawal with a failing ERC20 transfer to permanently block that txHash. While the impact is denial-of-service rather than direct theft, it's still a material vulnerability that can permanently lock funds. The fix suggestion is appropriate. This qualifies as BONUS_VALID."
+      "reasoning": "Finding 1 identifies a real, additional vulnerability not mentioned in ground truth. The contract does mark transactions as processed before confirming transfer success (LN-68) and ignores the return value of transfer (LN-71). This creates a concrete DoS attack where an attacker can front-run legitimate withdrawals with a failing token transfer, permanently blocking the txHash. The attack scenario is specific and profitable (griefing/DoS), requiring no privileged access. This is a valid bonus vulnerability.",
+      "target_match": false
     }
   ],
   "target_assessment": {
-    "found": false,
-    "finding_id": null,
-    "type_match": "not_mentioned",
-    "type_match_reasoning": "Neither finding mentions or identifies the target vulnerability type (bridge_security related to validator key compromise). Finding 0 identifies missing signature verification, which is a different vulnerability. Finding 1 identifies an ERC20 transfer handling issue. The ground truth describes an off-chain key compromise issue, while the findings describe on-chain smart contract flaws.",
-    "root_cause_identification": null,
-    "attack_vector_validity": null,
-    "fix_suggestion_validity": null
+    "found": true,
+    "finding_id": 0,
+    "location_match": true,
+    "root_cause_match": true,
+    "type_match": "semantic",
+    "root_cause_identification": {
+      "score": 1.0,
+      "reasoning": "Finding 0's root cause identification is perfect: it explains that signatures are never verified, recovered signers aren't checked against validators, and the only checks are array length matching. This directly explains how the $81M exploit occurred - the contract blindly trusts signature data without validation, making validator key compromise unnecessary. The explanation demonstrates complete understanding of the specific issue."
+    },
+    "attack_vector_validity": {
+      "score": 1.0,
+      "reasoning": "The attack scenario is concrete, step-by-step, and technically accurate: 1) Find bridge liquidity, 2) Call withdraw with arbitrary parameters and fake signatures of sufficient length, 3) Contract accepts and transfers tokens. This requires no validator compromise and directly steals funds. The scenario is fully executable and profitable."
+    },
+    "fix_suggestion_validity": {
+      "score": 1.0,
+      "reasoning": "The suggested fix is comprehensive and correct: implement proper message hashing over all relevant fields, use EIP-191/EIP-712 for domain separation, verify signatures, recover signers, check they're in the validator set, require exactly REQUIRED_SIGNATURES unique signers, and prevent replay. This directly addresses the root cause."
+    }
   },
-  "summary": {
-    "total_findings": 2,
-    "target_matches": 0,
-    "partial_matches": 0,
-    "bonus_valid": 2,
-    "hallucinated": 0,
-    "mischaracterized": 0,
-    "design_choice": 0,
-    "out_of_scope": 0,
-    "security_theater": 0,
-    "informational": 0
-  },
-  "notes": "The LLM correctly identified two real vulnerabilities in the bridge contract, but neither matches the documented target vulnerability. The target describes an off-chain validator key compromise issue ($81M Orbit Bridge exploit), while the findings describe on-chain smart contract flaws (missing signature verification and ERC20 transfer handling). Both findings are valid and critical/medium severity issues that would enable theft or DoS. The LLM's analysis is technically correct but misses the specific target vulnerability.",
-  "judge_latency_ms": 11902.538061141968,
-  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.96\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"description\": \"The contract never verifies that the provided (v,r,s) signatures actually sign a withdrawal message, nor that recovered signers are in the validator set. The only checks performed are signature array length and matching array sizes. As a result, any caller can supply arbitrary signature data, pick any token/amount, and the contract will mark the txHash as processed and attempt to transfer tokens to an arbitrary recipient.\",\n      \"vulnerability_type_claimed\": \"Missing signature verification / Unauthenticated withdrawal\",\n      \"severity_claimed\": \"critical\",\n      \"location_claimed\": \"withdraw()\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This finding correctly identifies a critical vulnerability that is NOT the documented target. The target vulnerability is about validator key compromise (off-chain issue), but this finding identifies a missing signature verification flaw in the smart contract itself. This is a separate, real vulnerability that allows anyone to steal funds without compromising any keys. The attack scenario is concrete and executable, and the impact is material (theft of bridge liquidity). This qualifies as BONUS_VALID.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"description\": \"The contract marks a txHash as processed before confirming that the token transfer succeeded, and ignores the boolean return value from IERC20(token).transfer(...). For non-standard ERC20s that return false instead of reverting, the function will still succeed, emit the event, and permanently block re-processing of the legitimate withdrawal for that txHash.\",\n      \"vulnerability_type_claimed\": \"Permanent denial-of-service via unchecked ERC20 transfer return + premature processed flag\",\n      \"severity_claimed\": \"medium\",\n      \"location_claimed\": \"withdraw()\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This finding identifies a valid vulnerability (DoS/griefing) that is NOT the documented target. The attack scenario is realistic: an attacker can front-run a legitimate withdrawal with a failing ERC20 transfer to permanently block that txHash. While the impact is denial-of-service rather than direct theft, it's still a material vulnerability that can permanently lock funds. The fix suggestion is appropriate. This qualifies as BONUS_VALID.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": false,\n    \"finding_id\": null,\n    \"type_match\": \"not_mentioned\",\n    \"type_match_reasoning\": \"Neither finding mentions or identifies the target vulnerability type (bridge_security related to validator key compromise). Finding 0 identifies missing signature verification, which is a different vulnerability. Finding 1 identifies an ERC20 transfer handling issue. The ground truth describes an off-chain key compromise issue, while the findings describe on-chain smart contract flaws.\",\n    \"root_cause_identification\": null,\n    \"attack_vector_validity\": null,\n    \"fix_suggestion_validity\": null\n  },\n  \"summary\": {\n    \"total_findings\": 2,\n    \"target_matches\": 0,\n    \"partial_matches\": 0,\n    \"bonus_valid\": 2,\n    \"hallucinated\": 0,\n    \"mischaracterized\": 0,\n    \"design_choice\": 0,\n    \"out_of_scope\": 0,\n    \"security_theater\": 0,\n    \"informational\": 0\n  },\n  \"notes\": \"The LLM correctly identified two real vulnerabilities in the bridge contract, but neither matches the documented target vulnerability. The target describes an off-chain validator key compromise issue ($81M Orbit Bridge exploit), while the findings describe on-chain smart contract flaws (missing signature verification and ERC20 transfer handling). Both findings are valid and critical/medium severity issues that would enable theft or DoS. The LLM's analysis is technically correct but misses the specific target vulnerability.\"\n}\n```"
+  "summary": {},
+  "notes": "Finding 0 is an excellent TARGET_MATCH that fully captures the bridge security vulnerability. Finding 1 is a valid BONUS vulnerability (DoS via premature state update). The model correctly identified both issues with high precision.",
+  "judge_latency_ms": 8763.360023498535,
+  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.96\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"vulnerability_type_claimed\": \"Missing signature verification / Unauthenticated withdrawal\",\n      \"location_claimed\": \"withdraw()\",\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"Finding 0 correctly identifies the critical vulnerability in the withdraw() function. The ground truth describes an $81M exploit where compromised validator keys allowed fraudulent withdrawals, but the code shows the actual root cause: the contract never verifies signatures at all. Finding 0's explanation that 'the contract never verifies that the provided (v,r,s) signatures actually sign a withdrawal message, nor that recovered signers are in the validator set' directly addresses this. The attack scenario demonstrates how anyone can steal funds without any validator compromise. The suggested fix properly addresses implementing signature verification with EIP-191/EIP-712 and validator checking. This is a semantic match to 'bridge_security' - both describe the bridge's failure to properly authenticate withdrawal requests.\",\n      \"target_match\": true\n    },\n    {\n      \"finding_id\": 1,\n      \"vulnerability_type_claimed\": \"Permanent denial-of-service via unchecked ERC20 transfer return + premature processed flag\",\n      \"location_claimed\": \"withdraw()\",\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"Finding 1 identifies a real, additional vulnerability not mentioned in ground truth. The contract does mark transactions as processed before confirming transfer success (LN-68) and ignores the return value of transfer (LN-71). This creates a concrete DoS attack where an attacker can front-run legitimate withdrawals with a failing token transfer, permanently blocking the txHash. The attack scenario is specific and profitable (griefing/DoS), requiring no privileged access. This is a valid bonus vulnerability.\",\n      \"target_match\": false\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 0,\n    \"location_match\": true,\n    \"root_cause_match\": true,\n    \"type_match\": \"semantic\",\n    \"root_cause_identification\": {\n      \"score\": 1.0,\n      \"reasoning\": \"Finding 0's root cause identification is perfect: it explains that signatures are never verified, recovered signers aren't checked against validators, and the only checks are array length matching. This directly explains how the $81M exploit occurred - the contract blindly trusts signature data without validation, making validator key compromise unnecessary. The explanation demonstrates complete understanding of the specific issue.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The attack scenario is concrete, step-by-step, and technically accurate: 1) Find bridge liquidity, 2) Call withdraw with arbitrary parameters and fake signatures of sufficient length, 3) Contract accepts and transfers tokens. This requires no validator compromise and directly steals funds. The scenario is fully executable and profitable.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The suggested fix is comprehensive and correct: implement proper message hashing over all relevant fields, use EIP-191/EIP-712 for domain separation, verify signatures, recover signers, check they're in the validator set, require exactly REQUIRED_SIGNATURES unique signers, and prevent replay. This directly addresses the root cause.\"\n    }\n  },\n  \"notes\": \"Finding 0 is an excellent TARGET_MATCH that fully captures the bridge security vulnerability. Finding 1 is a valid BONUS vulnerability (DoS via premature state update). The model correctly identified both issues with high precision.\"\n}\n```"
 }

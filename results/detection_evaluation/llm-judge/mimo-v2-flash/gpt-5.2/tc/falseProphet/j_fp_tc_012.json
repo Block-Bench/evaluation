@@ -4,7 +4,7 @@
   "detector_model": "gpt-5.2",
   "prompt_type": "direct",
   "judge_model": "mimo-v2-flash",
-  "timestamp": "2026-01-05T08:07:32.015570+00:00",
+  "timestamp": "2026-01-05T13:26:21.962263+00:00",
   "overall_verdict": {
     "said_vulnerable": true,
     "confidence_expressed": 0.96
@@ -12,58 +12,40 @@
   "findings": [
     {
       "finding_id": 0,
-      "description": "Free mint due to incorrect token transfer (missing transferFrom)",
       "vulnerability_type_claimed": "Free mint due to incorrect token transfer (missing transferFrom)",
-      "severity_claimed": "critical",
       "location_claimed": "mint(uint256)",
-      "matches_target": false,
-      "is_valid_concern": true,
-      "classification": "BONUS_VALID",
-      "reasoning": "The finding correctly identifies a critical vulnerability where `mint` calls `transfer(address(this), amount)` instead of `transferFrom(msg.sender, address(this), amount)`. This allows anyone to mint cTokens without providing the underlying NEW_TUSD, effectively creating them out of thin air. If the contract holds any NEW_TUSD (from other users or direct transfers), the attacker can redeem these fake cTokens to steal the real funds. This is a distinct, severe vulnerability not mentioned in the ground truth."
+      "classification": "MISCHARACTERIZED",
+      "reasoning": "The finding claims a free mint vulnerability because mint() uses transfer instead of transferFrom. However, the contract is designed as a custodial wrapper where users send tokens to the contract (via transfer) and get cTokens in return. The attack scenario requires the contract to already hold NEW_TUSD balance, which implies someone else already deposited tokens. This is not a free mint - the tokens must exist in the contract first. The finding mischaracterizes the intended custodial design as a vulnerability."
     },
     {
       "finding_id": 1,
-      "description": "Permissionless token sweep allows draining the actual underlying asset (wrong underlying protection)",
       "vulnerability_type_claimed": "Permissionless token sweep allows draining the actual underlying asset (wrong underlying protection)",
-      "severity_claimed": "critical",
       "location_claimed": "constructor() / sweepToken(address)",
-      "matches_target": true,
-      "is_valid_concern": true,
       "classification": "TARGET_MATCH",
-      "reasoning": "This finding directly matches the ground truth. It correctly identifies that `sweepToken` protects `OLD_TUSD` (set in constructor) but the contract uses `NEW_TUSD` for operations. The check `require(token != underlying)` passes for `NEW_TUSD`, allowing anyone to sweep and drain the actual underlying asset. The explanation, attack scenario, and root cause (mismatch between protected and used token) are accurate."
+      "reasoning": "This finding correctly identifies the target vulnerability. Location matches (sweepToken function). Root cause matches exactly: underlying is set to OLD_TUSD while NEW_TUSD is used for operations, so sweepToken(NEW_TUSD) bypasses protection. Type 'Permissionless token sweep' is a semantic match to 'logic_error' - both describe the incorrect logic in sweep protection. The attack scenario and fix are also correct."
     }
   ],
   "target_assessment": {
     "found": true,
     "finding_id": 1,
-    "type_match": "exact",
-    "type_match_reasoning": "The finding uses the exact same logic as the ground truth: the sweep protection checks against the old token address, but the contract uses the new token address, allowing the new token to be swept. The terminology matches perfectly.",
+    "location_match": true,
+    "root_cause_match": true,
+    "type_match": "semantic",
     "root_cause_identification": {
       "score": 1.0,
-      "reasoning": "The finding explicitly states: 'underlying is set to OLD_TUSD in the constructor (LN-25), while the contract actually uses NEW_TUSD for mint/redeem (LN-32, LN-55). Therefore, NEW_TUSD is not protected'. This is the precise root cause."
+      "reasoning": "Finding 1 perfectly identifies the root cause: underlying is set to OLD_TUSD in constructor, but NEW_TUSD is the actual token used, allowing sweepToken(NEW_TUSD) to bypass protection and drain funds."
     },
     "attack_vector_validity": {
       "score": 1.0,
-      "reasoning": "The attack is trivial and immediate: call `sweepToken(NEW_TUSD)`. The `require` passes, and the contract transfers its balance. It requires no special conditions other than the contract having a balance."
+      "reasoning": "Attack scenario is concrete and correct: 1) Contract has NEW_TUSD balance, 2) Attacker calls sweepToken(NEW_TUSD), 3) Check passes (NEW_TUSD != OLD_TUSD), 4) Contract transfers all NEW_TUSD to attacker."
     },
     "fix_suggestion_validity": {
       "score": 1.0,
-      "reasoning": "The suggested fix is correct: set `underlying = NEW_TUSD` in the constructor. This ensures the check protects the correct token. Restricting access to admin is also a valid additional hardening."
+      "reasoning": "Fix suggestion is valid: set underlying to NEW_TUSD or check both old and new addresses. This directly addresses the root cause."
     }
   },
-  "summary": {
-    "total_findings": 2,
-    "target_matches": 1,
-    "partial_matches": 0,
-    "bonus_valid": 1,
-    "hallucinated": 0,
-    "mischaracterized": 0,
-    "design_choice": 0,
-    "out_of_scope": 0,
-    "security_theater": 0,
-    "informational": 0
-  },
-  "notes": "The audit output contains two distinct critical vulnerabilities. Finding 1 is the TARGET vulnerability. Finding 0 is a separate, valid 'Bonus' vulnerability (Free Mint via missing transferFrom). Both are severe and exploitable.",
-  "judge_latency_ms": 7553.804874420166,
-  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.96\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"description\": \"Free mint due to incorrect token transfer (missing transferFrom)\",\n      \"vulnerability_type_claimed\": \"Free mint due to incorrect token transfer (missing transferFrom)\",\n      \"severity_claimed\": \"critical\",\n      \"location_claimed\": \"mint(uint256)\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"The finding correctly identifies a critical vulnerability where `mint` calls `transfer(address(this), amount)` instead of `transferFrom(msg.sender, address(this), amount)`. This allows anyone to mint cTokens without providing the underlying NEW_TUSD, effectively creating them out of thin air. If the contract holds any NEW_TUSD (from other users or direct transfers), the attacker can redeem these fake cTokens to steal the real funds. This is a distinct, severe vulnerability not mentioned in the ground truth.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"description\": \"Permissionless token sweep allows draining the actual underlying asset (wrong underlying protection)\",\n      \"vulnerability_type_claimed\": \"Permissionless token sweep allows draining the actual underlying asset (wrong underlying protection)\",\n      \"severity_claimed\": \"critical\",\n      \"location_claimed\": \"constructor() / sweepToken(address)\",\n      \"matches_target\": true,\n      \"is_valid_concern\": true,\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding directly matches the ground truth. It correctly identifies that `sweepToken` protects `OLD_TUSD` (set in constructor) but the contract uses `NEW_TUSD` for operations. The check `require(token != underlying)` passes for `NEW_TUSD`, allowing anyone to sweep and drain the actual underlying asset. The explanation, attack scenario, and root cause (mismatch between protected and used token) are accurate.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 1,\n    \"type_match\": \"exact\",\n    \"type_match_reasoning\": \"The finding uses the exact same logic as the ground truth: the sweep protection checks against the old token address, but the contract uses the new token address, allowing the new token to be swept. The terminology matches perfectly.\",\n    \"root_cause_identification\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The finding explicitly states: 'underlying is set to OLD_TUSD in the constructor (LN-25), while the contract actually uses NEW_TUSD for mint/redeem (LN-32, LN-55). Therefore, NEW_TUSD is not protected'. This is the precise root cause.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The attack is trivial and immediate: call `sweepToken(NEW_TUSD)`. The `require` passes, and the contract transfers its balance. It requires no special conditions other than the contract having a balance.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The suggested fix is correct: set `underlying = NEW_TUSD` in the constructor. This ensures the check protects the correct token. Restricting access to admin is also a valid additional hardening.\"\n    }\n  },\n  \"summary\": {\n    \"total_findings\": 2,\n    \"target_matches\": 1,\n    \"partial_matches\": 0,\n    \"bonus_valid\": 1,\n    \"hallucinated\": 0,\n    \"mischaracterized\": 0,\n    \"design_choice\": 0,\n    \"out_of_scope\": 0,\n    \"security_theater\": 0,\n    \"informational\": 0\n  },\n  \"notes\": \"The audit output contains two distinct critical vulnerabilities. Finding 1 is the TARGET vulnerability. Finding 0 is a separate, valid 'Bonus' vulnerability (Free Mint via missing transferFrom). Both are severe and exploitable.\"\n}\n```"
+  "summary": {},
+  "notes": "Finding 0 is a mischaracterization of the custodial design. Finding 1 is the correct target match. The contract has two issues: 1) The sweep protection bug (target vulnerability), 2) Missing access control on sweepToken (anyone can sweep non-underlying tokens) - but this is a separate issue from the target.",
+  "judge_latency_ms": 8545.374870300293,
+  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.96\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"vulnerability_type_claimed\": \"Free mint due to incorrect token transfer (missing transferFrom)\",\n      \"location_claimed\": \"mint(uint256)\",\n      \"classification\": \"MISCHARACTERIZED\",\n      \"reasoning\": \"The finding claims a free mint vulnerability because mint() uses transfer instead of transferFrom. However, the contract is designed as a custodial wrapper where users send tokens to the contract (via transfer) and get cTokens in return. The attack scenario requires the contract to already hold NEW_TUSD balance, which implies someone else already deposited tokens. This is not a free mint - the tokens must exist in the contract first. The finding mischaracterizes the intended custodial design as a vulnerability.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"vulnerability_type_claimed\": \"Permissionless token sweep allows draining the actual underlying asset (wrong underlying protection)\",\n      \"location_claimed\": \"constructor() / sweepToken(address)\",\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding correctly identifies the target vulnerability. Location matches (sweepToken function). Root cause matches exactly: underlying is set to OLD_TUSD while NEW_TUSD is used for operations, so sweepToken(NEW_TUSD) bypasses protection. Type 'Permissionless token sweep' is a semantic match to 'logic_error' - both describe the incorrect logic in sweep protection. The attack scenario and fix are also correct.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 1,\n    \"location_match\": true,\n    \"root_cause_match\": true,\n    \"type_match\": \"semantic\",\n    \"root_cause_identification\": {\n      \"score\": 1.0,\n      \"reasoning\": \"Finding 1 perfectly identifies the root cause: underlying is set to OLD_TUSD in constructor, but NEW_TUSD is the actual token used, allowing sweepToken(NEW_TUSD) to bypass protection and drain funds.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"Attack scenario is concrete and correct: 1) Contract has NEW_TUSD balance, 2) Attacker calls sweepToken(NEW_TUSD), 3) Check passes (NEW_TUSD != OLD_TUSD), 4) Contract transfers all NEW_TUSD to attacker.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"Fix suggestion is valid: set underlying to NEW_TUSD or check both old and new addresses. This directly addresses the root cause.\"\n    }\n  },\n  \"notes\": \"Finding 0 is a mischaracterization of the custodial design. Finding 1 is the correct target match. The contract has two issues: 1) The sweep protection bug (target vulnerability), 2) Missing access control on sweepToken (anyone can sweep non-underlying tokens) - but this is a separate issue from the target.\"\n}\n```"
 }

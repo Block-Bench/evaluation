@@ -1,0 +1,48 @@
+{
+  "sample_id": "gs_mixbytes_mantle-meth-aave_M06",
+  "exploit_name": "Fixed exchange rate at unstaking fails to socialize slashing and distorts rewards",
+  "date": "2025-10-22",
+  "amount_lost_usd": null,
+  "blockchain": "ethereum",
+  "language": "solidity",
+  "vulnerability_type": "logic_error",
+  "vulnerability_subtype": "M-6",
+  "severity": "medium",
+  "difficulty_tier": 3,
+  "is_vulnerable": true,
+  "temporal_category": "post_cutoff",
+  "description": "When Staking.unstakeRequest() is called, the mETH/ETH rate is fixed and does not reflect slashing or rewards that may occur by the time Staking.claimUnstakeRequest() is executed. If two users create requests concurrently and losses arrive afterward, those losses are not socialized across them. One request may be fully paid while the other may revert on claim due to insufficient allocated funds. This can be exacerbated by frontrunning updates to LiquidityBuffer.cumulativeDrawdown(), enabling informed actors to anticipate loss application. Rewards are also misallocated: requests lock mETH but do not burn it until UnstakeRequestsManager.claim(), so these shares continue participating in reward distribution, diluting rewards for users who have not requested to unstake.",
+  "vulnerable_contract": "Staking",
+  "vulnerable_function": "_unstakeRequest",
+  "vulnerable_lines": [],
+  "attack_scenario": "Loss scenario:\n1. Alice and Bob each hold 100 mETH, pool controls 200 ETH\n2. Alice calls unstakeRequest(100 mETH), rate fixed at 1:1, expects 100 ETH\n3. Bob calls unstakeRequest(100 mETH), rate fixed at 1:1, expects 100 ETH\n4. Slashing event occurs, pool now only has 150 ETH\n5. Protocol allocates 100 ETH to Alice's claim (succeeds)\n6. Bob's claim reverts due to insufficient funds (only 50 ETH left)\n7. The slashing loss was not socialized - Alice escaped, Bob bears full loss\n\nReward dilution scenario:\n1. Alice and Bob each hold 100 mETH, pool controls 200 ETH\n2. Alice calls unstakeRequest(100 mETH) - shares locked but not burned\n3. 100 ETH reward is distributed across 200 mETH (all shares still exist)\n4. Only ~50 ETH is attributed to Bob instead of ~100 ETH\n5. Alice's locked shares continue to earn rewards until she claims",
+  "root_cause": "When Staking.unstakeRequest() is called, the mETH/ETH rate is fixed and does not reflect slashing or rewards that may occur by the time Staking.claimUnstakeRequest() is executed. If two users create requests concurrently and losses arrive afterward, those losses are not socialized across them. One request may be fully paid while the other may revert on claim due to insufficient allocated funds. This can be exacerbated by frontrunning updates to LiquidityBuffer.cumulativeDrawdown(), enabling informed actors to anticipate loss application. Rewards are also misallocated: requests lock mETH but do not burn it until UnstakeRequestsManager.claim(), so these shares continue participating in reward distribution, diluting rewards for users who have not requested to unstake.",
+  "fix_description": "Align withdrawal settlement with the latest protocol state to socialize slashing and adjust reward accounting so pending unstakes do not accrue or dilute rewards. The client acknowledged this as a protocol design trade-off.",
+  "source_reference": "https://github.com/mixbytes/audits_public/tree/master/Mantle%20Network/mETH%20x%20Aave%20Integration",
+  "external_references": [
+    "https://github.com/mantle-lsp/contracts"
+  ],
+  "tags": [
+    "logic_error",
+    "mixbytes",
+    "gold_standard",
+    "audit_finding"
+  ],
+  "variant_type": "cleaned",
+  "variant_parent_id": "gs_mixbytes_mantle-meth-aave_M06",
+  "notes": "The _unstakeRequest function calculates ethRequested using the current exchange rate and locks mETH without burning it. Between request and claim, the mETH continues to earn rewards (diluting other holders) and any slashing is not reflected in the fixed rate, creating unfair loss distribution.",
+  "contract_file": "contracts/gs_027.sol",
+  "subset": "annotated",
+  "original_subset": "gold_standard",
+  "transformation": {
+    "type": "minimal_sanitization",
+    "source": "gold_standard/original",
+    "changes": [
+      "Removed vulnerability header block (lines 4-37)",
+      "Removed 17 '^^^ VULNERABLE LINE ^^^' markers",
+      "Removed 2 '@audit-issue' comments"
+    ],
+    "script": "strategies/sanitize/sanitize_gold_standard.py",
+    "created_date": "2026-01-04T14:15:44.593760"
+  }
+}

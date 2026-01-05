@@ -1,0 +1,48 @@
+{
+  "sample_id": "gs_mixbytes_velodrome-pool-launcher_M01",
+  "exploit_name": "Unclaimed Fees Become Inaccessible After V2Locker.unlock()",
+  "date": "2025-09-12",
+  "amount_lost_usd": null,
+  "blockchain": "base",
+  "language": "solidity",
+  "vulnerability_type": "logic_error",
+  "vulnerability_subtype": "M-1",
+  "severity": "medium",
+  "difficulty_tier": 2,
+  "is_vulnerable": true,
+  "temporal_category": "post_cutoff",
+  "description": "The Locker.claimFees() function is protected by the onlyLocked modifier, which requires lockedUntil != 0. Inside V2Locker.unlock(), the contract sets lockedUntil = 0 (via delete lockedUntil) before transferring the LP tokens to the recipient. During the LP token transfer, the underlying pool credits all accumulated fees to the locker contract. Once the LP tokens are transferred out, the locker can no longer call claimFees() because it is no longer locked (lockedUntil == 0), leaving those fees permanently stranded on the contract. A user who forgets to call claimFees() before unlocking will lose the entire fee balance earned up to that moment.",
+  "vulnerable_contract": "V2Locker",
+  "vulnerable_function": "unlock",
+  "vulnerable_lines": [],
+  "attack_scenario": "1. User creates a V2Locker and deposits LP tokens into a Velodrome V2 pool\n2. Over time, the pool accumulates trading fees for the locker\n3. The lock period expires and the user calls unlock() to retrieve their LP tokens\n4. Inside unlock(), lockedUntil is set to 0 on line 46\n5. The LP tokens are transferred to the recipient on line 48\n6. During this transfer, the V2Pool.claimFees() is implicitly called, crediting fees to the locker contract\n7. User realizes they forgot to claim fees and tries to call claimFees()\n8. claimFees() reverts with NotLocked() because lockedUntil == 0 (onlyLocked modifier check fails)\n9. The accumulated fees (token0 and token1) are permanently stuck on the locker contract with no way to retrieve them",
+  "root_cause": "The Locker.claimFees() function is protected by the onlyLocked modifier, which requires lockedUntil != 0. Inside V2Locker.unlock(), the contract sets lockedUntil = 0 (via delete lockedUntil) before transferring the LP tokens to the recipient. During the LP token transfer, the underlying pool credits all accumulated fees to the locker contract. Once the LP tokens are transferred out, the locker can no longer call claimFees() because it is no longer locked (lockedUntil == 0), leaving those fees permanently stranded on the contract. A user who forgets to call claimFees() before unlocking will lose the entire fee balance earned up to that moment.",
+  "fix_description": "Claim swap fees within the V2Locker.unlock() function before setting lockedUntil to 0. This ensures all accumulated fees are sent to the recipient before the lock state is cleared.",
+  "source_reference": "https://github.com/mixbytes/audits_public/tree/master/Velodrome/Pool%20Launcher",
+  "external_references": [
+    "https://github.com/velodrome-finance/pool-launcher"
+  ],
+  "tags": [
+    "logic_error",
+    "mixbytes",
+    "gold_standard",
+    "audit_finding"
+  ],
+  "variant_type": "cleaned",
+  "variant_parent_id": "gs_mixbytes_velodrome-pool-launcher_M01",
+  "notes": "The unlock() function in V2Locker.sol sets lockedUntil to 0 before transferring LP tokens. The claimFees() function in the parent Locker.sol contract requires lockedUntil != 0 (onlyLocked modifier). When LP tokens are transferred, fees are credited to the locker, but they cannot be claimed afterward because the lock state has been cleared.",
+  "contract_file": "contracts/gs_034.sol",
+  "subset": "annotated",
+  "original_subset": "gold_standard",
+  "transformation": {
+    "type": "minimal_sanitization",
+    "source": "gold_standard/original",
+    "changes": [
+      "Removed vulnerability header block (lines 4-35)",
+      "Removed 9 '^^^ VULNERABLE LINE ^^^' markers",
+      "Removed 1 '@audit-issue' comments"
+    ],
+    "script": "strategies/sanitize/sanitize_gold_standard.py",
+    "created_date": "2026-01-04T14:15:44.598555"
+  }
+}

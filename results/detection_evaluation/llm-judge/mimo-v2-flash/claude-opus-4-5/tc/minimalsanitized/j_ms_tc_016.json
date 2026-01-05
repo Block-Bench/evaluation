@@ -4,7 +4,7 @@
   "detector_model": "claude-opus-4-5",
   "prompt_type": "direct",
   "judge_model": "mimo-v2-flash",
-  "timestamp": "2026-01-05T02:21:41.566643+00:00",
+  "timestamp": "2026-01-05T13:27:17.596160+00:00",
   "overall_verdict": {
     "said_vulnerable": true,
     "confidence_expressed": 0.95
@@ -12,69 +12,47 @@
   "findings": [
     {
       "finding_id": 0,
-      "description": "The QBridgeHandler contract has two critical functions without any access control. The deposit() function can be called by anyone, not just the QBridge contract. The setResource() function has no access control, allowing anyone to map any resourceID to any token address.",
       "vulnerability_type_claimed": "Missing Access Control",
-      "severity_claimed": "critical",
       "location_claimed": "QBridgeHandler.deposit() and QBridgeHandler.setResource()",
-      "matches_target": false,
-      "is_valid_concern": true,
-      "classification": "BONUS_VALID",
-      "reasoning": "This is a valid, critical vulnerability that is different from the target. The target is about missing validation of zero addresses, while this finding correctly identifies missing access control on both deposit() and setResource(). This would allow anyone to call deposit directly (bypassing the bridge) and anyone to overwrite resourceID mappings. This is a real, exploitable vulnerability with material impact."
+      "classification": "MISCHARACTERIZED",
+      "reasoning": "The finding claims missing access control is the issue, but this is not the actual vulnerability. The ground truth identifies that the contract fails to validate tokenContract != address(0), allowing an attacker to bypass token transfers. While access control is a valid concern, it's not the root cause of the $80M Qubit Bridge exploit. The attack scenario described (deploying malicious token, calling setResource) is different from the actual attack which exploited unmapped resourceIDs returning address(0)."
     },
     {
       "finding_id": 1,
-      "description": "The transferFrom call at line 67 does not check the return value. Some ERC20 tokens return false on failure instead of reverting, which could allow deposits to be recorded without actual token transfers.",
       "vulnerability_type_claimed": "Unchecked Return Value",
-      "severity_claimed": "high",
       "location_claimed": "QBridgeHandler.deposit()",
-      "matches_target": false,
-      "is_valid_concern": true,
-      "classification": "BONUS_VALID",
-      "reasoning": "This is a valid vulnerability related to ERC20 return value handling. While the target vulnerability is about zero address validation, this finding correctly identifies that non-standard ERC20 tokens that return false instead of reverting could cause the bridge to record deposits without actual token transfers. This is a real, exploitable issue with material impact."
+      "classification": "MISCHARACTERIZED",
+      "reasoning": "This finding identifies a real issue (ERC20 tokens returning false instead of reverting), but it's not the root cause of the Qubit Bridge exploit. The ground truth specifically states the vulnerability was calling transferFrom on address(0) which succeeds silently without transferring tokens. The unchecked return value issue is a different vulnerability that could affect other tokens but wasn't the mechanism of the actual attack."
     },
     {
       "finding_id": 2,
-      "description": "The deposit function doesn't validate that the resourceID maps to a valid token contract. If resourceIDToTokenContractAddress[resourceID] returns address(0), the contract will attempt to call transferFrom on address(0).",
       "vulnerability_type_claimed": "Missing Input Validation",
-      "severity_claimed": "medium",
       "location_claimed": "QBridgeHandler.deposit()",
-      "matches_target": true,
-      "is_valid_concern": true,
       "classification": "TARGET_MATCH",
-      "reasoning": "This finding correctly identifies the target vulnerability: missing validation that the token contract address is not zero. The description explains that when resourceIDToTokenContractAddress[resourceID] returns address(0) (unmapped resourceID), the contract attempts to call transferFrom on address(0), which would not revert and could allow fraudulent deposits. This matches the ground truth about the Qubit Bridge exploit where address(0) was used to bypass token transfers."
+      "reasoning": "This finding correctly identifies the exact root cause: the deposit function doesn't validate that resourceID maps to a valid token contract, allowing address(0) to be used. The attack scenario accurately describes calling deposit with an unmapped resourceID, resulting in tokenContract = address(0), and the transferFrom call succeeding silently while deposit event is emitted. The suggested fix (require(tokenContract != address(0))) directly addresses the vulnerability. The vulnerability type 'Missing Input Validation' is a semantic match to 'validation_bypass' - both describe the failure to validate critical input."
     }
   ],
   "target_assessment": {
     "found": true,
     "finding_id": 2,
+    "location_match": true,
+    "root_cause_match": true,
     "type_match": "semantic",
-    "type_match_reasoning": "The finding uses 'Missing Input Validation' terminology while ground truth uses 'validation_bypass', but both describe the same core issue: failure to validate that the token contract address is not zero before processing deposits. The semantic meaning is equivalent.",
     "root_cause_identification": {
-      "score": 0.9,
-      "reasoning": "The finding correctly identifies the root cause: the deposit function does not check if tokenContract is address(0) before calling transferFrom. It explains that this happens when resourceID is unmapped, leading to address(0) being used. This matches the ground truth about zero address validation being missing."
+      "score": 0.95,
+      "reasoning": "Finding 2 precisely identifies that the contract fails to validate tokenContract != address(0), which is the exact root cause from ground truth. The explanation matches the technical mechanism: unmapped resourceID returns address(0), transferFrom on address(0) succeeds silently, deposit event still emitted."
     },
     "attack_vector_validity": {
       "score": 0.95,
-      "reasoning": "The attack scenario is realistic and executable: call deposit with an unmapped resourceID, causing tokenContract to be address(0), which results in a call to transferFrom on address(0) that doesn't revert, allowing the deposit to be recorded without actual token transfers. This directly matches the Qubit Bridge exploit scenario."
+      "reasoning": "The attack scenario in Finding 2 matches ground truth: call deposit with unmapped resourceID \u2192 address(0) \u2192 transferFrom succeeds without transferring \u2192 deposit event emitted \u2192 destination mints unbacked tokens. This is the exact Qubit Bridge exploit mechanism."
     },
     "fix_suggestion_validity": {
-      "score": 0.9,
-      "reasoning": "The suggested fix (require(tokenContract != address(0), 'Resource not mapped')) would directly prevent this vulnerability. The additional suggestion of using a whitelist would provide defense-in-depth. The fix is valid and would remediate the issue."
+      "score": 0.95,
+      "reasoning": "The suggested fix 'require(tokenContract != address(0), \"Resource not mapped\")' directly prevents the vulnerability by ensuring tokenContract is never address(0). This is a correct and minimal fix that addresses the root cause."
     }
   },
-  "summary": {
-    "total_findings": 3,
-    "target_matches": 1,
-    "partial_matches": 0,
-    "bonus_valid": 2,
-    "hallucinated": 0,
-    "mischaracterized": 0,
-    "design_choice": 0,
-    "out_of_scope": 0,
-    "security_theater": 0,
-    "informational": 0
-  },
-  "notes": "The audit found 3 valid vulnerabilities, including the target vulnerability in Finding 2. Findings 0 and 1 are additional valid vulnerabilities (BONUS_VALID) that are not in the ground truth but are real, exploitable issues. Finding 0 (missing access control) is particularly critical as it allows anyone to call deposit() directly and overwrite resourceID mappings. Finding 1 (unchecked return value) is also a valid concern for non-standard ERC20 tokens. The overall audit quality is high, correctly identifying multiple real vulnerabilities.",
-  "judge_latency_ms": 10102.019786834717,
-  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.95\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"description\": \"The QBridgeHandler contract has two critical functions without any access control. The deposit() function can be called by anyone, not just the QBridge contract. The setResource() function has no access control, allowing anyone to map any resourceID to any token address.\",\n      \"vulnerability_type_claimed\": \"Missing Access Control\",\n      \"severity_claimed\": \"critical\",\n      \"location_claimed\": \"QBridgeHandler.deposit() and QBridgeHandler.setResource()\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This is a valid, critical vulnerability that is different from the target. The target is about missing validation of zero addresses, while this finding correctly identifies missing access control on both deposit() and setResource(). This would allow anyone to call deposit directly (bypassing the bridge) and anyone to overwrite resourceID mappings. This is a real, exploitable vulnerability with material impact.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"description\": \"The transferFrom call at line 67 does not check the return value. Some ERC20 tokens return false on failure instead of reverting, which could allow deposits to be recorded without actual token transfers.\",\n      \"vulnerability_type_claimed\": \"Unchecked Return Value\",\n      \"severity_claimed\": \"high\",\n      \"location_claimed\": \"QBridgeHandler.deposit()\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This is a valid vulnerability related to ERC20 return value handling. While the target vulnerability is about zero address validation, this finding correctly identifies that non-standard ERC20 tokens that return false instead of reverting could cause the bridge to record deposits without actual token transfers. This is a real, exploitable issue with material impact.\"\n    },\n    {\n      \"finding_id\": 2,\n      \"description\": \"The deposit function doesn't validate that the resourceID maps to a valid token contract. If resourceIDToTokenContractAddress[resourceID] returns address(0), the contract will attempt to call transferFrom on address(0).\",\n      \"vulnerability_type_claimed\": \"Missing Input Validation\",\n      \"severity_claimed\": \"medium\",\n      \"location_claimed\": \"QBridgeHandler.deposit()\",\n      \"matches_target\": true,\n      \"is_valid_concern\": true,\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding correctly identifies the target vulnerability: missing validation that the token contract address is not zero. The description explains that when resourceIDToTokenContractAddress[resourceID] returns address(0) (unmapped resourceID), the contract attempts to call transferFrom on address(0), which would not revert and could allow fraudulent deposits. This matches the ground truth about the Qubit Bridge exploit where address(0) was used to bypass token transfers.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 2,\n    \"type_match\": \"semantic\",\n    \"type_match_reasoning\": \"The finding uses 'Missing Input Validation' terminology while ground truth uses 'validation_bypass', but both describe the same core issue: failure to validate that the token contract address is not zero before processing deposits. The semantic meaning is equivalent.\",\n    \"root_cause_identification\": {\n      \"score\": 0.9,\n      \"reasoning\": \"The finding correctly identifies the root cause: the deposit function does not check if tokenContract is address(0) before calling transferFrom. It explains that this happens when resourceID is unmapped, leading to address(0) being used. This matches the ground truth about zero address validation being missing.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 0.95,\n      \"reasoning\": \"The attack scenario is realistic and executable: call deposit with an unmapped resourceID, causing tokenContract to be address(0), which results in a call to transferFrom on address(0) that doesn't revert, allowing the deposit to be recorded without actual token transfers. This directly matches the Qubit Bridge exploit scenario.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 0.9,\n      \"reasoning\": \"The suggested fix (require(tokenContract != address(0), 'Resource not mapped')) would directly prevent this vulnerability. The additional suggestion of using a whitelist would provide defense-in-depth. The fix is valid and would remediate the issue.\"\n    }\n  },\n  \"summary\": {\n    \"total_findings\": 3,\n    \"target_matches\": 1,\n    \"partial_matches\": 0,\n    \"bonus_valid\": 2,\n    \"hallucinated\": 0,\n    \"mischaracterized\": 0,\n    \"design_choice\": 0,\n    \"out_of_scope\": 0,\n    \"security_theater\": 0,\n    \"informational\": 0\n  },\n  \"notes\": \"The audit found 3 valid vulnerabilities, including the target vulnerability in Finding 2. Findings 0 and 1 are additional valid vulnerabilities (BONUS_VALID) that are not in the ground truth but are real, exploitable issues. Finding 0 (missing access control) is particularly critical as it allows anyone to call deposit() directly and overwrite resourceID mappings. Finding 1 (unchecked return value) is also a valid concern for non-standard ERC20 tokens. The overall audit quality is high, correctly identifying multiple real vulnerabilities.\"\n}\n```"
+  "summary": {},
+  "notes": "Finding 2 is a TARGET_MATCH as it meets all three criteria: 1) Location: deposit() function, 2) Root cause: missing validation allowing address(0), 3) Type: semantic match (Missing Input Validation = validation_bypass). Findings 0 and 1 identify real issues but not the specific vulnerability that caused the Qubit Bridge exploit.",
+  "judge_latency_ms": 7371.953248977661,
+  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.95\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"vulnerability_type_claimed\": \"Missing Access Control\",\n      \"location_claimed\": \"QBridgeHandler.deposit() and QBridgeHandler.setResource()\",\n      \"classification\": \"MISCHARACTERIZED\",\n      \"reasoning\": \"The finding claims missing access control is the issue, but this is not the actual vulnerability. The ground truth identifies that the contract fails to validate tokenContract != address(0), allowing an attacker to bypass token transfers. While access control is a valid concern, it's not the root cause of the $80M Qubit Bridge exploit. The attack scenario described (deploying malicious token, calling setResource) is different from the actual attack which exploited unmapped resourceIDs returning address(0).\"\n    },\n    {\n      \"finding_id\": 1,\n      \"vulnerability_type_claimed\": \"Unchecked Return Value\",\n      \"location_claimed\": \"QBridgeHandler.deposit()\",\n      \"classification\": \"MISCHARACTERIZED\",\n      \"reasoning\": \"This finding identifies a real issue (ERC20 tokens returning false instead of reverting), but it's not the root cause of the Qubit Bridge exploit. The ground truth specifically states the vulnerability was calling transferFrom on address(0) which succeeds silently without transferring tokens. The unchecked return value issue is a different vulnerability that could affect other tokens but wasn't the mechanism of the actual attack.\"\n    },\n    {\n      \"finding_id\": 2,\n      \"vulnerability_type_claimed\": \"Missing Input Validation\",\n      \"location_claimed\": \"QBridgeHandler.deposit()\",\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding correctly identifies the exact root cause: the deposit function doesn't validate that resourceID maps to a valid token contract, allowing address(0) to be used. The attack scenario accurately describes calling deposit with an unmapped resourceID, resulting in tokenContract = address(0), and the transferFrom call succeeding silently while deposit event is emitted. The suggested fix (require(tokenContract != address(0))) directly addresses the vulnerability. The vulnerability type 'Missing Input Validation' is a semantic match to 'validation_bypass' - both describe the failure to validate critical input.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 2,\n    \"location_match\": true,\n    \"root_cause_match\": true,\n    \"type_match\": \"semantic\",\n    \"root_cause_identification\": {\n      \"score\": 0.95,\n      \"reasoning\": \"Finding 2 precisely identifies that the contract fails to validate tokenContract != address(0), which is the exact root cause from ground truth. The explanation matches the technical mechanism: unmapped resourceID returns address(0), transferFrom on address(0) succeeds silently, deposit event still emitted.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 0.95,\n      \"reasoning\": \"The attack scenario in Finding 2 matches ground truth: call deposit with unmapped resourceID \u2192 address(0) \u2192 transferFrom succeeds without transferring \u2192 deposit event emitted \u2192 destination mints unbacked tokens. This is the exact Qubit Bridge exploit mechanism.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 0.95,\n      \"reasoning\": \"The suggested fix 'require(tokenContract != address(0), \\\"Resource not mapped\\\")' directly prevents the vulnerability by ensuring tokenContract is never address(0). This is a correct and minimal fix that addresses the root cause.\"\n    }\n  },\n  \"notes\": \"Finding 2 is a TARGET_MATCH as it meets all three criteria: 1) Location: deposit() function, 2) Root cause: missing validation allowing address(0), 3) Type: semantic match (Missing Input Validation = validation_bypass). Findings 0 and 1 identify real issues but not the specific vulnerability that caused the Qubit Bridge exploit.\"\n}\n```"
 }
