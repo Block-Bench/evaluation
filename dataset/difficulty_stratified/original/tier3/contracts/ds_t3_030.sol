@@ -1,191 +1,377 @@
 /*
- * @article: https://blog.positive.com/predicting-random-numbers-in-ethereum-smart-contracts-e5358c6b8620
- * @source: https://etherscan.io/address/0xF767fCA8e65d03fE16D4e38810f5E5376c3372A8#code
- * @vulnerable_at_lines: 127,128,129,130,132
+ * @source: etherscan.io 
  * @author: -
+ * @vulnerable_at_lines: 150
  */
 
- //added pragma version
-pragma solidity ^0.4.0;
+pragma solidity ^0.4.24;
 
- contract LuckyDoubler {
-//##########################################################
-//#### LuckyDoubler: A doubler with random payout order ####
-//#### Deposit 1 ETHER to participate                   ####
-//##########################################################
-//COPYRIGHT 2016 KATATSUKI ALL RIGHTS RESERVED
-//No part of this source code may be reproduced, distributed,
-//modified or transmitted in any form or by any means without
-//the prior written permission of the creator.
+/* This is fiftyflip 
+a simple yet elegant game contract 
+that is connected to Proof of Community 
+contract(0x1739e311ddBf1efdFbc39b74526Fd8b600755ADa).
 
-    address private owner;
+Greed serves no-one but the one, 
+But charity is kind, suffereth not and envieth not. 
+Charity is to give of oneself in the service of his fellow beings. 
 
-    //Stored variables
-    uint private balance = 0;
-    uint private fee = 5;
-    uint private multiplier = 125;
+Play on Players. and Remember fifty feeds the multiudes and gives to the PoC community
+Forever and ever. 
 
-    mapping (address => User) private users;
-    Entry[] private entries;
-    uint[] private unpaidEntries;
 
-    //Set owner on contract creation
-    function LuckyDoubler() {
+*/
+
+
+contract FiftyFlip {
+    uint constant DONATING_X = 20; // 2% kujira
+
+    // Need to be discussed
+    uint constant JACKPOT_FEE = 10; // 1% jackpot
+    uint constant JACKPOT_MODULO = 1000; // 0.1% jackpotwin
+    uint constant DEV_FEE = 20; // 2% devfee
+    uint constant WIN_X = 1900; // 1.9x
+
+    // There is minimum and maximum bets.
+    uint constant MIN_BET = 0.01 ether;
+    uint constant MAX_BET = 1 ether;
+
+    uint constant BET_EXPIRATION_BLOCKS = 250;
+
+    // owner and PoC contract address
+    address public owner;
+    address public autoPlayBot;
+    address public secretSigner;
+    address private whale;
+
+    // Accumulated jackpot fund.
+    uint256 public jackpotSize;
+    uint256 public devFeeSize;
+
+    // Funds that are locked in potentially winning bets.
+    uint256 public lockedInBets;
+    uint256 public totalAmountToWhale;
+
+
+    struct Bet {
+        // Wager amount in wei.
+        uint amount;
+        // Block number of placeBet tx.
+        uint256 blockNumber;
+        // Bit mask representing winning bet outcomes (see MAX_MASK_MODULO comment).
+        bool betMask;
+        // Address of a player, used to pay out winning bets.
+        address player;
+    }
+
+    mapping (uint => Bet) bets;
+    mapping (address => uint) donateAmount;
+
+    // events
+    event Wager(uint ticketID, uint betAmount, uint256 betBlockNumber, bool betMask, address betPlayer);
+    event Win(address winner, uint amount, uint ticketID, bool maskRes, uint jackpotRes);
+    event Lose(address loser, uint amount, uint ticketID, bool maskRes, uint jackpotRes);
+    event Refund(uint ticketID, uint256 amount, address requester);
+    event Donate(uint256 amount, address donator);
+    event FailedPayment(address paidUser, uint amount);
+    event Payment(address noPaidUser, uint amount);
+    event JackpotPayment(address player, uint ticketID, uint jackpotWin);
+
+    // constructor
+    constructor (address whaleAddress, address autoPlayBotAddress, address secretSignerAddress) public {
         owner = msg.sender;
+        autoPlayBot = autoPlayBotAddress;
+        whale = whaleAddress;
+        secretSigner = secretSignerAddress;
+        jackpotSize = 0;
+        devFeeSize = 0;
+        lockedInBets = 0;
+        totalAmountToWhale = 0;
     }
 
-    modifier onlyowner { if (msg.sender == owner) _; }
+    // modifiers
+    modifier onlyOwner() {
+        require (msg.sender == owner, "You are not the owner of this contract!");
+        _;
+    }    
 
-    struct User {
-        address id;
-        uint deposits;
-        uint payoutsReceived;
+    modifier onlyBot() {
+        require (msg.sender == autoPlayBot, "You are not the bot of this contract!");
+        _;
+    }
+    
+    modifier checkContractHealth() {
+        require (address(this).balance >= lockedInBets + jackpotSize + devFeeSize, "This contract doesn't have enough balance, it is stopped till someone donate to this game!");
+        _;
     }
 
-    struct Entry {
-        address entryAddress;
-        uint deposit;
-        uint payout;
-        bool paid;
+    // betMast:
+    // false is front, true is back
+
+    function() public payable { }
+
+
+    function setBotAddress(address autoPlayBotAddress)
+    onlyOwner() 
+    external 
+    {
+        autoPlayBot = autoPlayBotAddress;
     }
 
-    //Fallback function
-    function() {
-        init();
+    function setSecretSigner(address _secretSigner)
+    onlyOwner()  
+    external
+    {
+        secretSigner = _secretSigner;
     }
 
-    function init() private{
+    // wager function
+    function wager(bool bMask, uint ticketID, uint ticketLastBlock, uint8 v, bytes32 r, bytes32 s)  
+    checkContractHealth()
+    external
+    payable { 
+        Bet storage bet = bets[ticketID];
+        uint amount = msg.value;
+        address player = msg.sender;
+        require (bet.player == address(0), "Ticket is not new one!");
+        require (amount >= MIN_BET, "Your bet is lower than minimum bet amount");
+        require (amount <= MAX_BET, "Your bet is higher than maximum bet amount");
+        require (getCollateralBalance() >= 2 * amount, "If we accept this, this contract will be in danger!");
 
-        if (msg.value < 1 ether) {
-             msg.sender.send(msg.value);
+        require (block.number <= ticketLastBlock, "Ticket has expired.");
+        bytes32 signatureHash = keccak256(abi.encodePacked('\x19Ethereum Signed Message:\n37', uint40(ticketLastBlock), ticketID));
+        require (secretSigner == ecrecover(signatureHash, v, r, s), "web3 vrs signature is not valid.");
+
+        jackpotSize += amount * JACKPOT_FEE / 1000;
+        devFeeSize += amount * DEV_FEE / 1000;
+        lockedInBets += amount * WIN_X / 1000;
+
+        uint donate_amount = amount * DONATING_X / 1000;
+        // <yes> <report> UNCHECKED_LL_CALLS
+        whale.call.value(donate_amount)(bytes4(keccak256("donate()")));
+        totalAmountToWhale += donate_amount;
+
+        bet.amount = amount;
+        bet.blockNumber = block.number;
+        bet.betMask = bMask;
+        bet.player = player;
+
+        emit Wager(ticketID, bet.amount, bet.blockNumber, bet.betMask, bet.player);
+    }
+
+    // method to determine winners and losers
+    function play(uint ticketReveal)
+    checkContractHealth()
+    external
+    {
+        uint ticketID = uint(keccak256(abi.encodePacked(ticketReveal)));
+        Bet storage bet = bets[ticketID];
+        require (bet.player != address(0), "TicketID is not correct!");
+        require (bet.amount != 0, "Ticket is already used one!");
+        uint256 blockNumber = bet.blockNumber;
+        if(blockNumber < block.number && blockNumber >= block.number - BET_EXPIRATION_BLOCKS)
+        {
+            uint256 random = uint256(keccak256(abi.encodePacked(blockhash(blockNumber),  ticketReveal)));
+            bool maskRes = (random % 2) !=0;
+            uint jackpotRes = random % JACKPOT_MODULO;
+    
+            uint tossWinAmount = bet.amount * WIN_X / 1000;
+
+            uint tossWin = 0;
+            uint jackpotWin = 0;
+            
+            if(bet.betMask == maskRes) {
+                tossWin = tossWinAmount;
+            }
+            if(jackpotRes == 0) {
+                jackpotWin = jackpotSize;
+                jackpotSize = 0;
+            }
+            if (jackpotWin > 0) {
+                emit JackpotPayment(bet.player, ticketID, jackpotWin);
+            }
+            if(tossWin + jackpotWin > 0)
+            {
+                payout(bet.player, tossWin + jackpotWin, ticketID, maskRes, jackpotRes);
+            }
+            else 
+            {
+                loseWager(bet.player, bet.amount, ticketID, maskRes, jackpotRes);
+            }
+            lockedInBets -= tossWinAmount;
+            bet.amount = 0;
+        }
+        else
+        {
+            revert();
+        }
+    }
+
+    function donateForContractHealth()
+    external 
+    payable
+    {
+        donateAmount[msg.sender] += msg.value;
+        emit Donate(msg.value, msg.sender);
+    }
+
+    function withdrawDonation(uint amount)
+    external 
+    {
+        require(donateAmount[msg.sender] >= amount, "You are going to withdraw more than you donated!");
+        
+        if (sendFunds(msg.sender, amount)){
+            donateAmount[msg.sender] -= amount;
+        }
+    }
+
+    // method to refund
+    function refund(uint ticketID)
+    checkContractHealth()
+    external {
+        Bet storage bet = bets[ticketID];
+        
+        require (bet.amount != 0, "this ticket has no balance");
+        require (block.number > bet.blockNumber + BET_EXPIRATION_BLOCKS, "this ticket is expired.");
+        sendRefund(ticketID);
+    }
+
+    // Funds withdrawl
+    function withdrawDevFee(address withdrawAddress, uint withdrawAmount)
+    onlyOwner()
+    checkContractHealth() 
+    external {
+        require (devFeeSize >= withdrawAmount, "You are trying to withdraw more amount than developer fee.");
+        require (withdrawAmount <= address(this).balance, "Contract balance is lower than withdrawAmount");
+        require (devFeeSize <= address(this).balance, "Not enough funds to withdraw.");
+        if (sendFunds(withdrawAddress, withdrawAmount)){
+            devFeeSize -= withdrawAmount;
+        }
+    }
+
+    // Funds withdrawl
+    function withdrawBotFee(uint withdrawAmount)
+    onlyBot()
+    checkContractHealth() 
+    external {
+        require (devFeeSize >= withdrawAmount, "You are trying to withdraw more amount than developer fee.");
+        require (withdrawAmount <= address(this).balance, "Contract balance is lower than withdrawAmount");
+        require (devFeeSize <= address(this).balance, "Not enough funds to withdraw.");
+        if (sendFunds(autoPlayBot, withdrawAmount)){
+            devFeeSize -= withdrawAmount;
+        }
+    }
+
+    // Get Bet Info from id
+    function getBetInfo(uint ticketID) 
+    constant
+    external 
+    returns (uint, uint256, bool, address){
+        Bet storage bet = bets[ticketID];
+        return (bet.amount, bet.blockNumber, bet.betMask, bet.player);
+    }
+
+    // Get Bet Info from id
+    function getContractBalance() 
+    constant
+    external 
+    returns (uint){
+        return address(this).balance;
+    }
+
+    // Get Collateral for Bet
+    function getCollateralBalance() 
+    constant
+    public 
+    returns (uint){
+        if (address(this).balance > lockedInBets + jackpotSize + devFeeSize)
+            return address(this).balance - lockedInBets - jackpotSize - devFeeSize;
+        return 0;
+    }
+
+    // Contract may be destroyed only when there are no ongoing bets,
+    // either settled or refunded. All funds are transferred to contract owner.
+    function kill() external onlyOwner() {
+        require (lockedInBets == 0, "All bets should be processed (settled or refunded) before self-destruct.");
+        selfdestruct(owner);
+    }
+
+    // Payout ETH to winner
+    function payout(address winner, uint ethToTransfer, uint ticketID, bool maskRes, uint jackpotRes) 
+    internal 
+    {        
+        winner.transfer(ethToTransfer);
+        emit Win(winner, ethToTransfer, ticketID, maskRes, jackpotRes);
+    }
+
+    // sendRefund to requester
+    function sendRefund(uint ticketID) 
+    internal 
+    {
+        Bet storage bet = bets[ticketID];
+        address requester = bet.player;
+        uint256 ethToTransfer = bet.amount;        
+        requester.transfer(ethToTransfer);
+
+        uint tossWinAmount = bet.amount * WIN_X / 1000;
+        lockedInBets -= tossWinAmount;
+
+        bet.amount = 0;
+        emit Refund(ticketID, ethToTransfer, requester);
+    }
+
+    // Helper routine to process the payment.
+    function sendFunds(address paidUser, uint amount) private returns (bool){
+        bool success = paidUser.send(amount);
+        if (success) {
+            emit Payment(paidUser, amount);
+        } else {
+            emit FailedPayment(paidUser, amount);
+        }
+        return success;
+    }
+    // Payout ETH to whale when player loses
+    function loseWager(address player, uint amount, uint ticketID, bool maskRes, uint jackpotRes) 
+    internal 
+    {
+        emit Lose(player, amount, ticketID, maskRes, jackpotRes);
+    }
+
+    // bulk clean the storage.
+    function clearStorage(uint[] toCleanTicketIDs) external {
+        uint length = toCleanTicketIDs.length;
+
+        for (uint i = 0; i < length; i++) {
+            clearProcessedBet(toCleanTicketIDs[i]);
+        }
+    }
+
+    // Helper routine to move 'processed' bets into 'clean' state.
+    function clearProcessedBet(uint ticketID) private {
+        Bet storage bet = bets[ticketID];
+
+        // Do not overwrite active bets with zeros; additionally prevent cleanup of bets
+        // for which ticketID signatures may have not expired yet (see whitepaper for details).
+        if (bet.amount != 0 || block.number <= bet.blockNumber + BET_EXPIRATION_BLOCKS) {
             return;
         }
 
-        join();
+        bet.blockNumber = 0;
+        bet.betMask = false;
+        bet.player = address(0);
     }
 
-    function join() private {
-
-        //Limit deposits to 1ETH
-        uint dValue = 1 ether;
-
-        if (msg.value > 1 ether) {
-
-        	msg.sender.send(msg.value - 1 ether);
-        	dValue = 1 ether;
-        }
-
-        //Add new users to the users array
-        if (users[msg.sender].id == address(0))
-        {
-            users[msg.sender].id = msg.sender;
-            users[msg.sender].deposits = 0;
-            users[msg.sender].payoutsReceived = 0;
-        }
-
-        //Add new entry to the entries array
-        entries.push(Entry(msg.sender, dValue, (dValue * (multiplier) / 100), false));
-        users[msg.sender].deposits++;
-        unpaidEntries.push(entries.length -1);
-
-        //Collect fees and update contract balance
-        balance += (dValue * (100 - fee)) / 100;
-
-        uint index = unpaidEntries.length > 1 ? rand(unpaidEntries.length) : 0;
-        Entry theEntry = entries[unpaidEntries[index]];
-
-        //Pay pending entries if the new balance allows for it
-        if (balance > theEntry.payout) {
-
-            uint payout = theEntry.payout;
-
-            theEntry.entryAddress.send(payout);
-            theEntry.paid = true;
-            users[theEntry.entryAddress].payoutsReceived++;
-
-            balance -= payout;
-
-            if (index < unpaidEntries.length - 1)
-                unpaidEntries[index] = unpaidEntries[unpaidEntries.length - 1];
-
-            unpaidEntries.length--;
-
-        }
-
-        //Collect money from fees and possible leftovers from errors (actual balance untouched)
-        uint fees = this.balance - balance;
-        if (fees > 0)
-        {
-                owner.send(fees);
-        }
-
-    }
-
-    //Generate random number between 0 & max
-    uint256 constant private FACTOR =  1157920892373161954235709850086879078532699846656405640394575840079131296399;
-    // <yes> <report> BAD_RANDOMNESS
-    function rand(uint max) constant private returns (uint256 result){
-        uint256 factor = FACTOR * 100 / max;
-        uint256 lastBlockNumber = block.number - 1;
-        uint256 hashVal = uint256(block.blockhash(lastBlockNumber));
-
-        return uint256((uint256(hashVal) / factor)) % max;
-    }
-
-
-    //Contract management
-    function changeOwner(address newOwner) onlyowner {
-        owner = newOwner;
-    }
-
-    function changeMultiplier(uint multi) onlyowner {
-        if (multi < 110 || multi > 150) throw;
-
-        multiplier = multi;
-    }
-
-    function changeFee(uint newFee) onlyowner {
-        if (fee > 5)
-            throw;
-        fee = newFee;
-    }
-
-
-    //JSON functions
-    function multiplierFactor() constant returns (uint factor, string info) {
-        factor = multiplier;
-        info = 'The current multiplier applied to all deposits. Min 110%, max 150%.';
-    }
-
-    function currentFee() constant returns (uint feePercentage, string info) {
-        feePercentage = fee;
-        info = 'The fee percentage applied to all deposits. It can change to speed payouts (max 5%).';
-    }
-
-    function totalEntries() constant returns (uint count, string info) {
-        count = entries.length;
-        info = 'The number of deposits.';
-    }
-
-    function userStats(address user) constant returns (uint deposits, uint payouts, string info)
+    // A trap door for when someone sends tokens other than the intended ones so the overseers can decide where to send them.
+    function transferAnyERC20Token(address tokenAddress, address tokenOwner, uint tokens) 
+    public 
+    onlyOwner() 
+    returns (bool success) 
     {
-        if (users[user].id != address(0x0))
-        {
-            deposits = users[user].deposits;
-            payouts = users[user].payoutsReceived;
-            info = 'Users stats: total deposits, payouts received.';
-        }
+        return ERC20Interface(tokenAddress).transfer(tokenOwner, tokens);
     }
+}
 
-    function entryDetails(uint index) constant returns (address user, uint payout, bool paid, string info)
-    {
-        if (index < entries.length) {
-            user = entries[index].entryAddress;
-            payout = entries[index].payout / 1 finney;
-            paid = entries[index].paid;
-            info = 'Entry info: user address, expected payout in Finneys, payout status.';
-        }
-    }
-
-
+//Define ERC20Interface.transfer, so PoCWHALE can transfer tokens accidently sent to it.
+contract ERC20Interface 
+{
+    function transfer(address to, uint256 tokens) public returns (bool success);
 }
