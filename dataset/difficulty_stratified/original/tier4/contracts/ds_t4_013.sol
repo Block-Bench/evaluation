@@ -1,308 +1,771 @@
 /*
- * @article: https://blog.positive.com/predicting-random-numbers-in-ethereum-smart-contracts-e5358c6b8620
- * @source: https://etherscan.io/address/0xa65d59708838581520511d98fb8b5d1f76a96cad#code
- * @vulnerable_at_lines: 17,19,21
+ * @source: https://etherscan.io/address/0x5ace17f87c7391e5792a7683069a8025b83bbd85#code
  * @author: -
+ * @vulnerable_at_lines: 523,560,700,702,704,706,708,710,712,714,716,718
  */
 
- pragma solidity ^0.4.9;
+pragma solidity ^0.4.13;
 
-library Deck {
-	// returns random number from 0 to 51
-	// let's say 'value' % 4 means suit (0 - Hearts, 1 - Spades, 2 - Diamonds, 3 - Clubs)
-	//			 'value' / 4 means: 0 - King, 1 - Ace, 2 - 10 - pip values, 11 - Jacket, 12 - Queen
-
-	function deal(address player, uint8 cardNumber) internal returns (uint8) {
-		// <yes> <report> BAD_RANDOMNESS
-		uint b = block.number;
-		// <yes> <report> BAD_RANDOMNESS
-		uint timestamp = block.timestamp;
-		// <yes> <report> BAD_RANDOMNESS
-		return uint8(uint256(keccak256(block.blockhash(b), player, cardNumber, timestamp)) % 52);
-	}
-
-	function valueOf(uint8 card, bool isBigAce) internal constant returns (uint8) {
-		uint8 value = card / 4;
-		if (value == 0 || value == 11 || value == 12) { // Face cards
-			return 10;
-		}
-		if (value == 1 && isBigAce) { // Ace is worth 11
-			return 11;
-		}
-		return value;
-	}
-
-	function isAce(uint8 card) internal constant returns (bool) {
-		return card / 4 == 1;
-	}
-
-	function isTen(uint8 card) internal constant returns (bool) {
-		return card / 4 == 10;
-	}
+library SafeMath {
+  function sub(uint a, uint b) internal returns (uint) {
+    assert(b <= a);
+    return a - b;
+  }
+  function add(uint a, uint b) internal returns (uint) {
+    uint c = a + b;
+    assert(c >= a);
+    return c;
+  }
 }
 
+contract ERC20Basic {
+  uint public totalSupply;
+  address public owner; //owner
+  address public animator; //animator
+  function balanceOf(address who) constant returns (uint);
+  function transfer(address to, uint value);
+  event Transfer(address indexed from, address indexed to, uint value);
+  function commitDividend(address who) internal; // pays remaining dividend
+}
 
-contract BlackJack {
-	using Deck for *;
+contract ERC20 is ERC20Basic {
+  function allowance(address owner, address spender) constant returns (uint);
+  function transferFrom(address from, address to, uint value);
+  function approve(address spender, uint value);
+  event Approval(address indexed owner, address indexed spender, uint value);
+}
 
-	uint public minBet = 50 finney; // 0.05 eth
-	uint public maxBet = 5 ether;
+contract BasicToken is ERC20Basic {
+  using SafeMath for uint;
+  mapping(address => uint) balances;
 
-	uint8 BLACKJACK = 21;
+  modifier onlyPayloadSize(uint size) {
+     assert(msg.data.length >= size + 4);
+     _;
+  }
+  /**
+  * @dev transfer token for a specified address
+  * @param _to The address to transfer to.
+  * @param _value The amount to be transferred.
+  */
+  function transfer(address _to, uint _value) onlyPayloadSize(2 * 32) {
+    commitDividend(msg.sender);
+    balances[msg.sender] = balances[msg.sender].sub(_value);
+    if(_to == address(this)) {
+        commitDividend(owner);
+        balances[owner] = balances[owner].add(_value);
+        Transfer(msg.sender, owner, _value);
+    }
+    else {
+        commitDividend(_to);
+        balances[_to] = balances[_to].add(_value);
+        Transfer(msg.sender, _to, _value);
+    }
+  }
+  /**
+  * @dev Gets the balance of the specified address.
+  * @param _owner The address to query the the balance of.
+  * @return An uint representing the amount owned by the passed address.
+  */
+  function balanceOf(address _owner) constant returns (uint balance) {
+    return balances[_owner];
+  }
+}
 
-  enum GameState { Ongoing, Player, Tie, House }
+contract StandardToken is BasicToken, ERC20 {
+  mapping (address => mapping (address => uint)) allowed;
 
-	struct Game {
-		address player; // address игрока
-		uint bet; // стывка
+  /**
+   * @dev Transfer tokens from one address to another
+   * @param _from address The address which you want to send tokens from
+   * @param _to address The address which you want to transfer to
+   * @param _value uint the amout of tokens to be transfered
+   */
+  function transferFrom(address _from, address _to, uint _value) onlyPayloadSize(3 * 32) {
+    var _allowance = allowed[_from][msg.sender];
+    commitDividend(_from);
+    commitDividend(_to);
+    balances[_to] = balances[_to].add(_value);
+    balances[_from] = balances[_from].sub(_value);
+    allowed[_from][msg.sender] = _allowance.sub(_value);
+    Transfer(_from, _to, _value);
+  }
+  /**
+   * @dev Aprove the passed address to spend the specified amount of tokens on beahlf of msg.sender.
+   * @param _spender The address which will spend the funds.
+   * @param _value The amount of tokens to be spent.
+   */
+  function approve(address _spender, uint _value) {
+    //  https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+    assert(!((_value != 0) && (allowed[msg.sender][_spender] != 0)));
+    allowed[msg.sender][_spender] = _value;
+    Approval(msg.sender, _spender, _value);
+  }
+  /**
+   * @dev Function to check the amount of tokens than an owner allowed to a spender.
+   * @param _owner address The address which owns the funds.
+   * @param _spender address The address which will spend the funds.
+   * @return A uint specifing the amount of tokens still avaible for the spender.
+   */
+  function allowance(address _owner, address _spender) constant returns (uint remaining) {
+    return allowed[_owner][_spender];
+  }
+}
 
-		uint8[] houseCards; // карты диллера
-		uint8[] playerCards; // карты игрока
+/**
+ * @title SmartBillions contract
+ */
+contract SmartBillions is StandardToken {
 
-		GameState state; // состояние
-		uint8 cardsDealt;
+    // metadata
+    string public constant name = "SmartBillions Token";
+    string public constant symbol = "PLAY";
+    uint public constant decimals = 0;
+
+    // contract state
+    struct Wallet {
+        uint208 balance; // current balance of user
+    	uint16 lastDividendPeriod; // last processed dividend period of user's tokens
+    	uint32 nextWithdrawBlock; // next withdrawal possible after this block number
+    }
+    mapping (address => Wallet) wallets;
+    struct Bet {
+        uint192 value; // bet size
+        uint32 betHash; // selected numbers
+        uint32 blockNum; // blocknumber when lottery runs
+    }
+    mapping (address => Bet) bets;
+
+    uint public walletBalance = 0; // sum of funds in wallets
+
+    // investment parameters
+    uint public investStart = 1; // investment start block, 0: closed, 1: preparation
+    uint public investBalance = 0; // funding from investors
+    uint public investBalanceMax = 200000 ether; // maximum funding
+    uint public dividendPeriod = 1;
+    uint[] public dividends; // dividens collected per period, growing array
+
+    // betting parameters
+    uint public maxWin = 0; // maximum prize won
+    uint public hashFirst = 0; // start time of building hashes database
+    uint public hashLast = 0; // last saved block of hashes
+    uint public hashNext = 0; // next available bet block.number
+    uint public hashBetSum = 0; // used bet volume of next block
+    uint public hashBetMax = 5 ether; // maximum bet size per block
+    uint[] public hashes; // space for storing lottery results
+
+    // constants
+    //uint public constant hashesSize = 1024 ; // DEBUG ONLY !!!
+    uint public constant hashesSize = 16384 ; // 30 days of blocks
+    uint public coldStoreLast = 0 ; // block of last cold store transfer
+
+    // events
+    event LogBet(address indexed player, uint bethash, uint blocknumber, uint betsize);
+    event LogLoss(address indexed player, uint bethash, uint hash);
+    event LogWin(address indexed player, uint bethash, uint hash, uint prize);
+    event LogInvestment(address indexed investor, address indexed partner, uint amount);
+    event LogRecordWin(address indexed player, uint amount);
+    event LogLate(address indexed player,uint playerBlockNumber,uint currentBlockNumber);
+    event LogDividend(address indexed investor, uint amount, uint period);
+
+    modifier onlyOwner() {
+        assert(msg.sender == owner);
+        _;
+    }
+
+    modifier onlyAnimator() {
+        assert(msg.sender == animator);
+        _;
+    }
+
+    // constructor
+    function SmartBillions() {
+        owner = msg.sender;
+        animator = msg.sender;
+        wallets[owner].lastDividendPeriod = uint16(dividendPeriod);
+        dividends.push(0); // not used
+        dividends.push(0); // current dividend
+    }
+
+/* getters */
+
+    /**
+     * @dev Show length of allocated swap space
+     */
+    function hashesLength() constant external returns (uint) {
+        return uint(hashes.length);
+    }
+
+    /**
+     * @dev Show balance of wallet
+     * @param _owner The address of the account.
+     */
+    function walletBalanceOf(address _owner) constant external returns (uint) {
+        return uint(wallets[_owner].balance);
+    }
+
+    /**
+     * @dev Show last dividend period processed
+     * @param _owner The address of the account.
+     */
+    function walletPeriodOf(address _owner) constant external returns (uint) {
+        return uint(wallets[_owner].lastDividendPeriod);
+    }
+
+    /**
+     * @dev Show block number when withdraw can continue
+     * @param _owner The address of the account.
+     */
+    function walletBlockOf(address _owner) constant external returns (uint) {
+        return uint(wallets[_owner].nextWithdrawBlock);
+    }
+
+    /**
+     * @dev Show bet size.
+     * @param _owner The address of the player.
+     */
+    function betValueOf(address _owner) constant external returns (uint) {
+        return uint(bets[_owner].value);
+    }
+
+    /**
+     * @dev Show block number of lottery run for the bet.
+     * @param _owner The address of the player.
+     */
+    function betHashOf(address _owner) constant external returns (uint) {
+        return uint(bets[_owner].betHash);
+    }
+
+    /**
+     * @dev Show block number of lottery run for the bet.
+     * @param _owner The address of the player.
+     */
+    function betBlockNumberOf(address _owner) constant external returns (uint) {
+        return uint(bets[_owner].blockNum);
+    }
+
+    /**
+     * @dev Print number of block till next expected dividend payment
+     */
+    function dividendsBlocks() constant external returns (uint) {
+        if(investStart > 0) {
+            return(0);
+        }
+        uint period = (block.number - hashFirst) / (10 * hashesSize);
+        if(period > dividendPeriod) {
+            return(0);
+        }
+        return((10 * hashesSize) - ((block.number - hashFirst) % (10 * hashesSize)));
+    }
+
+/* administrative functions */
+
+    /**
+     * @dev Change owner.
+     * @param _who The address of new owner.
+     */
+    function changeOwner(address _who) external onlyOwner {
+        assert(_who != address(0));
+        commitDividend(msg.sender);
+        commitDividend(_who);
+        owner = _who;
+    }
+
+    /**
+     * @dev Change animator.
+     * @param _who The address of new animator.
+     */
+    function changeAnimator(address _who) external onlyAnimator {
+        assert(_who != address(0));
+        commitDividend(msg.sender);
+        commitDividend(_who);
+        animator = _who;
+    }
+
+    /**
+     * @dev Set ICO Start block.
+     * @param _when The block number of the ICO.
+     */
+    function setInvestStart(uint _when) external onlyOwner {
+        require(investStart == 1 && hashFirst > 0 && block.number < _when);
+        investStart = _when;
+    }
+
+    /**
+     * @dev Set maximum bet size per block
+     * @param _maxsum The maximum bet size in wei.
+     */
+    function setBetMax(uint _maxsum) external onlyOwner {
+        hashBetMax = _maxsum;
+    }
+
+    /**
+     * @dev Reset bet size accounting, to increase bet volume above safe limits
+     */
+    function resetBet() external onlyOwner {
+        hashNext = block.number + 3;
+        hashBetSum = 0;
+    }
+
+    /**
+     * @dev Move funds to cold storage
+     * @dev investBalance and walletBalance is protected from withdraw by owner
+     * @dev if funding is > 50% admin can withdraw only 0.25% of balance weakly
+     * @param _amount The amount of wei to move to cold storage
+     */
+    function coldStore(uint _amount) external onlyOwner {
+        houseKeeping();
+        require(_amount > 0 && this.balance >= (investBalance * 9 / 10) + walletBalance + _amount);
+        if(investBalance >= investBalanceMax / 2){ // additional jackpot protection
+            require((_amount <= this.balance / 400) && coldStoreLast + 4 * 60 * 24 * 7 <= block.number);
+        }
+        msg.sender.transfer(_amount);
+        coldStoreLast = block.number;
+    }
+
+    /**
+     * @dev Move funds to contract jackpot
+     */
+    function hotStore() payable external {
+        houseKeeping();
+    }
+
+/* housekeeping functions */
+
+    /**
+     * @dev Update accounting
+     */
+    function houseKeeping() public {
+        if(investStart > 1 && block.number >= investStart + (hashesSize * 5)){ // ca. 14 days
+            investStart = 0; // start dividend payments
+        }
+        else {
+            if(hashFirst > 0){
+		        uint period = (block.number - hashFirst) / (10 * hashesSize );
+                if(period > dividends.length - 2) {
+                    dividends.push(0);
+                }
+                if(period > dividendPeriod && investStart == 0 && dividendPeriod < dividends.length - 1) {
+                    dividendPeriod++;
+                }
+            }
+        }
+    }
+
+/* payments */
+
+    /**
+     * @dev Pay balance from wallet
+     */
+    function payWallet() public {
+        if(wallets[msg.sender].balance > 0 && wallets[msg.sender].nextWithdrawBlock <= block.number){
+            uint balance = wallets[msg.sender].balance;
+            wallets[msg.sender].balance = 0;
+            walletBalance -= balance;
+            pay(balance);
+        }
+    }
+
+    function pay(uint _amount) private {
+        uint maxpay = this.balance / 2;
+        if(maxpay >= _amount) {
+            msg.sender.transfer(_amount);
+            if(_amount > 1 finney) {
+                houseKeeping();
+            }
+        }
+        else {
+            uint keepbalance = _amount - maxpay;
+            walletBalance += keepbalance;
+            wallets[msg.sender].balance += uint208(keepbalance);
+            wallets[msg.sender].nextWithdrawBlock = uint32(block.number + 4 * 60 * 24 * 30); // wait 1 month for more funds
+            msg.sender.transfer(maxpay);
+        }
+    }
+
+/* investment functions */
+
+    /**
+     * @dev Buy tokens
+     */
+    function investDirect() payable external {
+        invest(owner);
+    }
+
+    /**
+     * @dev Buy tokens with affiliate partner
+     * @param _partner Affiliate partner
+     */
+    function invest(address _partner) payable public {
+        //require(fromUSA()==false); // fromUSA() not yet implemented :-(
+        require(investStart > 1 && block.number < investStart + (hashesSize * 5) && investBalance < investBalanceMax);
+        uint investing = msg.value;
+        if(investing > investBalanceMax - investBalance) {
+            investing = investBalanceMax - investBalance;
+            investBalance = investBalanceMax;
+            investStart = 0; // close investment round
+            msg.sender.transfer(msg.value.sub(investing)); // send back funds immediately
+        }
+        else{
+            investBalance += investing;
+        }
+        if(_partner == address(0) || _partner == owner){
+            walletBalance += investing / 10;
+            wallets[owner].balance += uint208(investing / 10);} // 10% for marketing if no affiliates
+        else{
+            walletBalance += (investing * 5 / 100) * 2;
+            wallets[owner].balance += uint208(investing * 5 / 100); // 5% initial marketing funds
+            wallets[_partner].balance += uint208(investing * 5 / 100);} // 5% for affiliates
+        wallets[msg.sender].lastDividendPeriod = uint16(dividendPeriod); // assert(dividendPeriod == 1);
+        uint senderBalance = investing / 10**15;
+        uint ownerBalance = investing * 16 / 10**17  ;
+        uint animatorBalance = investing * 10 / 10**17  ;
+        balances[msg.sender] += senderBalance;
+        balances[owner] += ownerBalance ; // 13% of shares go to developers
+        balances[animator] += animatorBalance ; // 8% of shares go to animator
+        totalSupply += senderBalance + ownerBalance + animatorBalance;
+        Transfer(address(0),msg.sender,senderBalance); // for etherscan
+        Transfer(address(0),owner,ownerBalance); // for etherscan
+        Transfer(address(0),animator,animatorBalance); // for etherscan
+        LogInvestment(msg.sender,_partner,investing);
+    }
+
+    /**
+     * @dev Delete all tokens owned by sender and return unpaid dividends and 90% of initial investment
+     */
+    function disinvest() external {
+        require(investStart == 0);
+        commitDividend(msg.sender);
+        uint initialInvestment = balances[msg.sender] * 10**15;
+        Transfer(msg.sender,address(0),balances[msg.sender]); // for etherscan
+        delete balances[msg.sender]; // totalSupply stays the same, investBalance is reduced
+        investBalance -= initialInvestment;
+        wallets[msg.sender].balance += uint208(initialInvestment * 9 / 10);
+        payWallet();
+    }
+
+    /**
+     * @dev Pay unpaid dividends
+     */
+    function payDividends() external {
+        require(investStart == 0);
+        commitDividend(msg.sender);
+        payWallet();
+    }
+
+    /**
+     * @dev Commit remaining dividends before transfer of tokens
+     */
+    function commitDividend(address _who) internal {
+        uint last = wallets[_who].lastDividendPeriod;
+        if((balances[_who]==0) || (last==0)){
+            wallets[_who].lastDividendPeriod=uint16(dividendPeriod);
+            return;
+        }
+        if(last==dividendPeriod) {
+            return;
+        }
+        uint share = balances[_who] * 0xffffffff / totalSupply;
+        uint balance = 0;
+        for(;last<dividendPeriod;last++) {
+            balance += share * dividends[last];
+        }
+        balance = (balance / 0xffffffff);
+        walletBalance += balance;
+        wallets[_who].balance += uint208(balance);
+        wallets[_who].lastDividendPeriod = uint16(last);
+        LogDividend(_who,balance,last);
+    }
+
+/* lottery functions */
+
+    function betPrize(Bet _player, uint24 _hash) constant private returns (uint) { // house fee 13.85%
+        uint24 bethash = uint24(_player.betHash);
+        uint24 hit = bethash ^ _hash;
+        uint24 matches =
+            ((hit & 0xF) == 0 ? 1 : 0 ) +
+            ((hit & 0xF0) == 0 ? 1 : 0 ) +
+            ((hit & 0xF00) == 0 ? 1 : 0 ) +
+            ((hit & 0xF000) == 0 ? 1 : 0 ) +
+            ((hit & 0xF0000) == 0 ? 1 : 0 ) +
+            ((hit & 0xF00000) == 0 ? 1 : 0 );
+        if(matches == 6){
+            return(uint(_player.value) * 7000000);
+        }
+        if(matches == 5){
+            return(uint(_player.value) * 20000);
+        }
+        if(matches == 4){
+            return(uint(_player.value) * 500);
+        }
+        if(matches == 3){
+            return(uint(_player.value) * 25);
+        }
+        if(matches == 2){
+            return(uint(_player.value) * 3);
+        }
+        return(0);
+    }
+
+    /**
+     * @dev Check if won in lottery
+     */
+    function betOf(address _who) constant external returns (uint)  {
+        Bet memory player = bets[_who];
+        if( (player.value==0) ||
+            (player.blockNum<=1) ||
+            (block.number<player.blockNum) ||
+            (block.number>=player.blockNum + (10 * hashesSize))){
+            return(0);
+        }
+        if(block.number<player.blockNum+256){
+            // <yes> <report> BAD_RANDOMNESS
+            return(betPrize(player,uint24(block.blockhash(player.blockNum))));
+        }
+        if(hashFirst>0){
+            uint32 hash = getHash(player.blockNum);
+            if(hash == 0x1000000) { // load hash failed :-(, return funds
+                return(uint(player.value));
+            }
+            else{
+                return(betPrize(player,uint24(hash)));
+            }
 	}
+        return(0);
+    }
 
-	mapping (address => Game) public games;
+    /**
+     * @dev Check if won in lottery
+     */
+    function won() public {
+        Bet memory player = bets[msg.sender];
+        if(player.blockNum==0){ // create a new player
+            bets[msg.sender] = Bet({value: 0, betHash: 0, blockNum: 1});
+            return;
+        }
+        if((player.value==0) || (player.blockNum==1)){
+            payWallet();
+            return;
+        }
+        require(block.number>player.blockNum); // if there is an active bet, throw()
+        if(player.blockNum + (10 * hashesSize) <= block.number){ // last bet too long ago, lost !
+            LogLate(msg.sender,player.blockNum,block.number);
+            bets[msg.sender] = Bet({value: 0, betHash: 0, blockNum: 1});
+            return;
+        }
+        uint prize = 0;
+        uint32 hash = 0;
+        if(block.number<player.blockNum+256){
+            // <yes> <report> BAD_RANDOMNESS
+            hash = uint24(block.blockhash(player.blockNum));
+            prize = betPrize(player,uint24(hash));
+        }
+        else {
+            if(hashFirst>0){ // lottery is open even before swap space (hashes) is ready, but player must collect results within 256 blocks after run
+                hash = getHash(player.blockNum);
+                if(hash == 0x1000000) { // load hash failed :-(, return funds
+                    prize = uint(player.value);
+                }
+                else{
+                    prize = betPrize(player,uint24(hash));
+                }
+	    }
+            else{
+                LogLate(msg.sender,player.blockNum,block.number);
+                bets[msg.sender] = Bet({value: 0, betHash: 0, blockNum: 1});
+                return();
+            }
+        }
+        bets[msg.sender] = Bet({value: 0, betHash: 0, blockNum: 1});
+        if(prize>0) {
+            LogWin(msg.sender,uint(player.betHash),uint(hash),prize);
+            if(prize > maxWin){
+                maxWin = prize;
+                LogRecordWin(msg.sender,prize);
+            }
+            pay(prize);
+        }
+        else{
+            LogLoss(msg.sender,uint(player.betHash),uint(hash));
+        }
+    }
 
-	modifier gameIsGoingOn() {
-		if (games[msg.sender].player == 0 || games[msg.sender].state != GameState.Ongoing) {
-			throw; // game doesn't exist or already finished
-		}
-		_;
-	}
+    /**
+     * @dev Send ether to buy tokens during ICO
+     * @dev or send less than 1 ether to contract to play
+     * @dev or send 0 to collect prize
+     */
+    function () payable external {
+        if(msg.value > 0){
+            if(investStart>1){ // during ICO payment to the contract is treated as investment
+                invest(owner);
+            }
+            else{ // if not ICO running payment to contract is treated as play
+                play();
+            }
+            return;
+        }
+        //check for dividends and other assets
+        if(investStart == 0 && balances[msg.sender]>0){
+            commitDividend(msg.sender);}
+        won(); // will run payWallet() if nothing else available
+    }
 
-	event Deal(
-        bool isUser,
-        uint8 _card
-    );
+    /**
+     * @dev Play in lottery
+     */
+    function play() payable public returns (uint) {
+        return playSystem(uint(sha3(msg.sender,block.number)), address(0));
+    }
 
-    event GameStatus(
-    	uint8 houseScore,
-    	uint8 houseScoreBig,
-    	uint8 playerScore,
-    	uint8 playerScoreBig
-    );
+    /**
+     * @dev Play in lottery with random numbers
+     * @param _partner Affiliate partner
+     */
+    function playRandom(address _partner) payable public returns (uint) {
+        return playSystem(uint(sha3(msg.sender,block.number)), _partner);
+    }
 
-    event Log(
-    	uint8 value
-    );
+    /**
+     * @dev Play in lottery with own numbers
+     * @param _partner Affiliate partner
+     */
+    function playSystem(uint _hash, address _partner) payable public returns (uint) {
+        won(); // check if player did not win
+        uint24 bethash = uint24(_hash);
+        require(msg.value <= 1 ether && msg.value < hashBetMax);
+        if(msg.value > 0){
+            if(investStart==0) { // dividends only after investment finished
+                dividends[dividendPeriod] += msg.value / 20; // 5% dividend
+            }
+            if(_partner != address(0)) {
+                uint fee = msg.value / 100;
+                walletBalance += fee;
+                wallets[_partner].balance += uint208(fee); // 1% for affiliates
+            }
+            if(hashNext < block.number + 3) {
+                hashNext = block.number + 3;
+                hashBetSum = msg.value;
+            }
+            else{
+                if(hashBetSum > hashBetMax) {
+                    hashNext++;
+                    hashBetSum = msg.value;
+                }
+                else{
+                    hashBetSum += msg.value;
+                }
+            }
+            bets[msg.sender] = Bet({value: uint192(msg.value), betHash: uint32(bethash), blockNum: uint32(hashNext)});
+            LogBet(msg.sender,uint(bethash),hashNext,msg.value);
+        }
+        putHash(); // players help collecing data
+        return(hashNext);
+    }
 
-	function BlackJack() {
+/* database functions */
 
-	}
+    /**
+     * @dev Create hash data swap space
+     * @param _sadd Number of hashes to add (<=256)
+     */
+    function addHashes(uint _sadd) public returns (uint) {
+        require(hashFirst == 0 && _sadd > 0 && _sadd <= hashesSize);
+        uint n = hashes.length;
+        if(n + _sadd > hashesSize){
+            hashes.length = hashesSize;
+        }
+        else{
+            hashes.length += _sadd;
+        }
+        for(;n<hashes.length;n++){ // make sure to burn gas
+            hashes[n] = 1;
+        }
+        if(hashes.length>=hashesSize) { // assume block.number > 10
+            hashFirst = block.number - ( block.number % 10);
+            hashLast = hashFirst;
+        }
+        return(hashes.length);
+    }
 
-	function () payable {
+    /**
+     * @dev Create hash data swap space, add 128 hashes
+     */
+    function addHashes128() external returns (uint) {
+        return(addHashes(128));
+    }
 
-	}
+    function calcHashes(uint32 _lastb, uint32 _delta) constant private returns (uint) {
+        // <yes> <report> BAD_RANDOMNESS
+        return( ( uint(block.blockhash(_lastb  )) & 0xFFFFFF )
+        // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+1)) & 0xFFFFFF ) << 24 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+2)) & 0xFFFFFF ) << 48 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+3)) & 0xFFFFFF ) << 72 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+4)) & 0xFFFFFF ) << 96 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+5)) & 0xFFFFFF ) << 120 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+6)) & 0xFFFFFF ) << 144 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+7)) & 0xFFFFFF ) << 168 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+8)) & 0xFFFFFF ) << 192 )
+            // <yes> <report> BAD_RANDOMNESS
+            | ( ( uint(block.blockhash(_lastb+9)) & 0xFFFFFF ) << 216 )
+            | ( ( uint(_delta) / hashesSize) << 240));
+    }
 
-	// starts a new game
-	function deal() public payable {
-		if (games[msg.sender].player != 0 && games[msg.sender].state == GameState.Ongoing) {
-			throw; // game is already going on
-		}
+    function getHash(uint _block) constant private returns (uint32) {
+        uint delta = (_block - hashFirst) / 10;
+        uint hash = hashes[delta % hashesSize];
+        if(delta / hashesSize != hash >> 240) {
+            return(0x1000000); // load failed, incorrect data in hashes
+        }
+        uint slotp = (_block - hashFirst) % 10;
+        return(uint32((hash >> (24 * slotp)) & 0xFFFFFF));
+    }
 
-		if (msg.value < minBet || msg.value > maxBet) {
-			throw; // incorrect bet
-		}
+    /**
+     * @dev Fill hash data
+     */
+    function putHash() public returns (bool) {
+        uint lastb = hashLast;
+        if(lastb == 0 || block.number <= lastb + 10) {
+            return(false);
+        }
+        uint blockn256;
+        if(block.number<256) { // useless test for testnet :-(
+            blockn256 = 0;
+        }
+        else{
+            blockn256 = block.number - 256;
+        }
+        if(lastb < blockn256) {
+            uint num = blockn256;
+            num += num % 10;
+            lastb = num;
+        }
+        uint delta = (lastb - hashFirst) / 10;
+        hashes[delta % hashesSize] = calcHashes(uint32(lastb),uint32(delta));
+        hashLast = lastb + 10;
+        return(true);
+    }
 
-		uint8[] memory houseCards = new uint8[](1);
-		uint8[] memory playerCards = new uint8[](2);
-
-		// deal the cards
-		playerCards[0] = Deck.deal(msg.sender, 0);
-		Deal(true, playerCards[0]);
-		houseCards[0] = Deck.deal(msg.sender, 1);
-		Deal(false, houseCards[0]);
-		playerCards[1] = Deck.deal(msg.sender, 2);
-		Deal(true, playerCards[1]);
-
-		games[msg.sender] = Game({
-			player: msg.sender,
-			bet: msg.value,
-			houseCards: houseCards,
-			playerCards: playerCards,
-			state: GameState.Ongoing,
-			cardsDealt: 3
-		});
-
-		checkGameResult(games[msg.sender], false);
-	}
-
-	// deals one more card to the player
-	function hit() public gameIsGoingOn {
-		uint8 nextCard = games[msg.sender].cardsDealt;
-		games[msg.sender].playerCards.push(Deck.deal(msg.sender, nextCard));
-		games[msg.sender].cardsDealt = nextCard + 1;
-		Deal(true, games[msg.sender].playerCards[games[msg.sender].playerCards.length - 1]);
-		checkGameResult(games[msg.sender], false);
-	}
-
-	// finishes the game
-	function stand() public gameIsGoingOn {
-
-		var (houseScore, houseScoreBig) = calculateScore(games[msg.sender].houseCards);
-
-		while (houseScoreBig < 17) {
-			uint8 nextCard = games[msg.sender].cardsDealt;
-			uint8 newCard = Deck.deal(msg.sender, nextCard);
-			games[msg.sender].houseCards.push(newCard);
-			games[msg.sender].cardsDealt = nextCard + 1;
-			houseScoreBig += Deck.valueOf(newCard, true);
-			Deal(false, newCard);
-		}
-
-		checkGameResult(games[msg.sender], true);
-	}
-
-	// @param finishGame - whether to finish the game or not (in case of Blackjack the game finishes anyway)
-	function checkGameResult(Game game, bool finishGame) private {
-		// calculate house score
-		var (houseScore, houseScoreBig) = calculateScore(game.houseCards);
-		// calculate player score
-		var (playerScore, playerScoreBig) = calculateScore(game.playerCards);
-
-		GameStatus(houseScore, houseScoreBig, playerScore, playerScoreBig);
-
-		if (houseScoreBig == BLACKJACK || houseScore == BLACKJACK) {
-			if (playerScore == BLACKJACK || playerScoreBig == BLACKJACK) {
-				// TIE
-				if (!msg.sender.send(game.bet)) throw; // return bet to the player
-				games[msg.sender].state = GameState.Tie; // finish the game
-				return;
-			} else {
-				// HOUSE WON
-				games[msg.sender].state = GameState.House; // simply finish the game
-				return;
-			}
-		} else {
-			if (playerScore == BLACKJACK || playerScoreBig == BLACKJACK) {
-				// PLAYER WON
-				if (game.playerCards.length == 2 && (Deck.isTen(game.playerCards[0]) || Deck.isTen(game.playerCards[1]))) {
-					// Natural blackjack => return x2.5
-					if (!msg.sender.send((game.bet * 5) / 2)) throw; // send prize to the player
-				} else {
-					// Usual blackjack => return x2
-					if (!msg.sender.send(game.bet * 2)) throw; // send prize to the player
-				}
-				games[msg.sender].state = GameState.Player; // finish the game
-				return;
-			} else {
-
-				if (playerScore > BLACKJACK) {
-					// BUST, HOUSE WON
-					Log(1);
-					games[msg.sender].state = GameState.House; // finish the game
-					return;
-				}
-
-				if (!finishGame) {
-					return; // continue the game
-				}
-
-                // недобор
-				uint8 playerShortage = 0;
-				uint8 houseShortage = 0;
-
-				// player decided to finish the game
-				if (playerScoreBig > BLACKJACK) {
-					if (playerScore > BLACKJACK) {
-						// HOUSE WON
-						games[msg.sender].state = GameState.House; // simply finish the game
-						return;
-					} else {
-						playerShortage = BLACKJACK - playerScore;
-					}
-				} else {
-					playerShortage = BLACKJACK - playerScoreBig;
-				}
-
-				if (houseScoreBig > BLACKJACK) {
-					if (houseScore > BLACKJACK) {
-						// PLAYER WON
-						if (!msg.sender.send(game.bet * 2)) throw; // send prize to the player
-						games[msg.sender].state = GameState.Player;
-						return;
-					} else {
-						houseShortage = BLACKJACK - houseScore;
-					}
-				} else {
-					houseShortage = BLACKJACK - houseScoreBig;
-				}
-
-                // ?????????????????????? почему игра заканчивается?
-				if (houseShortage == playerShortage) {
-					// TIE
-					if (!msg.sender.send(game.bet)) throw; // return bet to the player
-					games[msg.sender].state = GameState.Tie;
-				} else if (houseShortage > playerShortage) {
-					// PLAYER WON
-					if (!msg.sender.send(game.bet * 2)) throw; // send prize to the player
-					games[msg.sender].state = GameState.Player;
-				} else {
-					games[msg.sender].state = GameState.House;
-				}
-			}
-		}
-	}
-
-	function calculateScore(uint8[] cards) private constant returns (uint8, uint8) {
-		uint8 score = 0;
-		uint8 scoreBig = 0; // in case of Ace there could be 2 different scores
-		bool bigAceUsed = false;
-		for (uint i = 0; i < cards.length; ++i) {
-			uint8 card = cards[i];
-			if (Deck.isAce(card) && !bigAceUsed) { // doesn't make sense to use the second Ace as 11, because it leads to the losing
-				scoreBig += Deck.valueOf(card, true);
-				bigAceUsed = true;
-			} else {
-				scoreBig += Deck.valueOf(card, false);
-			}
-			score += Deck.valueOf(card, false);
-		}
-		return (score, scoreBig);
-	}
-
-	function getPlayerCard(uint8 id) public gameIsGoingOn constant returns(uint8) {
-		if (id < 0 || id > games[msg.sender].playerCards.length) {
-			throw;
-		}
-		return games[msg.sender].playerCards[id];
-	}
-
-	function getHouseCard(uint8 id) public gameIsGoingOn constant returns(uint8) {
-		if (id < 0 || id > games[msg.sender].houseCards.length) {
-			throw;
-		}
-		return games[msg.sender].houseCards[id];
-	}
-
-	function getPlayerCardsNumber() public gameIsGoingOn constant returns(uint) {
-		return games[msg.sender].playerCards.length;
-	}
-
-	function getHouseCardsNumber() public gameIsGoingOn constant returns(uint) {
-		return games[msg.sender].houseCards.length;
-	}
-
-	function getGameState() public constant returns (uint8) {
-		if (games[msg.sender].player == 0) {
-			throw; // game doesn't exist
-		}
-
-		Game game = games[msg.sender];
-
-		if (game.state == GameState.Player) {
-			return 1;
-		}
-		if (game.state == GameState.House) {
-			return 2;
-		}
-		if (game.state == GameState.Tie) {
-			return 3;
-		}
-
-		return 0; // the game is still going on
-	}
+    /**
+     * @dev Fill hash data many times
+     * @param _num Number of iterations
+     */
+    function putHashes(uint _num) external {
+        uint n=0;
+        for(;n<_num;n++){
+            if(!putHash()){
+                return;
+            }
+        }
+    }
 
 }

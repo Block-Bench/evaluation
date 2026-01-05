@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Run LLM Judge evaluation on GS (Gold Standard) detection outputs.
+Enhanced with protocol context, extra contract files, and chain-of-thought reasoning.
 """
 
 import argparse
@@ -12,13 +13,160 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Import judge components from existing script
+# Import judge components from existing script - use the ORIGINAL prompt
 from scripts.run_llm_judge_detection import (
     JUDGE_SYSTEM_PROMPT,
     JUDGE_CALLERS,
     parse_json_response,
-    get_judge_user_prompt,
 )
+
+
+# ============================================================================
+# USE ORIGINAL PROMPT - No modifications to system prompt
+# Protocol context and extra files are added to USER prompt only
+# ============================================================================
+GS_JUDGE_SYSTEM_PROMPT = JUDGE_SYSTEM_PROMPT
+
+
+def load_context_files(sample_id: str) -> list[dict]:
+    """Load extra contract files for a sample if they exist."""
+    context_dir = PROJECT_ROOT / f"samples/gs/contracts/context/{sample_id}"
+    if not context_dir.exists():
+        return []
+
+    context_files = []
+    for ctx_file in sorted(context_dir.glob('*.sol')):
+        context_files.append({
+            'name': ctx_file.name,
+            'code': ctx_file.read_text()
+        })
+    return context_files
+
+
+def get_gs_judge_user_prompt(code: str, ground_truth: dict, detection: dict,
+                              protocol_context: str, context_files: list[dict]) -> str:
+    """Build the user prompt for GS judge evaluation with protocol context and extra files."""
+
+    # Format ground truth
+    gt_type = ground_truth.get("vulnerability_type", "unknown")
+    gt_funcs = ground_truth.get("vulnerable_functions", [])
+    gt_severity = ground_truth.get("severity", "unknown")
+    gt_desc = ground_truth.get("description", "No description")
+    gt_root_cause = ground_truth.get("root_cause", "Not specified")
+    gt_attack = ground_truth.get("attack_scenario", "Not specified")
+    gt_fix = ground_truth.get("fix_description", "Not specified")
+
+    # Format detection findings
+    prediction = detection.get("prediction", {})
+    verdict = prediction.get("verdict", "unknown")
+    confidence = prediction.get("confidence", "not specified")
+    vulnerabilities = prediction.get("vulnerabilities", [])
+
+    findings_text = ""
+    for i, v in enumerate(vulnerabilities):
+        findings_text += f"""
+### Finding {i}
+- **Type**: {v.get('type', 'unspecified')}
+- **Severity**: {v.get('severity', 'unspecified')}
+- **Location**: {v.get('location', 'unspecified')}
+- **Explanation**: {v.get('explanation', 'none')}
+- **Attack Scenario**: {v.get('attack_scenario', 'none')}
+- **Suggested Fix**: {v.get('suggested_fix', 'none')}
+"""
+
+    if not findings_text:
+        findings_text = "No findings reported."
+
+    # === NEW: Format extra context files ===
+    context_files_text = ""
+    if context_files:
+        context_files_text = "\n\n## Additional Contract Files (for context)\n"
+        for cf in context_files:
+            context_files_text += f"""
+### {cf['name']}
+```solidity
+{cf['code']}
+```
+"""
+
+    # === NEW: Protocol context section ===
+    protocol_section = ""
+    if protocol_context and protocol_context != "No protocol context available.":
+        protocol_section = f"""## Protocol Context
+
+{protocol_context}
+
+---
+
+"""
+
+    return f"""{protocol_section}## Smart Contract Code
+
+```solidity
+{code}
+```
+{context_files_text}
+---
+
+## Ground Truth (TARGET Vulnerability)
+
+- **Type**: {gt_type}
+- **Vulnerable Function(s)**: {', '.join(gt_funcs) if gt_funcs else 'Not specified'}
+- **Severity**: {gt_severity}
+- **Description**: {gt_desc}
+- **Root Cause**: {gt_root_cause}
+- **Attack Scenario**: {gt_attack}
+- **Recommended Fix**: {gt_fix}
+
+CRITICAL: For TARGET_MATCH, the finding must:
+1. Be about the SAME function(s): {', '.join(gt_funcs) if gt_funcs else 'Not specified'}
+2. Identify the SAME root cause: {gt_root_cause}
+3. Use matching vulnerability type (exact or semantic match to "{gt_type}")
+
+---
+
+## Security Audit Findings to Evaluate
+
+- **Verdict**: {verdict}
+- **Confidence**: {confidence}
+- **Number of Findings**: {len(vulnerabilities)}
+
+{findings_text}
+
+## Your Evaluation
+
+Respond with JSON:
+
+```json
+{{
+  "overall_verdict": {{
+    "said_vulnerable": true | false | null,
+    "confidence_expressed": <float or null>
+  }},
+  "findings": [
+    {{
+      "finding_id": <0-based index>,
+      "vulnerability_type_claimed": "<type or null>",
+      "location_claimed": "<location or null>",
+      "classification": "<TARGET_MATCH | PARTIAL_MATCH | BONUS_VALID | HALLUCINATED | MISCHARACTERIZED | DESIGN_CHOICE | OUT_OF_SCOPE | SECURITY_THEATER | INFORMATIONAL>",
+      "reasoning": "<your explanation>"
+    }}
+  ],
+  "target_assessment": {{
+    "found": true | false,
+    "finding_id": <id or null>,
+    "location_match": true | false,
+    "root_cause_match": true | false,
+    "type_match": "exact | semantic | partial | wrong | not_mentioned",
+    "root_cause_identification": {{"score": <0.0-1.0>, "reasoning": "<why>"}} | null,
+    "attack_vector_validity": {{"score": <0.0-1.0>, "reasoning": "<why>"}} | null,
+    "fix_suggestion_validity": {{"score": <0.0-1.0>, "reasoning": "<why>"}} | null
+  }},
+  "notes": "<optional observations>"
+}}
+```
+
+Only TARGET_MATCH if ALL THREE: location match + root cause match + type match (exact/semantic)."""
 
 
 def run_judge_on_gs_sample(
@@ -28,7 +176,7 @@ def run_judge_on_gs_sample(
     judge: str = "codestral",
     verbose: bool = False
 ) -> dict:
-    """Run judge evaluation on a single GS detection output."""
+    """Run judge evaluation on a single GS detection output with protocol context and extra files."""
 
     # Load detection output
     detection_path = PROJECT_ROOT / f"results/detection/llm/{detector_model}/gs/{prompt_type}/d_{sample_id}.json"
@@ -45,13 +193,26 @@ def run_judge_on_gs_sample(
     with open(code_path) as f:
         code = f.read()
 
+    # NEW: Load protocol context
+    context_path = PROJECT_ROOT / f"samples/gs/protocol_context_doc/{sample_id}_context.txt"
+    if context_path.exists():
+        with open(context_path) as f:
+            protocol_context = f.read()
+    else:
+        protocol_context = ""
+
+    # NEW: Load extra contract files
+    context_files = load_context_files(sample_id)
+
     if verbose:
         print(f"Loaded: {sample_id}")
         print(f"  Detection: {len(detection.get('prediction', {}).get('vulnerabilities', []))} findings")
         print(f"  Ground truth: {ground_truth.get('vulnerability_type', 'unknown')}")
+        print(f"  Protocol context: {'Yes' if protocol_context else 'No'}")
+        print(f"  Extra contract files: {len(context_files)}")
 
-    # Build prompts
-    user_prompt = get_judge_user_prompt(code, ground_truth, detection)
+    # Build prompts with protocol context and extra files
+    user_prompt = get_gs_judge_user_prompt(code, ground_truth, detection, protocol_context, context_files)
 
     # Call judge
     timestamp = datetime.now(timezone.utc).isoformat()
@@ -60,7 +221,7 @@ def run_judge_on_gs_sample(
         raise ValueError(f"Unknown judge: {judge}. Available: {list(JUDGE_CALLERS.keys())}")
 
     try:
-        raw_response, latency_ms = judge_caller(JUDGE_SYSTEM_PROMPT, user_prompt)
+        raw_response, latency_ms = judge_caller(GS_JUDGE_SYSTEM_PROMPT, user_prompt)
 
         if verbose:
             print(f"  Response received: {latency_ms:.0f}ms")
