@@ -1,0 +1,72 @@
+{
+  "sample_id": "gs_003",
+  "dataset": "gs",
+  "prompt_type": "context_protocol_cot_naturalistic",
+  "detector_model": "gpt-5.2",
+  "judge_model": "mimo-v2-flash",
+  "timestamp": "2026-01-05T20:17:38.711820+00:00",
+  "overall_verdict": {
+    "said_vulnerable": true,
+    "confidence_expressed": 0.74
+  },
+  "findings": [
+    {
+      "finding_id": 0,
+      "vulnerability_type_claimed": "Accounting mismatch with fee-on-transfer / rebasing staking token",
+      "location_claimed": "User interaction: _deposit credits `amount` before verifying actual received; withdrawals assume 1:1 TOKEN backing",
+      "classification": "BONUS_VALID",
+      "reasoning": "This is a real, distinct vulnerability. The contract credits `amount` but if TOKEN is fee-on-transfer, it receives less. This leads to insolvency where internal accounting exceeds actual balance, preventing later withdrawals. The attack scenario is concrete (deposit 100, receive 99, aggregate mismatch causes withdrawal failures). It does not require a trusted role compromise. It is not the target vulnerability."
+    },
+    {
+      "finding_id": 1,
+      "vulnerability_type_claimed": "Lock/maturity logic appears non-functional (always mature)",
+      "location_claimed": "Withdraw path: `require(block.timestamp >= maturityTime[msg.sender], \"!MATURE\");` but `maturityTime` is never set",
+      "classification": "BONUS_VALID",
+      "reasoning": "This is a real, distinct vulnerability. `maturityTime` is never initialized (defaults to 0), so the maturity check `require(block.timestamp >= maturityTime[msg.sender])` always passes. If the protocol intends a lockup, it is broken. The attack scenario is concrete (users can withdraw immediately, breaking anti-mercenary mechanics). It is not the target vulnerability."
+    },
+    {
+      "finding_id": 2,
+      "vulnerability_type_claimed": "Emergency withdrawals bypass reward accounting (users likely lose rewards; state becomes inconsistent with intent)",
+      "location_claimed": "Emergency path does not call `updateReward(msg.sender)` and does not adjust `userRewardPerTokenPaid`",
+      "classification": "TARGET_MATCH",
+      "reasoning": "This finding correctly identifies the target vulnerability. Location matches (`emergencyWithdraw`). Root cause matches: emergency path bypasses `updateReward`, causing users to lose accrued rewards because `earned()` relies on current balance (which becomes 0) and uncheckpointed accrual is lost. Type 'logic_error' is semantically matched by 'Emergency withdrawals bypass reward accounting'."
+    },
+    {
+      "finding_id": 3,
+      "vulnerability_type_claimed": "Incorrect zero-address validation (always true)",
+      "location_claimed": "Owner function: `require(_int >= address(0), \"ZA\");`",
+      "classification": "BONUS_VALID",
+      "reasoning": "This is a real, distinct vulnerability. `_int >= address(0)` is always true, allowing `internal_bribe` to be set to zero, which breaks fee forwarding. It requires owner action/compromise but is a valid bug. It is not the target vulnerability."
+    },
+    {
+      "finding_id": 4,
+      "vulnerability_type_claimed": "Fragile allowance pattern / potential compatibility issues",
+      "location_claimed": "Harvest path: `IERC20(rewardToken).safeApprove(rHYBR, reward);` without first setting allowance to 0",
+      "classification": "BONUS_VALID",
+      "reasoning": "This is a real, distinct vulnerability. `safeApprove` can revert if allowance is non-zero for some tokens, blocking harvests. The attack scenario is concrete (if allowance isn't consumed fully, subsequent harvests revert). It is not the target vulnerability."
+    }
+  ],
+  "target_assessment": {
+    "found": true,
+    "finding_id": 2,
+    "location_match": true,
+    "root_cause_match": true,
+    "type_match": "semantic",
+    "root_cause_identification": {
+      "score": 1.0,
+      "reasoning": "Finding 2 explicitly identifies that emergency withdrawals bypass `updateReward`, leading to loss of uncheckpointed rewards because `earned()` uses current balance. This is a precise match to the ground truth root cause."
+    },
+    "attack_vector_validity": {
+      "score": 1.0,
+      "reasoning": "The finding describes a concrete scenario: user exits via emergency withdraw, later calls getReward, and loses rewards because the accrual since the last update was never checkpointed. This matches the ground truth scenario."
+    },
+    "fix_suggestion_validity": {
+      "score": 1.0,
+      "reasoning": "The finding suggests calling `updateReward(msg.sender)` before mutating balances in emergency withdrawals to preserve earned rewards. This is a correct and direct fix for the issue."
+    }
+  },
+  "summary": {},
+  "notes": "The LLM provided 5 findings, all of which are valid vulnerabilities. Finding 2 is the TARGET_MATCH. The other 4 are BONUS_VALID. The LLM successfully identified the target vulnerability with high precision.",
+  "judge_latency_ms": 9313.563108444214,
+  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.74\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"vulnerability_type_claimed\": \"Accounting mismatch with fee-on-transfer / rebasing staking token\",\n      \"location_claimed\": \"User interaction: _deposit credits `amount` before verifying actual received; withdrawals assume 1:1 TOKEN backing\",\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This is a real, distinct vulnerability. The contract credits `amount` but if TOKEN is fee-on-transfer, it receives less. This leads to insolvency where internal accounting exceeds actual balance, preventing later withdrawals. The attack scenario is concrete (deposit 100, receive 99, aggregate mismatch causes withdrawal failures). It does not require a trusted role compromise. It is not the target vulnerability.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"vulnerability_type_claimed\": \"Lock/maturity logic appears non-functional (always mature)\",\n      \"location_claimed\": \"Withdraw path: `require(block.timestamp >= maturityTime[msg.sender], \\\"!MATURE\\\");` but `maturityTime` is never set\",\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This is a real, distinct vulnerability. `maturityTime` is never initialized (defaults to 0), so the maturity check `require(block.timestamp >= maturityTime[msg.sender])` always passes. If the protocol intends a lockup, it is broken. The attack scenario is concrete (users can withdraw immediately, breaking anti-mercenary mechanics). It is not the target vulnerability.\"\n    },\n    {\n      \"finding_id\": 2,\n      \"vulnerability_type_claimed\": \"Emergency withdrawals bypass reward accounting (users likely lose rewards; state becomes inconsistent with intent)\",\n      \"location_claimed\": \"Emergency path does not call `updateReward(msg.sender)` and does not adjust `userRewardPerTokenPaid`\",\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding correctly identifies the target vulnerability. Location matches (`emergencyWithdraw`). Root cause matches: emergency path bypasses `updateReward`, causing users to lose accrued rewards because `earned()` relies on current balance (which becomes 0) and uncheckpointed accrual is lost. Type 'logic_error' is semantically matched by 'Emergency withdrawals bypass reward accounting'.\"\n    },\n    {\n      \"finding_id\": 3,\n      \"vulnerability_type_claimed\": \"Incorrect zero-address validation (always true)\",\n      \"location_claimed\": \"Owner function: `require(_int >= address(0), \\\"ZA\\\");`\",\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This is a real, distinct vulnerability. `_int >= address(0)` is always true, allowing `internal_bribe` to be set to zero, which breaks fee forwarding. It requires owner action/compromise but is a valid bug. It is not the target vulnerability.\"\n    },\n    {\n      \"finding_id\": 4,\n      \"vulnerability_type_claimed\": \"Fragile allowance pattern / potential compatibility issues\",\n      \"location_claimed\": \"Harvest path: `IERC20(rewardToken).safeApprove(rHYBR, reward);` without first setting allowance to 0\",\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This is a real, distinct vulnerability. `safeApprove` can revert if allowance is non-zero for some tokens, blocking harvests. The attack scenario is concrete (if allowance isn't consumed fully, subsequent harvests revert). It is not the target vulnerability.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 2,\n    \"location_match\": true,\n    \"root_cause_match\": true,\n    \"type_match\": \"semantic\",\n    \"root_cause_identification\": {\n      \"score\": 1.0,\n      \"reasoning\": \"Finding 2 explicitly identifies that emergency withdrawals bypass `updateReward`, leading to loss of uncheckpointed rewards because `earned()` uses current balance. This is a precise match to the ground truth root cause.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The finding describes a concrete scenario: user exits via emergency withdraw, later calls getReward, and loses rewards because the accrual since the last update was never checkpointed. This matches the ground truth scenario.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The finding suggests calling `updateReward(msg.sender)` before mutating balances in emergency withdrawals to preserve earned rewards. This is a correct and direct fix for the issue.\"\n    }\n  },\n  \"notes\": \"The LLM provided 5 findings, all of which are valid vulnerabilities. Finding 2 is the TARGET_MATCH. The other 4 are BONUS_VALID. The LLM successfully identified the target vulnerability with high precision.\"\n}\n```"
+}

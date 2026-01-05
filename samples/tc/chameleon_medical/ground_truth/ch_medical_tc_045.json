@@ -2,12 +2,20 @@
   "is_vulnerable": true,
   "vulnerability_type": "oracle_manipulation",
   "vulnerable_functions": [
+    "previewDebt",
+    "previewMultipleMarkets",
+    "borrow",
     "previewOutstandingbalance"
   ],
   "severity": "critical",
   "description": "Exactly Protocol lost $12M when attackers exploited the DebtPreviewer helper contract. By providing a malicious market address in the debt calculation, they manipulated their perceived collateral value, allowing over-borrowing far exceeding actual collateral.",
-  "root_cause": "",
-  "attack_scenario": "",
-  "fix_description": "",
-  "language": "solidity"
+  "root_cause": "DebtPreviewer trusted user-provided market addresses without validation, allowing fake market data injection\n\nKey Weaknesses: User-provided market addresses unvalidated; Trusts data from arbitrary contracts; No market whitelist or registry",
+  "attack_scenario": "Deploy malicious market returning fake collateral, pass to previewer in borrow check, over-borrow\n\nAttack Flow: Deploy malicious market contract returning fake data \u2192 MaliciousMarket.getAccountSnapshot() returns 1M ETH collateral, 0 debt \u2192 Deposit small real collateral: deposit(10 ETH) worth ~$20K \u2192 Call borrow with mixed markets array: [realMarket, maliciousMarket] \u2192 DebtPreviewer calculates totalCollateral = 10 + 1M = 1,000,010 ETH \u2192 Borrow check: maxBorrow = 1M ETH * 80% = 800K ETH allowed \u2192 Borrow maximum available liquidity: 5M USDC, 3K ETH, 4M DAI \u2192 Total borrowed: ~$12M against $20K real collateral \u2192 Transfer borrowed assets to external wallet \u2192 Abandon position leaving minimal collateral",
+  "fix_description": "Whitelist approved markets: require(approvedMarkets[market]); Query markets directly from protocol, not external previewer; Integrate trusted price oracle for valuations",
+  "language": "solidity",
+  "vulnerable_lines": [
+    39,
+    110
+  ],
+  "sub_category": "malicious_market"
 }

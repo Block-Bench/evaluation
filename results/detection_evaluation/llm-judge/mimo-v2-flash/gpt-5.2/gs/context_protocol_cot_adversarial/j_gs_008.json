@@ -1,0 +1,56 @@
+{
+  "sample_id": "gs_008",
+  "dataset": "gs",
+  "prompt_type": "context_protocol_cot_adversarial",
+  "detector_model": "gpt-5.2",
+  "judge_model": "mimo-v2-flash",
+  "timestamp": "2026-01-05T20:22:54.264918+00:00",
+  "overall_verdict": {
+    "said_vulnerable": true,
+    "confidence_expressed": 0.82
+  },
+  "findings": [
+    {
+      "finding_id": 0,
+      "vulnerability_type_claimed": "Incorrect share minting / deposit dilution",
+      "location_claimed": "GrowthHYBR.deposit(uint256,address)",
+      "classification": "MISCHARACTERIZED",
+      "reasoning": "The finding claims deposit() mints shares incorrectly by using post-deposit totalAssets. However, the code calculates shares BEFORE the deposit is added to the veNFT (line 133: calculateShares(amount) is called before line 134: _mint()). The deposit into the veNFT happens in lines 121-129. The share calculation uses the current totalAssets (which does not yet include the new deposit) and current totalSupply. This is the correct ERC4626-style minting logic. The finding is incorrect."
+    },
+    {
+      "finding_id": 1,
+      "vulnerability_type_claimed": "Allowance handling bug causing compounding to revert",
+      "location_claimed": "GrowthHYBR._initializeVeNFT(uint256) and GrowthHYBR.compound()",
+      "classification": "BONUS_VALID",
+      "reasoning": "This is a valid, distinct vulnerability. The code uses SafeERC20.safeApprove in compound() (line 335), which reverts if the current allowance is non-zero. _initializeVeNFT() sets a max allowance (line 159), which is not fully consumed by create_lock_for(). This leaves a non-zero allowance. Subsequent compound() calls will revert. The attack scenario is concrete: first deposit initializes max allowance, rewards accumulate, compound() reverts, breaking auto-compounding. The fix (using forceApprove or approve(0) then approve(x)) is valid. This meets all criteria for a BONUS_VALID finding."
+    },
+    {
+      "finding_id": 2,
+      "vulnerability_type_claimed": "Withdraw can be permanently blocked if Team is unset or not an ERC721Receiver",
+      "location_claimed": "GrowthHYBR.withdraw(uint256)",
+      "classification": "BONUS_VALID",
+      "reasoning": "This is a valid, distinct vulnerability. withdraw() calls safeTransferFrom(address(this), Team, feeTokenId) (line 195). If Team is address(0) or a contract not implementing ERC721Receiver, this reverts. Since withdrawFee is non-zero by default (100) and cannot be set below 10, this path is always taken. This blocks all withdrawals globally until admin sets Team. The attack scenario is concrete: admin forgets to set Team, users are stuck. The fix (require Team != 0, check receiver capability) is valid. This meets all criteria for a BONUS_VALID finding."
+    },
+    {
+      "finding_id": 3,
+      "vulnerability_type_claimed": "Swapper approval DoS if swap reverts before approval reset",
+      "location_claimed": "GrowthHYBR.executeSwap(ISwapper.SwapParams)",
+      "classification": "BONUS_VALID",
+      "reasoning": "This is a valid, distinct vulnerability. executeSwap() uses safeApprove (line 315), calls swapper.swapToHYBR() (line 318), then resets to 0 (line 321). If the swap reverts, the reset is skipped, leaving a non-zero allowance. Future executeSwap() calls revert at safeApprove. The attack scenario is concrete: a swap reverts (e.g., bad route), future swaps for that token are DoSed. The fix (forceApprove pattern) is valid. This meets all criteria for a BONUS_VALID finding."
+    }
+  ],
+  "target_assessment": {
+    "found": false,
+    "finding_id": null,
+    "location_match": false,
+    "root_cause_match": false,
+    "type_match": "not_mentioned",
+    "root_cause_identification": null,
+    "attack_vector_validity": null,
+    "fix_suggestion_validity": null
+  },
+  "summary": {},
+  "notes": "The LLM output contains 4 findings, all classified as BONUS_VALID or MISCHARACTERIZED. None of the findings identify the TARGET vulnerability (the logic error in claimRewards where poolVote is incorrectly called as a function instead of a mapping). The model completely missed the target issue but found 3 real, distinct vulnerabilities (Findings 1, 2, 3) and incorrectly characterized one (Finding 0).",
+  "judge_latency_ms": 10530.92098236084,
+  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.82\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"vulnerability_type_claimed\": \"Incorrect share minting / deposit dilution\",\n      \"location_claimed\": \"GrowthHYBR.deposit(uint256,address)\",\n      \"classification\": \"MISCHARACTERIZED\",\n      \"reasoning\": \"The finding claims deposit() mints shares incorrectly by using post-deposit totalAssets. However, the code calculates shares BEFORE the deposit is added to the veNFT (line 133: calculateShares(amount) is called before line 134: _mint()). The deposit into the veNFT happens in lines 121-129. The share calculation uses the current totalAssets (which does not yet include the new deposit) and current totalSupply. This is the correct ERC4626-style minting logic. The finding is incorrect.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"vulnerability_type_claimed\": \"Allowance handling bug causing compounding to revert\",\n      \"location_claimed\": \"GrowthHYBR._initializeVeNFT(uint256) and GrowthHYBR.compound()\",\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This is a valid, distinct vulnerability. The code uses SafeERC20.safeApprove in compound() (line 335), which reverts if the current allowance is non-zero. _initializeVeNFT() sets a max allowance (line 159), which is not fully consumed by create_lock_for(). This leaves a non-zero allowance. Subsequent compound() calls will revert. The attack scenario is concrete: first deposit initializes max allowance, rewards accumulate, compound() reverts, breaking auto-compounding. The fix (using forceApprove or approve(0) then approve(x)) is valid. This meets all criteria for a BONUS_VALID finding.\"\n    },\n    {\n      \"finding_id\": 2,\n      \"vulnerability_type_claimed\": \"Withdraw can be permanently blocked if Team is unset or not an ERC721Receiver\",\n      \"location_claimed\": \"GrowthHYBR.withdraw(uint256)\",\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This is a valid, distinct vulnerability. withdraw() calls safeTransferFrom(address(this), Team, feeTokenId) (line 195). If Team is address(0) or a contract not implementing ERC721Receiver, this reverts. Since withdrawFee is non-zero by default (100) and cannot be set below 10, this path is always taken. This blocks all withdrawals globally until admin sets Team. The attack scenario is concrete: admin forgets to set Team, users are stuck. The fix (require Team != 0, check receiver capability) is valid. This meets all criteria for a BONUS_VALID finding.\"\n    },\n    {\n      \"finding_id\": 3,\n      \"vulnerability_type_claimed\": \"Swapper approval DoS if swap reverts before approval reset\",\n      \"location_claimed\": \"GrowthHYBR.executeSwap(ISwapper.SwapParams)\",\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This is a valid, distinct vulnerability. executeSwap() uses safeApprove (line 315), calls swapper.swapToHYBR() (line 318), then resets to 0 (line 321). If the swap reverts, the reset is skipped, leaving a non-zero allowance. Future executeSwap() calls revert at safeApprove. The attack scenario is concrete: a swap reverts (e.g., bad route), future swaps for that token are DoSed. The fix (forceApprove pattern) is valid. This meets all criteria for a BONUS_VALID finding.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": false,\n    \"finding_id\": null,\n    \"location_match\": false,\n    \"root_cause_match\": false,\n    \"type_match\": \"not_mentioned\",\n    \"root_cause_identification\": null,\n    \"attack_vector_validity\": null,\n    \"fix_suggestion_validity\": null\n  },\n  \"notes\": \"The LLM output contains 4 findings, all classified as BONUS_VALID or MISCHARACTERIZED. None of the findings identify the TARGET vulnerability (the logic error in claimRewards where poolVote is incorrectly called as a function instead of a mapping). The model completely missed the target issue but found 3 real, distinct vulnerabilities (Findings 1, 2, 3) and incorrectly characterized one (Finding 0).\"\n}\n```"
+}

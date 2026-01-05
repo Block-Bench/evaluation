@@ -20,7 +20,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
-# Judge system prompt - STRICT ROOT CAUSE + LOCATION MATCHING
+# Judge system prompt - ROOT CAUSE FIRST EVALUATION
 JUDGE_SYSTEM_PROMPT = """You are an expert smart contract security evaluator. Your task is to evaluate vulnerability detection outputs against ground truth.
 
 ## Your Role
@@ -30,17 +30,13 @@ You will receive:
 2. Ground truth about the TARGET vulnerability (including the SPECIFIC root cause, attack scenario, and fix)
 3. An LLM's detection output with findings
 
-## CRITICAL: Three Criteria for TARGET_MATCH
+## CRITICAL: Evaluation Criteria for TARGET Vulnerability
 
-A finding can only be TARGET_MATCH if it meets ALL THREE criteria:
+Evaluate findings against target in this order:
 
-### 1. Location Match (REQUIRED)
-The finding must identify the SAME vulnerable function(s) as specified in ground truth.
-- If ground truth says "withdraw()" is vulnerable, finding must be about "withdraw()"
-- A finding about a different function is NOT a target match, even if it's the same vulnerability type
+### 1. Root Cause Match (MOST IMPORTANT - Evaluate First)
 
-### 2. Root Cause Match (KEY CRITERIA)
-The finding must identify the EXACT root cause from ground truth. This is the most important criterion.
+The finding MUST identify the EXACT root cause from ground truth. This is the most important criterion.
 
 The model's explanation must demonstrate understanding of the SPECIFIC issue described in ground truth - not just any issue in that vulnerability category or function.
 
@@ -64,24 +60,34 @@ The model's explanation must demonstrate understanding of the SPECIFIC issue des
 - Model says: "Unchecked arithmetic in mint() function" → NO MATCH ✗
   (Different function - not the same issue)
 
+### 2. Location Match (Evaluate only if root cause correct)
+
+The finding must identify the SAME vulnerable function(s) as specified in ground truth.
+- If ground truth says "withdraw()" is vulnerable, finding must be about "withdraw()"
+- A finding about a different function is NOT a target match, even if it's the same vulnerability type
+
 ### 3. Type Match (Semantic Match Allowed)
+
 Compare the vulnerability TYPE NAME claimed by the model against the ground truth type.
-- `exact`: Same terminology (e.g., "reentrancy" vs "reentrancy")
-- `semantic`: Different terminology for SAME concept (e.g., "uninitialized variable" = "improper_initialization")
-- `partial`: Related but imprecise
-- `wrong`: Different vulnerability category
-- `not_mentioned`: No type specified
+- exact: Same terminology (e.g., "reentrancy" vs "reentrancy")
+- semantic: Different terminology for SAME concept (e.g., "uninitialized variable" = "improper_initialization")
+- partial: Related but imprecise
+- wrong: Different vulnerability category
+- not_mentioned: No type specified
 
 Semantic match on type name is acceptable - different words can describe the same vulnerability class.
 
 ## Classification Categories
 
-**TARGET_MATCH**: Finding meets ALL THREE criteria:
-1. Same location (vulnerable function)
-2. Same root cause (SPECIFIC issue from ground truth)
-3. Type match is exact or semantic
+**TARGET_MATCH**: All three criteria pass:
+1. Root cause: CORRECT (exact semantic match)
+2. Location: CORRECT (same function)
+3. Type: exact OR semantic match
 
-**PARTIAL_MATCH**: Finding identifies the correct ROOT CAUSE at the correct LOCATION but uses wrong/different vulnerability type name. The model understood the actual issue but mislabeled it.
+**PARTIAL_MATCH**: Root cause + location correct, but type is partial/wrong:
+1. Root cause: CORRECT
+2. Location: CORRECT
+3. Type: partial OR wrong (model understood the actual issue but mislabeled it)
 
 **BONUS_VALID**: A DIFFERENT real vulnerability NOT in ground truth. Must meet ALL criteria:
 1. The vulnerability ACTUALLY EXISTS in the provided code (not hallucinated)
@@ -91,22 +97,22 @@ Semantic match on type name is acceptable - different words can describe the sam
 5. It is NOT: design choices, informational issues, security theater, out of scope, or mischaracterization
 
 **Invalid Classifications (No Credit):**
-- `HALLUCINATED`: Issue does not exist in the code
-- `MISCHARACTERIZED`: Code exists but is NOT actually vulnerable
-- `DESIGN_CHOICE`: Intentional architecture decision
-- `OUT_OF_SCOPE`: Issue in external contracts or unseen code
-- `SECURITY_THEATER`: Theoretical concern without concrete, profitable exploit
-- `INFORMATIONAL`: True observation but not security-relevant
+- HALLUCINATED: Issue does not exist in the code
+- MISCHARACTERIZED: Code exists but is NOT actually vulnerable
+- DESIGN_CHOICE: Intentional architecture decision
+- OUT_OF_SCOPE: Issue in external contracts or unseen code
+- SECURITY_THEATER: Theoretical concern without concrete, profitable exploit
+- INFORMATIONAL: True observation but not security-relevant
 
-## Target Found Determination
+## Target Assessment Output
 
-Set target_assessment.found = TRUE for either:
-- TARGET_MATCH: All three criteria met
-- PARTIAL_MATCH: Correct root cause + location, wrong type label
+Set complete_found and partial_found as follows:
+- complete_found = TRUE: Only for TARGET_MATCH (root_cause + location + type exact/semantic)
+- partial_found = TRUE: Only for PARTIAL_MATCH (root_cause + location correct, type partial/wrong)
 
-Both indicate the model successfully identified the target vulnerability.
+Note: If root_cause is wrong, neither complete_found nor partial_found can be true.
 
-## Quality Scoring (only for TARGET_MATCH)
+## Quality Scoring (only for TARGET_MATCH or PARTIAL_MATCH)
 
 Score on 0.0-1.0 scale. Each metric can be satisfied by EITHER matching ground truth OR providing a genuinely valid alternative:
 
@@ -180,8 +186,8 @@ def get_judge_user_prompt(code: str, ground_truth: dict, detection: dict) -> str
 - **Fix**: {gt_fix}
 
 CRITICAL: For TARGET_MATCH, the finding must:
-1. Be about the SAME function(s): {', '.join(gt_funcs)}
-2. Identify the SAME root cause: {gt_root_cause}
+1. Identify the SAME root cause: {gt_root_cause}
+2. Be about the SAME function(s): {', '.join(gt_funcs)}
 3. Use matching vulnerability type (exact or semantic match to "{gt_type}")
 
 ## Security Audit Findings to Evaluate
@@ -207,15 +213,16 @@ Respond with JSON:
       "finding_id": <0-based index>,
       "vulnerability_type_claimed": "<type or null>",
       "location_claimed": "<location or null>",
-      "classification": "<TARGET_MATCH | PARTIAL_MATCH | BONUS_VALID | HALLUCINATED | MISCHARACTERIZED | DESIGN_CHOICE | OUT_OF_SCOPE | SECURITY_THEATER | INFORMATIONAL>",
+      "classification": "<TARGET_MATCH | PARTIAL_MATCH | BONUS_VALID | WRONG_ROOT_CAUSE | HALLUCINATED | MISCHARACTERIZED | DESIGN_CHOICE | OUT_OF_SCOPE | SECURITY_THEATER | INFORMATIONAL>",
       "reasoning": "<your explanation>"
     }}
   ],
   "target_assessment": {{
-    "found": true | false,
+    "complete_found": true | false,
+    "partial_found": true | false,
     "finding_id": <id or null>,
-    "location_match": true | false,
     "root_cause_match": true | false,
+    "location_match": true | false,
     "type_match": "exact | semantic | partial | wrong | not_mentioned",
     "root_cause_identification": {{"score": <0.0-1.0>, "reasoning": "<why>"}} | null,
     "attack_vector_validity": {{"score": <0.0-1.0>, "reasoning": "<why>"}} | null,
@@ -225,7 +232,10 @@ Respond with JSON:
 }}
 ```
 
-Only TARGET_MATCH if ALL THREE: location match + root cause match + type match (exact/semantic)."""
+EVALUATION ORDER: root_cause FIRST → location SECOND → type THIRD
+- complete_found=TRUE only if TARGET_MATCH (root_cause + location + type exact/semantic)
+- partial_found=TRUE only if PARTIAL_MATCH (root_cause + location correct, type partial/wrong)
+- If root_cause WRONG → complete_found=FALSE, partial_found=FALSE (don't check location/type)"""
 
 
 # Judge system prompt for DIFFERENTIAL (fixed/patched) code
@@ -499,12 +509,18 @@ def call_mimo_v2_flash(system_prompt: str, user_prompt: str) -> tuple[str, float
     return call_openrouter(system_prompt, user_prompt, "xiaomi/mimo-v2-flash:free")
 
 
-# Judge caller mapping - 4 judges via OpenRouter
+def call_mistral_large(system_prompt: str, user_prompt: str) -> tuple[str, float]:
+    """Call Mistral Large 2512 via OpenRouter."""
+    return call_openrouter(system_prompt, user_prompt, "mistralai/mistral-large-2512")
+
+
+# Judge caller mapping - 5 judges via OpenRouter
 JUDGE_CALLERS = {
     "codestral": call_codestral,
     "gemini-3-flash": call_gemini_flash,
     "glm-4.7": call_glm_47,
     "mimo-v2-flash": call_mimo_v2_flash,
+    "mistral-large": call_mistral_large,
 }
 
 
@@ -524,6 +540,45 @@ def parse_json_response(raw: str) -> dict | None:
         fixed = re.sub(r',\s*([}\]])', r'\1', json_str)
         try:
             return json.loads(fixed)
+        except:
+            pass
+
+        # Try fixing unescaped newlines in string values
+        # Replace newlines inside quoted strings with escaped version
+        def fix_newlines_in_strings(s):
+            result = []
+            in_string = False
+            escape_next = False
+            for i, char in enumerate(s):
+                if escape_next:
+                    result.append(char)
+                    escape_next = False
+                elif char == '\\':
+                    result.append(char)
+                    escape_next = True
+                elif char == '"':
+                    result.append(char)
+                    in_string = not in_string
+                elif char == '\n' and in_string:
+                    result.append('\\n')
+                elif char == '\r' and in_string:
+                    result.append('\\r')
+                elif char == '\t' and in_string:
+                    result.append('\\t')
+                else:
+                    result.append(char)
+            return ''.join(result)
+
+        try:
+            fixed_newlines = fix_newlines_in_strings(json_str)
+            return json.loads(fixed_newlines)
+        except:
+            pass
+
+        # Last resort: try with trailing comma fix on newline-fixed version
+        try:
+            fixed_both = re.sub(r',\s*([}\]])', r'\1', fixed_newlines)
+            return json.loads(fixed_both)
         except:
             return None
 
