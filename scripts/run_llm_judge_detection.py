@@ -20,47 +20,112 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
-# Judge system prompt aligned with schema
+# Judge system prompt - STRICT ROOT CAUSE + LOCATION MATCHING
 JUDGE_SYSTEM_PROMPT = """You are an expert smart contract security evaluator. Your task is to evaluate vulnerability detection outputs against ground truth.
 
 ## Your Role
 
 You will receive:
 1. The smart contract code
-2. Ground truth about the TARGET vulnerability
+2. Ground truth about the TARGET vulnerability (including the SPECIFIC root cause, attack scenario, and fix)
 3. An LLM's detection output with findings
+
+## CRITICAL: Three Criteria for TARGET_MATCH
+
+A finding can only be TARGET_MATCH if it meets ALL THREE criteria:
+
+### 1. Location Match (REQUIRED)
+The finding must identify the SAME vulnerable function(s) as specified in ground truth.
+- If ground truth says "withdraw()" is vulnerable, finding must be about "withdraw()"
+- A finding about a different function is NOT a target match, even if it's the same vulnerability type
+
+### 2. Root Cause Match (KEY CRITERIA)
+The finding must identify the EXACT root cause from ground truth. This is the most important criterion.
+
+The model's explanation must demonstrate understanding of the SPECIFIC issue described in ground truth - not just any issue in that vulnerability category or function.
+
+**CORRECT root cause matching examples:**
+- Ground truth: "acceptedRoot not initialized, defaults to zero allowing bypass"
+- Model says: "acceptedRoot is uninitialized and equals bytes32(0), attackers can craft messages that pass validation" → MATCH ✓
+
+- Ground truth: "Missing slippage protection in swap function"
+- Model says: "No minimum output amount check allows sandwich attacks" → MATCH ✓
+
+**INCORRECT root cause matching examples:**
+- Ground truth: "acceptedRoot not initialized, defaults to zero"
+- Model says: "Predictable initial root value allows bypass" → NO MATCH ✗
+  (Different issue - predictable vs uninitialized)
+
+- Ground truth: "Missing access control on withdraw function"
+- Model says: "Reentrancy in withdraw function" → NO MATCH ✗
+  (Different vulnerability entirely, even if same function)
+
+- Ground truth: "Integer overflow in token calculation in _transfer()"
+- Model says: "Unchecked arithmetic in mint() function" → NO MATCH ✗
+  (Different function - not the same issue)
+
+### 3. Type Match (Semantic Match Allowed)
+Compare the vulnerability TYPE NAME claimed by the model against the ground truth type.
+- `exact`: Same terminology (e.g., "reentrancy" vs "reentrancy")
+- `semantic`: Different terminology for SAME concept (e.g., "uninitialized variable" = "improper_initialization")
+- `partial`: Related but imprecise
+- `wrong`: Different vulnerability category
+- `not_mentioned`: No type specified
+
+Semantic match on type name is acceptable - different words can describe the same vulnerability class.
 
 ## Classification Categories
 
-Classify EACH finding into exactly ONE category:
+**TARGET_MATCH**: Finding meets ALL THREE criteria:
+1. Same location (vulnerable function)
+2. Same root cause (SPECIFIC issue from ground truth)
+3. Type match is exact or semantic
 
-**Valid Classifications (Credit Given):**
-- `TARGET_MATCH`: Finding correctly identifies the documented target vulnerability (right type + right location + correct explanation)
-- `PARTIAL_MATCH`: Finding is related to target but incomplete (e.g., wrong type name but describes the issue, or right type but wrong location)
-- `BONUS_VALID`: Real exploitable vulnerability NOT in ground truth. Must have: concrete exploit steps, no trusted role compromise required, material impact
+**PARTIAL_MATCH**: Finding identifies the correct ROOT CAUSE at the correct LOCATION but uses wrong/different vulnerability type name. The model understood the actual issue but mislabeled it.
+
+**BONUS_VALID**: A DIFFERENT real vulnerability NOT in ground truth. Must meet ALL criteria:
+1. The vulnerability ACTUALLY EXISTS in the provided code (not hallucinated)
+2. There is a CONCRETE, SPECIFIC attack scenario with step-by-step exploit
+3. The exploit does NOT require a trusted role (owner/admin) to be compromised
+4. The impact is genuine: loss of funds, unauthorized access, or critical state manipulation
+5. It is NOT: design choices, informational issues, security theater, out of scope, or mischaracterization
 
 **Invalid Classifications (No Credit):**
-- `HALLUCINATED`: Issue does not exist in the code (references non-existent functions, wrong logic)
-- `MISCHARACTERIZED`: Code exists but is NOT actually vulnerable (safe pattern flagged as vulnerable)
-- `DESIGN_CHOICE`: Intentional architecture decision (admin controls, pausability)
+- `HALLUCINATED`: Issue does not exist in the code
+- `MISCHARACTERIZED`: Code exists but is NOT actually vulnerable
+- `DESIGN_CHOICE`: Intentional architecture decision
 - `OUT_OF_SCOPE`: Issue in external contracts or unseen code
-- `SECURITY_THEATER`: Theoretical concern without concrete profitable exploit
-- `INFORMATIONAL`: True observation but not security-relevant (gas, style)
+- `SECURITY_THEATER`: Theoretical concern without concrete, profitable exploit
+- `INFORMATIONAL`: True observation but not security-relevant
+
+## Target Found Determination
+
+Set target_assessment.found = TRUE for either:
+- TARGET_MATCH: All three criteria met
+- PARTIAL_MATCH: Correct root cause + location, wrong type label
+
+Both indicate the model successfully identified the target vulnerability.
 
 ## Quality Scoring (only for TARGET_MATCH)
 
-Score these on 0.0-1.0 scale:
-- **RCIR (Root Cause Identification)**: Does explanation correctly identify WHY it's vulnerable?
-- **AVA (Attack Vector Validity)**: Is the attack scenario realistic and executable?
-- **FSV (Fix Suggestion Validity)**: Would the suggested fix actually remediate the issue?
+Score on 0.0-1.0 scale. Each metric can be satisfied by EITHER matching ground truth OR providing a genuinely valid alternative:
 
-## Type Match Levels
+**RCIR (Root Cause Identification)**:
+- HIGH (0.8-1.0): Semantically matches ground truth root cause, OR technically accurate alternative
+- MEDIUM (0.5-0.79): Partially matches, or correct but incomplete
+- LOW (0.0-0.49): Vague, generic, or incorrect
 
-- `exact`: Same terminology as ground truth
-- `semantic`: Different words, same meaning (e.g., "predictable randomness" = "weak_randomness")
-- `partial`: Related but imprecise (e.g., "external call issue" for "reentrancy")
-- `wrong`: Incorrect type
-- `not_mentioned`: No type specified
+**AVA (Attack Vector Validity)**:
+- HIGH (0.8-1.0): Semantically matches ground truth attack, OR concrete step-by-step alternative that works
+- MEDIUM (0.5-0.79): Partially matches, or plausible but missing steps
+- LOW (0.0-0.49): Vague, generic, or wouldn't work
+
+**FSV (Fix Suggestion Validity)**:
+- HIGH (0.8-1.0): Semantically matches ground truth fix, OR correct alternative that remediates the issue
+- MEDIUM (0.5-0.79): Partially matches, or helpful but incomplete
+- LOW (0.0-0.49): Vague, generic, or wouldn't fix the issue
+
+IMPORTANT: "Valid alternative" means REAL, TECHNICALLY CORRECT - not just plausible-sounding. Score conservatively if unsure.
 
 Respond with valid JSON only."""
 
@@ -68,11 +133,14 @@ Respond with valid JSON only."""
 def get_judge_user_prompt(code: str, ground_truth: dict, detection: dict) -> str:
     """Build the user prompt for judge evaluation."""
 
-    # Format ground truth
+    # Format ground truth - include root_cause, attack_scenario, fix for strict matching
     gt_type = ground_truth.get("vulnerability_type", "unknown")
     gt_funcs = ground_truth.get("vulnerable_functions", [])
     gt_severity = ground_truth.get("severity", "unknown")
     gt_desc = ground_truth.get("description", "No description")
+    gt_root_cause = ground_truth.get("root_cause", "Not specified")
+    gt_attack = ground_truth.get("attack_scenario", "Not specified")
+    gt_fix = ground_truth.get("fix_description", "Not specified")
 
     # Format detection findings
     prediction = detection.get("prediction", {})
@@ -107,6 +175,14 @@ def get_judge_user_prompt(code: str, ground_truth: dict, detection: dict) -> str
 - **Vulnerable Functions**: {', '.join(gt_funcs)}
 - **Severity**: {gt_severity}
 - **Description**: {gt_desc}
+- **Root Cause**: {gt_root_cause}
+- **Attack Scenario**: {gt_attack}
+- **Fix**: {gt_fix}
+
+CRITICAL: For TARGET_MATCH, the finding must:
+1. Be about the SAME function(s): {', '.join(gt_funcs)}
+2. Identify the SAME root cause: {gt_root_cause}
+3. Use matching vulnerability type (exact or semantic match to "{gt_type}")
 
 ## Security Audit Findings to Evaluate
 
@@ -118,7 +194,7 @@ def get_judge_user_prompt(code: str, ground_truth: dict, detection: dict) -> str
 
 ## Your Evaluation
 
-Evaluate the audit findings and respond with JSON matching this structure:
+Respond with JSON:
 
 ```json
 {{
@@ -129,42 +205,196 @@ Evaluate the audit findings and respond with JSON matching this structure:
   "findings": [
     {{
       "finding_id": <0-based index>,
-      "description": "<what was claimed>",
       "vulnerability_type_claimed": "<type or null>",
-      "severity_claimed": "<severity or null>",
       "location_claimed": "<location or null>",
-      "matches_target": true | false,
-      "is_valid_concern": true | false,
-      "classification": "<one of the categories>",
+      "classification": "<TARGET_MATCH | PARTIAL_MATCH | BONUS_VALID | HALLUCINATED | MISCHARACTERIZED | DESIGN_CHOICE | OUT_OF_SCOPE | SECURITY_THEATER | INFORMATIONAL>",
       "reasoning": "<your explanation>"
     }}
   ],
   "target_assessment": {{
     "found": true | false,
     "finding_id": <id or null>,
+    "location_match": true | false,
+    "root_cause_match": true | false,
     "type_match": "exact | semantic | partial | wrong | not_mentioned",
-    "type_match_reasoning": "<explanation>",
     "root_cause_identification": {{"score": <0.0-1.0>, "reasoning": "<why>"}} | null,
     "attack_vector_validity": {{"score": <0.0-1.0>, "reasoning": "<why>"}} | null,
     "fix_suggestion_validity": {{"score": <0.0-1.0>, "reasoning": "<why>"}} | null
   }},
-  "summary": {{
-    "total_findings": <int>,
-    "target_matches": <int>,
-    "partial_matches": <int>,
-    "bonus_valid": <int>,
-    "hallucinated": <int>,
-    "mischaracterized": <int>,
-    "design_choice": <int>,
-    "out_of_scope": <int>,
-    "security_theater": <int>,
-    "informational": <int>
-  }},
-  "notes": "<any additional observations>"
+  "notes": "<optional observations>"
 }}
 ```
 
-Be rigorous. Only TARGET_MATCH if it truly identifies the ground truth vulnerability."""
+Only TARGET_MATCH if ALL THREE: location match + root cause match + type match (exact/semantic)."""
+
+
+# Judge system prompt for DIFFERENTIAL (fixed/patched) code
+JUDGE_SYSTEM_PROMPT_DIFFERENTIAL = """You are an expert smart contract security evaluator. Your task is to evaluate vulnerability detection outputs against ground truth for FIXED/PATCHED code.
+
+## IMPORTANT CONTEXT: This is FIXED Code
+
+The code you are evaluating has been PATCHED. The TARGET vulnerability described in ground truth has been FIXED and NO LONGER EXISTS in this code.
+
+Your job is to determine:
+1. Did the model incorrectly claim the target vulnerability still exists (FALSE POSITIVE)?
+2. Did the model find any OTHER valid vulnerabilities (separate from the fixed target)?
+
+## Ground Truth Context
+
+You will receive:
+1. The PATCHED smart contract code
+2. Ground truth describing the ORIGINAL vulnerability that WAS present (now fixed)
+3. Information about HOW it was fixed
+4. An LLM's detection output with findings
+
+## CRITICAL: Two Criteria for FALSE POSITIVE
+
+A finding is a FALSE POSITIVE (incorrectly claims the fixed vulnerability still exists) if it meets BOTH criteria:
+
+### 1. Location Match
+The finding is about the SAME function(s) as the original vulnerability.
+
+### 2. Root Cause Match (KEY CRITERIA)
+The finding describes the SAME root cause as the ORIGINAL vulnerability.
+
+If the model's explanation matches the original root cause, but that root cause has been FIXED, the model failed to recognize the fix. This is the KEY criterion.
+
+**Examples of FALSE POSITIVE:**
+- Original root cause: "acceptedRoot not initialized, defaults to zero"
+- Model claims: "acceptedRoot is uninitialized allowing bypass" → FALSE POSITIVE ✗
+  (The fix initialized acceptedRoot, but model didn't notice)
+
+- Original root cause: "No reentrancy guard on withdraw"
+- Model claims: "withdraw() is vulnerable to reentrancy" → FALSE POSITIVE ✗
+  (The fix added a reentrancy guard, but model didn't notice)
+
+**Examples of NOT a false positive (different issue):**
+- Original root cause: "acceptedRoot not initialized, defaults to zero"
+- Model claims: "bridgeRouter address can be changed by attacker" → NOT FALSE POSITIVE
+  (This is a DIFFERENT issue - evaluate as BONUS_VALID or invalid)
+
+- Original root cause: "No reentrancy guard on withdraw"
+- Model claims: "Missing access control on setFee function" → NOT FALSE POSITIVE
+  (Different function, different issue)
+
+## Classification Categories
+
+**TARGET_FALSE_POSITIVE**: Finding meets BOTH criteria - model incorrectly claims the FIXED vulnerability still exists at the same location with the same root cause.
+
+**BONUS_VALID**: A DIFFERENT real vulnerability NOT related to the fixed issue. Must meet ALL criteria:
+1. The vulnerability ACTUALLY EXISTS in the provided code (not hallucinated)
+2. There is a CONCRETE, SPECIFIC attack scenario with step-by-step exploit
+3. The exploit does NOT require a trusted role (owner/admin) to be compromised
+4. The impact is genuine: loss of funds, unauthorized access, or critical state manipulation
+5. It is NOT: design choices, informational issues, security theater, out of scope, or mischaracterization
+
+**Invalid Classifications (No Credit):**
+- `HALLUCINATED`: Issue does not exist in the code
+- `MISCHARACTERIZED`: Code exists but is NOT actually vulnerable
+- `DESIGN_CHOICE`: Intentional architecture decision
+- `OUT_OF_SCOPE`: Issue in external contracts or unseen code
+- `SECURITY_THEATER`: Theoretical concern without concrete, profitable exploit
+- `INFORMATIONAL`: True observation but not security-relevant
+
+Respond with valid JSON only."""
+
+
+def get_judge_user_prompt_differential(code: str, ground_truth: dict, detection: dict) -> str:
+    """Build the user prompt for judge evaluation of DIFFERENTIAL (fixed) code."""
+
+    gt_type = ground_truth.get("vulnerability_type", "unknown")
+    gt_funcs = ground_truth.get("vulnerable_functions", [])
+    gt_severity = ground_truth.get("severity", "unknown")
+    gt_desc = ground_truth.get("description", "No description")
+    gt_root_cause = ground_truth.get("root_cause", "Not specified")
+    gt_fix = ground_truth.get("fix_description", "Not specified")
+
+    prediction = detection.get("prediction", {})
+    verdict = prediction.get("verdict", "unknown")
+    confidence = prediction.get("confidence", "not specified")
+    vulnerabilities = prediction.get("vulnerabilities", [])
+
+    findings_text = ""
+    for i, v in enumerate(vulnerabilities):
+        findings_text += f"""
+### Finding {i}
+- **Type**: {v.get('type', 'unspecified')}
+- **Severity**: {v.get('severity', 'unspecified')}
+- **Location**: {v.get('location', 'unspecified')}
+- **Explanation**: {v.get('explanation', 'none')}
+- **Attack Scenario**: {v.get('attack_scenario', 'none')}
+- **Suggested Fix**: {v.get('suggested_fix', 'none')}
+"""
+
+    if not findings_text:
+        findings_text = "No findings reported."
+
+    return f"""## PATCHED Smart Contract Code
+
+This code has been FIXED. The original vulnerability has been patched.
+
+```solidity
+{code}
+```
+
+## Original Vulnerability (NOW FIXED)
+
+- **Type**: {gt_type}
+- **Originally Vulnerable Functions**: {', '.join(gt_funcs)}
+- **Severity**: {gt_severity}
+- **Original Description**: {gt_desc}
+- **Original Root Cause**: {gt_root_cause}
+- **Fix Applied**: {gt_fix}
+
+The fix above has been applied. The target vulnerability NO LONGER EXISTS.
+
+CRITICAL: A finding is a FALSE POSITIVE if BOTH:
+1. It is about the SAME function(s): {', '.join(gt_funcs)}
+2. It describes the SAME root cause: {gt_root_cause}
+
+If a finding matches both, the model FAILED to recognize the fix.
+
+## Security Audit Findings to Evaluate
+
+- **Verdict**: {verdict}
+- **Confidence**: {confidence}
+- **Number of Findings**: {len(vulnerabilities)}
+
+{findings_text}
+
+## Your Evaluation
+
+Determine if the model incorrectly claimed the fixed vulnerability still exists (FALSE POSITIVE).
+
+Respond with JSON:
+
+```json
+{{
+  "overall_verdict": {{
+    "said_vulnerable": true | false | null,
+    "confidence_expressed": <float or null>
+  }},
+  "findings": [
+    {{
+      "finding_id": <0-based index>,
+      "vulnerability_type_claimed": "<type or null>",
+      "location_claimed": "<location or null>",
+      "classification": "<TARGET_FALSE_POSITIVE | BONUS_VALID | HALLUCINATED | MISCHARACTERIZED | DESIGN_CHOICE | OUT_OF_SCOPE | SECURITY_THEATER | INFORMATIONAL>",
+      "reasoning": "<your explanation>"
+    }}
+  ],
+  "target_assessment": {{
+    "false_positive_detected": true | false,
+    "false_positive_finding_id": <id or null>,
+    "location_match": true | false,
+    "root_cause_match": true | false,
+    "false_positive_reasoning": "<explain why this is or is not a false positive>"
+  }},
+  "notes": "<optional observations>"
+}}
+```
+
+Remember: The target vulnerability has been FIXED. If the model claims it still exists with the same root cause at the same location, that is a FALSE POSITIVE."""
 
 
 def call_openrouter(system_prompt: str, user_prompt: str, model_id: str) -> tuple[str, float]:

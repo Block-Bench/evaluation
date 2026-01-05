@@ -1,0 +1,48 @@
+{
+  "sample_id": "gs_mixbytes_gearbox-midas_H01",
+  "exploit_name": "rejectRequest() Leads to Adverse Consequences",
+  "date": "2025-10-23",
+  "amount_lost_usd": null,
+  "blockchain": "ethereum",
+  "language": "solidity",
+  "vulnerability_type": "logic_error",
+  "vulnerability_subtype": "H-01",
+  "severity": "high",
+  "difficulty_tier": 3,
+  "is_vulnerable": true,
+  "temporal_category": "post_cutoff",
+  "description": "If the Midas vault admin calls rejectRequest() on a pending redemption request, the request status is set to Cancelled and the user's mTokens remain locked in the Midas vault. The Midas admin can transfer these mTokens back to any address, especially to the Gateway (which created the request). However, even if mTokens are transferred back to the Gateway, there's no mechanism to recover them from the Gateway to the user's credit account. Additionally, if mTokens are sent to the credit account or any address other than the Gateway, pendingTokenOutAmount() will continue to show a non-zero result despite the request being rejected, inflating the phantom token's balance and the credit account's collateral value.",
+  "vulnerable_contract": "MidasRedemptionVaultGateway",
+  "vulnerable_function": "requestRedeem",
+  "vulnerable_lines": [],
+  "attack_scenario": "1. User creates a credit account and deposits mTokens\n2. User calls redeemRequest() through the adapter, which calls the Gateway's requestRedeem()\n3. Gateway records the pending redemption in pendingRedemptions[creditAccount] with isActive=true\n4. Midas vault admin (external trusted party) calls rejectRequest() on the pending request\n5. Request status in Midas vault is set to Cancelled, but mTokens remain locked in Midas vault\n6. Gateway's pendingRedemptions mapping still shows isActive=true\n7. pendingTokenOutAmount() returns non-zero value based on stale mTokenRate calculation\n8. Phantom token balanceOf() returns inflated value\n9. Credit account's collateral appears higher than actual recoverable value\n10. Consequences: (a) User funds permanently blocked with no recovery mechanism, (b) Inflated collateral can be exploited for additional borrowing, (c) If mTokens are sent back to Gateway, they're stuck with no transfer mechanism",
+  "root_cause": "If the Midas vault admin calls rejectRequest() on a pending redemption request, the request status is set to Cancelled and the user's mTokens remain locked in the Midas vault. The Midas admin can transfer these mTokens back to any address, especially to the Gateway (which created the request). However, even if mTokens are transferred back to the Gateway, there's no mechanism to recover them from the Gateway to the user's credit account. Additionally, if mTokens are sent to the credit account or any address other than the Gateway, pendingTokenOutAmount() will continue to show a non-zero result despite the request being rejected, inflating the phantom token's balance and the credit account's collateral value.",
+  "fix_description": "Implement functionality to handle rejected requests, allowing the system to clear rejected requests and transfer tokens out of the Gateway. The fix added manual processing capability for rejected requests to allow market curator collaboration with Midas to recover withdrawals.",
+  "source_reference": "https://github.com/mixbytes/audits_public/tree/master/Gearbox/Midas%20Integration",
+  "external_references": [
+    "https://github.com/Gearbox-protocol/integrations-v3"
+  ],
+  "tags": [
+    "logic_error",
+    "mixbytes",
+    "gold_standard",
+    "audit_finding"
+  ],
+  "variant_type": "cleaned",
+  "variant_parent_id": "gs_mixbytes_gearbox-midas_H01",
+  "notes": "The vulnerability exists because the Gateway has no mechanism to handle Midas vault admin rejecting a request. The pendingRedemptions mapping continues to show isActive=true even after rejection, and there's no way to clear it or recover the locked mTokens. The phantom token relies on pendingTokenOutAmount() which returns inflated values for rejected requests.",
+  "contract_file": "contracts/gs_018.sol",
+  "subset": "annotated",
+  "original_subset": "gold_standard",
+  "transformation": {
+    "type": "minimal_sanitization",
+    "source": "gold_standard/original",
+    "changes": [
+      "Removed vulnerability header block (lines 6-39)",
+      "Removed 30 '^^^ VULNERABLE LINE ^^^' markers",
+      "Removed 2 '@audit-issue' comments"
+    ],
+    "script": "strategies/sanitize/sanitize_gold_standard.py",
+    "created_date": "2026-01-04T14:15:44.586086"
+  }
+}

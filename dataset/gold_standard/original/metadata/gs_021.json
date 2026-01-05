@@ -1,0 +1,40 @@
+{
+  "sample_id": "gs_spearbit_kyber-hook_M02",
+  "exploit_name": "Quotes can be frontrun by replaying them through the router",
+  "date": "2025-10-01",
+  "amount_lost_usd": null,
+  "blockchain": "ethereum",
+  "language": "solidity",
+  "vulnerability_type": "front_running",
+  "vulnerability_subtype": "M-02",
+  "severity": "medium",
+  "difficulty_tier": 2,
+  "is_vulnerable": true,
+  "temporal_category": "post_cutoff",
+  "description": "Both hooks accept swaps when SignatureChecker validates keccak256(abi.encode(sender, key, ..., nonce, expiryTime)). The sender field is the router contract that called the pool manager. That restricts execution to Kyber's router, but not to any particular user. Because the router is public, anyone can forward the calldata and signature. If Alice broadcasts a signed swap, an MEV bot can copy the calldata, submit it first and the hook sees the same router address and quote terms: the attacker's swap succeeds, consuming the nonce. Alice's transaction then reverts at _useUnorderedNonce because the nonce is already marked as used. The attacker, this way, can invalidate the quote with a dust swap. Designers intended router-level exclusivity, yet end users receive no front-running protection, exposing every quote to mempool sniping.",
+  "vulnerable_contract": "UniswapV4KEMHook",
+  "vulnerable_function": "beforeSwap",
+  "vulnerable_lines": [
+    136,
+    180
+  ],
+  "attack_scenario": "1. Alice requests a quote from Kyber backend for swapping 100 ETH -> USDC\n2. Kyber quoteSigner signs the quote with parameters: sender=router, maxAmountIn=100e18, maxExchangeRate, nonce=12345, expiryTime=now+60s\n3. Alice constructs swap transaction and broadcasts to mempool\n4. MEV bot observes Alice's pending transaction, extracts hookData containing signature\n5. Bot constructs identical swap call through same router with minimal amountSpecified (e.g., 0.001 ETH)\n6. Bot submits with higher gas price, gets included first\n7. Hook.beforeSwap() validates: sender=router (matches), signature valid, nonce 12345 unused -> swap succeeds\n8. _useUnorderedNonce(12345) marks nonce as used\n9. Alice's transaction executes next: same signature, same nonce\n10. _useUnorderedNonce(12345) reverts with NonceAlreadyUsed(12345)\n11. Alice's swap fails, bot successfully griefed the quote (or profited if quote was favorable)",
+  "root_cause": "Both hooks accept swaps when SignatureChecker validates keccak256(abi.encode(sender, key, ..., nonce, expiryTime)). The sender field is the router contract that called the pool manager. That restricts execution to Kyber's router, but not to any particular user. Because the router is public, anyone can forward the calldata and signature. If Alice broadcasts a signed swap, an MEV bot can copy the calldata, submit it first and the hook sees the same router address and quote terms: the attacker's swap succeeds, consuming the nonce. Alice's transaction then reverts at _useUnorderedNonce because the nonce is already marked as used. The attacker, this way, can invalidate the quote with a dust swap. Designers intended router-level exclusivity, yet end users receive no front-running protection, exposing every quote to mempool sniping.",
+  "fix_description": "Include the router's original caller in the signature. The original caller can be retrieved by the hook by calling router.msgSender() function. This ensures the signature is bound to a specific end user, not just the router contract.",
+  "source_reference": "https://github.com/spearbit/portfolio/tree/master/pdfs",
+  "external_references": [
+    "https://github.com/KyberNetwork/kyber-exclusive-amm-sc"
+  ],
+  "tags": [
+    "front_running",
+    "spearbit",
+    "gold_standard",
+    "audit_finding"
+  ],
+  "variant_type": "original",
+  "variant_parent_id": null,
+  "notes": "The vulnerability is that 'sender' in the digest (line 120) is the router contract address, not the actual end user who initiated the swap. Since the router is a public contract anyone can call, an MEV bot can replay the same hookData through the same router, and the signature will still be valid. The nonce is then consumed, causing the original user's transaction to fail.",
+  "contract_file": "contracts/gs_021.sol",
+  "subset": "annotated",
+  "original_subset": "gold_standard"
+}

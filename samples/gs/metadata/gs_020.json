@@ -1,0 +1,48 @@
+{
+  "sample_id": "gs_spearbit_kyber-hook_M01",
+  "exploit_name": "Signed swap digest lacks a domain separator",
+  "date": "2025-10-01",
+  "amount_lost_usd": null,
+  "blockchain": "ethereum",
+  "language": "solidity",
+  "vulnerability_type": "signature_replay",
+  "vulnerability_subtype": "M-01",
+  "severity": "medium",
+  "difficulty_tier": 3,
+  "is_vulnerable": true,
+  "temporal_category": "post_cutoff",
+  "description": "Both UniswapV4KEMHook and PancakeSwapInfinityKEMHook rebuild a quote digest by hashing sender, key, params.zeroForOne, maxAmountIn, maxExchangeRate, exchangeRateDenom, nonce, and expiryTime. The tuple ties the authorization to the router (sender), the full PoolKey (which includes the hook address), trade direction, price and input caps, nonce and expiry. Crucially, no domain separator is folded in: chain ID, deployment salt, and contract identity outside key are absent. If the same hook instance (or the same PoolKey) is deployed on multiple networks, as CREATE3-based salt mining allows, an attacker can lift any valid signature+nonce from chain A and replay it on chain B. Because the digest matches, SignatureChecker.isValidSignatureNow succeeds and the swap executes without the signer's intention. That breaks the core guarantee that signed quotes are single-instance authorizations, allowing cross-chain replay swaps.",
+  "vulnerable_contract": "UniswapV4KEMHook",
+  "vulnerable_function": "beforeSwap",
+  "vulnerable_lines": [],
+  "attack_scenario": "1. Kyber deploys UniswapV4KEMHook on Ethereum mainnet with a specific PoolKey\n2. Same hook (or same PoolKey configuration) is deployed on Arbitrum using CREATE3 salt mining to get matching address\n3. User requests a quote on Ethereum, quoteSigner signs: keccak256(abi.encode(sender, key, zeroForOne, maxAmountIn, maxExchangeRate, exchangeRateDenom, nonce, expiryTime))\n4. User broadcasts swap transaction on Ethereum mainnet\n5. Attacker observes the transaction in Ethereum mempool, extracts signature and hookData\n6. Attacker submits identical calldata on Arbitrum before expiryTime\n7. On Arbitrum: sender (router) matches, key matches (same pool configuration), all other parameters match\n8. SignatureChecker.isValidSignatureNow(quoteSigner, digest, signature) returns true\n9. Swap executes on Arbitrum without signer's intention\n10. If nonce != 0, Ethereum swap may still succeed (different nonce storage per chain), causing double execution",
+  "root_cause": "Both UniswapV4KEMHook and PancakeSwapInfinityKEMHook rebuild a quote digest by hashing sender, key, params.zeroForOne, maxAmountIn, maxExchangeRate, exchangeRateDenom, nonce, and expiryTime. The tuple ties the authorization to the router (sender), the full PoolKey (which includes the hook address), trade direction, price and input caps, nonce and expiry. Crucially, no domain separator is folded in: chain ID, deployment salt, and contract identity outside key are absent. If the same hook instance (or the same PoolKey) is deployed on multiple networks, as CREATE3-based salt mining allows, an attacker can lift any valid signature+nonce from chain A and replay it on chain B. Because the digest matches, SignatureChecker.isValidSignatureNow succeeds and the swap executes without the signer's intention. That breaks the core guarantee that signed quotes are single-instance authorizations, allowing cross-chain replay swaps.",
+  "fix_description": "Introduce domain separation for the signed payload in both hooks. Adopt an EIP712 domain that at minimum commits to chainid. This ensures signatures are only valid on the intended chain.",
+  "source_reference": "https://github.com/spearbit/portfolio/tree/master/pdfs",
+  "external_references": [
+    "https://github.com/KyberNetwork/kyber-exclusive-amm-sc"
+  ],
+  "tags": [
+    "signature_replay",
+    "spearbit",
+    "gold_standard",
+    "audit_finding"
+  ],
+  "variant_type": "cleaned",
+  "variant_parent_id": "gs_spearbit_kyber-hook_M01",
+  "notes": "The vulnerability is in the digest creation at lines 118-129. The keccak256 hash does not include chainId or any EIP712 domain separator. Since sender is the router contract (same on multiple chains), key is the PoolKey (can be identical across chains), and all other parameters are user-provided, an attacker can replay the exact same signature on a different chain where the same hook/pool configuration exists.",
+  "contract_file": "contracts/gs_020.sol",
+  "subset": "annotated",
+  "original_subset": "gold_standard",
+  "transformation": {
+    "type": "minimal_sanitization",
+    "source": "gold_standard/original",
+    "changes": [
+      "Removed vulnerability header block (lines 4-38)",
+      "Removed 11 '^^^ VULNERABLE LINE ^^^' markers",
+      "Removed 1 '@audit-issue' comments"
+    ],
+    "script": "strategies/sanitize/sanitize_gold_standard.py",
+    "created_date": "2026-01-04T14:15:44.587477"
+  }
+}
