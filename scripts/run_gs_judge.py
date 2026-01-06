@@ -111,16 +111,16 @@ def get_gs_judge_user_prompt(code: str, ground_truth: dict, detection: dict,
 ## Ground Truth (TARGET Vulnerability)
 
 - **Type**: {gt_type}
-- **Vulnerable Function(s)**: {', '.join(gt_funcs) if gt_funcs else 'Not specified'}
+- **Vulnerable Functions**: {', '.join(gt_funcs) if gt_funcs else 'Not specified'}
 - **Severity**: {gt_severity}
 - **Description**: {gt_desc}
 - **Root Cause**: {gt_root_cause}
 - **Attack Scenario**: {gt_attack}
-- **Recommended Fix**: {gt_fix}
+- **Fix**: {gt_fix}
 
 CRITICAL: For TARGET_MATCH, the finding must:
-1. Be about the SAME function(s): {', '.join(gt_funcs) if gt_funcs else 'Not specified'}
-2. Identify the SAME root cause: {gt_root_cause}
+1. Identify the SAME root cause: {gt_root_cause}
+2. Be about the SAME function(s): {', '.join(gt_funcs) if gt_funcs else 'Not specified'}
 3. Use matching vulnerability type (exact or semantic match to "{gt_type}")
 
 ---
@@ -148,15 +148,16 @@ Respond with JSON:
       "finding_id": <0-based index>,
       "vulnerability_type_claimed": "<type or null>",
       "location_claimed": "<location or null>",
-      "classification": "<TARGET_MATCH | PARTIAL_MATCH | BONUS_VALID | HALLUCINATED | MISCHARACTERIZED | DESIGN_CHOICE | OUT_OF_SCOPE | SECURITY_THEATER | INFORMATIONAL>",
+      "classification": "<TARGET_MATCH | PARTIAL_MATCH | BONUS_VALID | WRONG_ROOT_CAUSE | HALLUCINATED | MISCHARACTERIZED | DESIGN_CHOICE | OUT_OF_SCOPE | SECURITY_THEATER | INFORMATIONAL>",
       "reasoning": "<your explanation>"
     }}
   ],
   "target_assessment": {{
-    "found": true | false,
+    "complete_found": true | false,
+    "partial_found": true | false,
     "finding_id": <id or null>,
-    "location_match": true | false,
     "root_cause_match": true | false,
+    "location_match": true | false,
     "type_match": "exact | semantic | partial | wrong | not_mentioned",
     "root_cause_identification": {{"score": <0.0-1.0>, "reasoning": "<why>"}} | null,
     "attack_vector_validity": {{"score": <0.0-1.0>, "reasoning": "<why>"}} | null,
@@ -166,7 +167,10 @@ Respond with JSON:
 }}
 ```
 
-Only TARGET_MATCH if ALL THREE: location match + root cause match + type match (exact/semantic)."""
+EVALUATION ORDER: root_cause FIRST → location SECOND → type THIRD
+- complete_found=TRUE only if TARGET_MATCH (root_cause + location + type exact/semantic)
+- partial_found=TRUE only if PARTIAL_MATCH (root_cause + location correct, type partial/wrong)
+- If root_cause WRONG → complete_found=FALSE, partial_found=FALSE (don't check location/type)"""
 
 
 def run_judge_on_gs_sample(

@@ -1,25 +1,57 @@
 #!/usr/bin/env python3
 """
 Aggregate TC variant results into summary files per detector/variant.
-Similar to DS tier summaries.
+Matches the DS tier summary structure with all metrics.
+
+Metrics:
+- Target Detection Rate (TDR): Rate of finding the target vulnerability
+- Lucky Guess Rate (LGR): Correct verdict but no target and no bonus findings
+- Ancillary Discovery Rate (ADR): Rate of finding bonus valid vulnerabilities
+- Invalid Finding Rate (IFR): Invalid findings / total findings
+- False Alarm Density (FAD): Avg invalid findings per sample
 """
 
 import argparse
 import json
+import statistics
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from statistics import mean, stdev
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
 TC_VARIANTS = ['sanitized', 'nocomments', 'chameleon_medical', 'shapeshifter_l3',
-               'trojan', 'falseProphet', 'minimalsanitized']
+               'trojan', 'falseProphet', 'minimalsanitized', 'differential']
 
 DETECTORS = ['claude-opus-4-5', 'deepseek-v3-2', 'gemini-3-pro', 'gpt-5.2',
              'grok-4-fast', 'llama-4-maverick', 'qwen3-coder-plus']
 
 JUDGES = ['codestral', 'gemini-3-flash', 'mimo-v2-flash']
+
+# Standard classification categories (always include all, even if 0)
+CLASSIFICATION_CATEGORIES = [
+    "target_matches", "partial_matches", "bonus_valid",
+    "invalid", "mischaracterized", "design_choice",
+    "out_of_scope", "security_theater", "informational"
+]
+
+# Standard type match categories
+TYPE_MATCH_CATEGORIES = ["exact", "semantic", "partial", "wrong", "not_mentioned"]
+
+
+def safe_div(a, b):
+    """Safe division avoiding ZeroDivisionError."""
+    return a / b if b > 0 else 0.0
+
+
+def safe_avg(lst):
+    """Safe average of a list."""
+    return sum(lst) / len(lst) if lst else None
+
+
+def safe_std(lst):
+    """Safe standard deviation of a list."""
+    return statistics.stdev(lst) if len(lst) > 1 else None
 
 
 def aggregate_variant(judge: str, detector: str, variant: str) -> dict:
@@ -35,133 +67,279 @@ def aggregate_variant(judge: str, detector: str, variant: str) -> dict:
         return None
 
     # Initialize counters
-    total = 0
-    successful = 0
-    failed = 0
+    total_samples = 0
+    successful_evaluations = 0
+    failed_evaluations = 0
 
-    target_found = 0
-    verdict_correct = 0
+    target_found_count = 0
+    verdict_correct_count = 0
     total_findings = 0
 
-    # Quality scores
-    rcir_scores = []
-    ava_scores = []
-    fsv_scores = []
+    # New metric counters
+    lucky_guess_count = 0  # Correct verdict but no target and no bonus
+    samples_with_bonus = 0  # Samples that have at least one bonus_valid finding
 
-    # Type match distribution
-    type_matches = defaultdict(int)
+    # Classification counters - initialize all to 0
+    classifications = {cat: 0 for cat in CLASSIFICATION_CATEGORIES}
+    type_matches = {cat: 0 for cat in TYPE_MATCH_CATEGORIES}
 
-    # Classification totals
-    classifications = defaultdict(int)
+    # Quality score accumulators
+    quality_scores = {
+        "rcir": [],  # Root Cause Identification
+        "ava": [],   # Attack Vector Validity
+        "fsv": []    # Fix Suggestion Validity
+    }
 
-    # By vulnerability type
-    by_vuln_type = defaultdict(lambda: {
-        'total': 0, 'found': 0, 'rcir': [], 'ava': [], 'fsv': []
-    })
+    # Per vulnerability type
+    def make_vuln_type_entry():
+        return {
+            "total_samples": 0,
+            "target_found_count": 0,
+            "verdict_correct_count": 0,
+            "total_findings": 0,
+            "lucky_guess_count": 0,
+            "samples_with_bonus": 0,
+            "invalid_findings": 0,
+            "classifications": {cat: 0 for cat in CLASSIFICATION_CATEGORIES},
+            "type_matches": {cat: 0 for cat in TYPE_MATCH_CATEGORIES},
+            "quality_scores": {"rcir": [], "ava": [], "fsv": []},
+            "latencies": []
+        }
 
-    for f in files:
+    by_vuln_type = defaultdict(make_vuln_type_entry)
+    latencies = []
+
+    for f in sorted(files):
+        sample_id = f.stem.replace("j_", "")
+        total_samples += 1
+
         try:
             with open(f) as fp:
                 data = json.load(fp)
+        except Exception:
+            failed_evaluations += 1
+            continue
 
-            total += 1
+        if data.get('error'):
+            failed_evaluations += 1
+            continue
 
-            if data.get('error'):
-                failed += 1
-                continue
+        successful_evaluations += 1
 
-            successful += 1
-
-            # Target assessment
-            ta = data.get('target_assessment', {})
-            found = ta.get('found', False)
-
-            if found:
-                target_found += 1
-
-                # Quality scores
-                rcir = ta.get('root_cause_identification', {}).get('score')
-                ava = ta.get('attack_vector_validity', {}).get('score')
-                fsv = ta.get('fix_suggestion_validity', {}).get('score')
-
-                if rcir is not None:
-                    rcir_scores.append(rcir)
-                if ava is not None:
-                    ava_scores.append(ava)
-                if fsv is not None:
-                    fsv_scores.append(fsv)
-
-            # Type match
-            type_match = ta.get('type_match', 'not_mentioned')
-            type_matches[type_match] += 1
-
-            # Overall verdict
-            ov = data.get('overall_verdict', {})
-            said_vuln = ov.get('said_vulnerable', False)
-            # For TC, all samples are vulnerable, so verdict is correct if said_vulnerable
-            if said_vuln:
-                verdict_correct += 1
-
-            # Findings and classifications
-            findings = data.get('findings', [])
-            total_findings += len(findings)
-
-            for finding in findings:
-                cls = finding.get('classification', 'unknown')
-                classifications[cls] += 1
-
-            # Load ground truth for vulnerability type breakdown
-            gt_path = PROJECT_ROOT / f"samples/tc/{variant}/ground_truth/{data['sample_id']}.json"
-            if gt_path.exists():
+        # Load ground truth for vulnerability type
+        gt_path = PROJECT_ROOT / f"samples/tc/{variant}/ground_truth/{sample_id}.json"
+        vuln_type = "unknown"
+        is_vulnerable = True  # TC samples are all vulnerable
+        if gt_path.exists():
+            try:
                 with open(gt_path) as gf:
                     gt = json.load(gf)
                 vuln_type = gt.get('vulnerability_type', 'unknown')
-                by_vuln_type[vuln_type]['total'] += 1
-                if found:
-                    by_vuln_type[vuln_type]['found'] += 1
-                    if rcir is not None:
-                        by_vuln_type[vuln_type]['rcir'].append(rcir)
-                    if ava is not None:
-                        by_vuln_type[vuln_type]['ava'].append(ava)
-                    if fsv is not None:
-                        by_vuln_type[vuln_type]['fsv'].append(fsv)
+                is_vulnerable = gt.get('is_vulnerable', True)
+            except Exception:
+                pass
 
-        except Exception as e:
-            failed += 1
-            continue
+        # Target assessment
+        ta = data.get('target_assessment', {})
+        target_found = ta.get('found', False)
+        type_match = ta.get('type_match', 'not_mentioned')
 
-    if total == 0:
+        if target_found:
+            target_found_count += 1
+            by_vuln_type[vuln_type]["target_found_count"] += 1
+
+            # Quality scores (only when target found)
+            rcir = ta.get('root_cause_identification', {})
+            ava = ta.get('attack_vector_validity', {})
+            fsv = ta.get('fix_suggestion_validity', {})
+
+            if rcir and rcir.get('score') is not None:
+                quality_scores["rcir"].append(rcir["score"])
+                by_vuln_type[vuln_type]["quality_scores"]["rcir"].append(rcir["score"])
+            if ava and ava.get('score') is not None:
+                quality_scores["ava"].append(ava["score"])
+                by_vuln_type[vuln_type]["quality_scores"]["ava"].append(ava["score"])
+            if fsv and fsv.get('score') is not None:
+                quality_scores["fsv"].append(fsv["score"])
+                by_vuln_type[vuln_type]["quality_scores"]["fsv"].append(fsv["score"])
+
+        # Verdict assessment
+        ov = data.get('overall_verdict', {})
+        said_vulnerable = ov.get('said_vulnerable')
+        verdict_correct = (said_vulnerable == is_vulnerable)
+        if verdict_correct:
+            verdict_correct_count += 1
+            by_vuln_type[vuln_type]["verdict_correct_count"] += 1
+
+        # Type match - normalize to standard categories
+        type_match_normalized = type_match.lower().replace(" ", "_")
+        if type_match_normalized in TYPE_MATCH_CATEGORIES:
+            type_matches[type_match_normalized] += 1
+            by_vuln_type[vuln_type]["type_matches"][type_match_normalized] += 1
+        else:
+            type_matches["not_mentioned"] += 1
+            by_vuln_type[vuln_type]["type_matches"]["not_mentioned"] += 1
+
+        # Findings classifications
+        findings = data.get('findings', [])
+        total_findings += len(findings)
+        by_vuln_type[vuln_type]["total_findings"] += len(findings)
+
+        # Track per-sample counts for new metrics
+        sample_bonus_count = 0
+        sample_invalid_count = 0
+
+        for finding in findings:
+            classification = finding.get('classification', 'unknown')
+            classification_lower = classification.lower().replace(" ", "_").replace("-", "_")
+
+            # Map to standard categories
+            if classification_lower in ["target_match", "target_matches"]:
+                classifications["target_matches"] += 1
+                by_vuln_type[vuln_type]["classifications"]["target_matches"] += 1
+            elif classification_lower in ["partial_match", "partial_matches"]:
+                classifications["partial_matches"] += 1
+                by_vuln_type[vuln_type]["classifications"]["partial_matches"] += 1
+            elif classification_lower in ["bonus_valid"]:
+                classifications["bonus_valid"] += 1
+                by_vuln_type[vuln_type]["classifications"]["bonus_valid"] += 1
+                sample_bonus_count += 1
+            elif classification_lower in ["hallucinated", "invalid"]:
+                classifications["invalid"] += 1
+                by_vuln_type[vuln_type]["classifications"]["invalid"] += 1
+                sample_invalid_count += 1
+            elif classification_lower in ["mischaracterized"]:
+                classifications["mischaracterized"] += 1
+                by_vuln_type[vuln_type]["classifications"]["mischaracterized"] += 1
+                sample_invalid_count += 1
+            elif classification_lower in ["design_choice"]:
+                classifications["design_choice"] += 1
+                by_vuln_type[vuln_type]["classifications"]["design_choice"] += 1
+                sample_invalid_count += 1
+            elif classification_lower in ["out_of_scope"]:
+                classifications["out_of_scope"] += 1
+                by_vuln_type[vuln_type]["classifications"]["out_of_scope"] += 1
+                sample_invalid_count += 1
+            elif classification_lower in ["security_theater"]:
+                classifications["security_theater"] += 1
+                by_vuln_type[vuln_type]["classifications"]["security_theater"] += 1
+                sample_invalid_count += 1
+            elif classification_lower in ["informational"]:
+                classifications["informational"] += 1
+                by_vuln_type[vuln_type]["classifications"]["informational"] += 1
+                sample_invalid_count += 1
+            else:
+                classifications["invalid"] += 1
+                by_vuln_type[vuln_type]["classifications"]["invalid"] += 1
+                sample_invalid_count += 1
+
+        # Track samples with bonus findings (for ADR)
+        if sample_bonus_count > 0:
+            samples_with_bonus += 1
+            by_vuln_type[vuln_type]["samples_with_bonus"] += 1
+
+        # Track invalid findings per type (for FAD calculation)
+        by_vuln_type[vuln_type]["invalid_findings"] += sample_invalid_count
+
+        # Lucky Guess: correct verdict but no target and no bonus
+        if verdict_correct and not target_found and sample_bonus_count == 0:
+            lucky_guess_count += 1
+            by_vuln_type[vuln_type]["lucky_guess_count"] += 1
+
+        # Per vuln type sample count
+        by_vuln_type[vuln_type]["total_samples"] += 1
+
+        # Latency
+        latency = data.get('judge_latency_ms')
+        if latency:
+            latencies.append(latency)
+            by_vuln_type[vuln_type]["latencies"].append(latency)
+
+    if total_samples == 0:
         return None
 
-    # Calculate metrics
-    detection_rate = target_found / successful if successful > 0 else 0
-    verdict_accuracy = verdict_correct / successful if successful > 0 else 0
-    avg_findings = total_findings / successful if successful > 0 else 0
+    # True positives = target_matches + partial_matches + bonus_valid
+    true_positives = (classifications["target_matches"] +
+                     classifications["partial_matches"] +
+                     classifications["bonus_valid"])
 
-    # Quality score stats
-    def safe_stats(scores):
-        if not scores:
-            return {'avg': None, 'std': None, 'count': 0}
-        return {
-            'avg': mean(scores),
-            'std': stdev(scores) if len(scores) > 1 else 0,
-            'count': len(scores)
-        }
+    # False positives = invalid + mischaracterized + design_choice + out_of_scope + security_theater + informational
+    false_positives = (classifications["invalid"] +
+                      classifications["mischaracterized"] +
+                      classifications["design_choice"] +
+                      classifications["out_of_scope"] +
+                      classifications["security_theater"] +
+                      classifications["informational"])
 
-    rcir_stats = safe_stats(rcir_scores)
-    ava_stats = safe_stats(ava_scores)
-    fsv_stats = safe_stats(fsv_scores)
+    precision = safe_div(true_positives, true_positives + false_positives)
+    target_detection_rate = safe_div(target_found_count, successful_evaluations)
+    f1_score = safe_div(2 * precision * target_detection_rate, precision + target_detection_rate) if (precision + target_detection_rate) > 0 else None
 
-    # Build vulnerability type breakdown
-    vuln_breakdown = {}
-    for vtype, data in by_vuln_type.items():
-        vuln_breakdown[vtype] = {
-            'total_samples': data['total'],
-            'target_found': data['found'],
-            'detection_rate': data['found'] / data['total'] if data['total'] > 0 else 0,
-            'avg_rcir': mean(data['rcir']) if data['rcir'] else None,
-            'avg_ava': mean(data['ava']) if data['ava'] else None,
-            'avg_fsv': mean(data['fsv']) if data['fsv'] else None,
+    # New metrics
+    lucky_guess_rate = safe_div(lucky_guess_count, successful_evaluations)
+    ancillary_discovery_rate = safe_div(samples_with_bonus, successful_evaluations)
+    invalid_finding_rate = safe_div(false_positives, total_findings)
+    false_alarm_density = safe_div(false_positives, successful_evaluations)
+
+    # Build by_vulnerability_type with computed metrics
+    by_vuln_type_output = {}
+    for vtype, vdata in by_vuln_type.items():
+        vt_total = vdata["total_samples"]
+        vt_found = vdata["target_found_count"]
+        vt_correct = vdata["verdict_correct_count"]
+        vt_findings = vdata["total_findings"]
+
+        # True/false positives for this type
+        vt_tp = (vdata["classifications"]["target_matches"] +
+                vdata["classifications"]["partial_matches"] +
+                vdata["classifications"]["bonus_valid"])
+        vt_fp = (vdata["classifications"]["invalid"] +
+                vdata["classifications"]["mischaracterized"] +
+                vdata["classifications"]["design_choice"] +
+                vdata["classifications"]["out_of_scope"] +
+                vdata["classifications"]["security_theater"] +
+                vdata["classifications"]["informational"])
+
+        vt_precision = safe_div(vt_tp, vt_tp + vt_fp)
+        vt_tdr = safe_div(vt_found, vt_total)
+        vt_f1 = safe_div(2 * vt_precision * vt_tdr, vt_precision + vt_tdr) if (vt_precision + vt_tdr) > 0 else None
+
+        # Per-type new metrics
+        vt_lgr = safe_div(vdata["lucky_guess_count"], vt_total)
+        vt_adr = safe_div(vdata["samples_with_bonus"], vt_total)
+        vt_ifr = safe_div(vt_fp, vt_findings) if vt_findings > 0 else 0.0
+        vt_fad = safe_div(vt_fp, vt_total)
+
+        by_vuln_type_output[vtype] = {
+            "total_samples": vt_total,
+            "target_found_count": vt_found,
+            "target_detection_rate": vt_tdr,
+            "miss_rate": 1.0 - vt_tdr,
+            "lucky_guess_count": vdata["lucky_guess_count"],
+            "lucky_guess_rate": vt_lgr,
+            "samples_with_bonus": vdata["samples_with_bonus"],
+            "ancillary_discovery_rate": vt_adr,
+            "verdict_correct_count": vt_correct,
+            "verdict_accuracy": safe_div(vt_correct, vt_total),
+            "total_findings": vt_findings,
+            "avg_findings_per_sample": safe_div(vt_findings, vt_total),
+            "true_positives": vt_tp,
+            "false_positives": vt_fp,
+            "precision": vt_precision,
+            "invalid_finding_rate": vt_ifr,
+            "false_alarm_density": vt_fad,
+            "f1_score": vt_f1,
+            "classifications": vdata["classifications"],
+            "type_match_distribution": vdata["type_matches"],
+            "quality_scores": {
+                "avg_rcir": safe_avg(vdata["quality_scores"]["rcir"]),
+                "avg_ava": safe_avg(vdata["quality_scores"]["ava"]),
+                "avg_fsv": safe_avg(vdata["quality_scores"]["fsv"]),
+                "std_rcir": safe_std(vdata["quality_scores"]["rcir"]),
+                "std_ava": safe_std(vdata["quality_scores"]["ava"]),
+                "std_fsv": safe_std(vdata["quality_scores"]["fsv"]),
+                "count": len(vdata["quality_scores"]["rcir"])
+            }
         }
 
     return {
@@ -170,31 +348,44 @@ def aggregate_variant(judge: str, detector: str, variant: str) -> dict:
         'judge_model': judge,
         'timestamp': datetime.now(timezone.utc).isoformat(),
         'sample_counts': {
-            'total': total,
-            'successful_evaluations': successful,
-            'failed_evaluations': failed
+            'total': total_samples,
+            'successful_evaluations': successful_evaluations,
+            'failed_evaluations': failed_evaluations
         },
         'detection_metrics': {
-            'target_found_count': target_found,
-            'target_detection_rate': detection_rate,
-            'miss_rate': 1 - detection_rate,
-            'verdict_correct_count': verdict_correct,
-            'verdict_accuracy': verdict_accuracy,
+            'target_found_count': target_found_count,
+            'target_detection_rate': target_detection_rate,
+            'miss_rate': 1.0 - target_detection_rate,
+            'lucky_guess_count': lucky_guess_count,
+            'lucky_guess_rate': lucky_guess_rate,
+            'samples_with_bonus': samples_with_bonus,
+            'ancillary_discovery_rate': ancillary_discovery_rate,
+            'verdict_correct_count': verdict_correct_count,
+            'verdict_accuracy': safe_div(verdict_correct_count, successful_evaluations),
             'total_findings': total_findings,
-            'avg_findings_per_sample': avg_findings,
+            'avg_findings_per_sample': safe_div(total_findings, successful_evaluations),
+            'true_positives': true_positives,
+            'false_positives': false_positives,
+            'precision': precision,
+            'invalid_finding_rate': invalid_finding_rate,
+            'false_alarm_density': false_alarm_density,
+            'f1_score': f1_score
         },
         'quality_scores': {
-            'avg_rcir': rcir_stats['avg'],
-            'avg_ava': ava_stats['avg'],
-            'avg_fsv': fsv_stats['avg'],
-            'std_rcir': rcir_stats['std'],
-            'std_ava': ava_stats['std'],
-            'std_fsv': fsv_stats['std'],
-            'count': rcir_stats['count']
+            'avg_rcir': safe_avg(quality_scores["rcir"]),
+            'avg_ava': safe_avg(quality_scores["ava"]),
+            'avg_fsv': safe_avg(quality_scores["fsv"]),
+            'std_rcir': safe_std(quality_scores["rcir"]),
+            'std_ava': safe_std(quality_scores["ava"]),
+            'std_fsv': safe_std(quality_scores["fsv"]),
+            'count': len(quality_scores["rcir"])
         },
-        'classification_totals': dict(classifications),
-        'type_match_distribution': dict(type_matches),
-        'by_vulnerability_type': vuln_breakdown
+        'classification_totals': classifications,
+        'type_match_distribution': type_matches,
+        'by_vulnerability_type': by_vuln_type_output,
+        'performance': {
+            'avg_latency_ms': safe_avg(latencies)
+        }
     }
 
 
