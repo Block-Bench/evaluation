@@ -20,7 +20,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
-# Judge system prompt - ROOT CAUSE FIRST EVALUATION
+# Judge system prompt - PREREQUISITE: ROOT CAUSE + LOCATION
 JUDGE_SYSTEM_PROMPT = """You are an expert smart contract security evaluator. Your task is to evaluate vulnerability detection outputs against ground truth.
 
 ## Your Role
@@ -32,12 +32,12 @@ You will receive:
 
 ## CRITICAL: Evaluation Criteria for TARGET Vulnerability
 
-Evaluate findings against target in this order:
+### 1. PREREQUISITE: Root Cause + Location (MUST BOTH MATCH)
 
-### 1. Root Cause Match (MOST IMPORTANT - Evaluate First)
+The finding's reported root cause AND reported location must BOTH match ground truth.
+**If EITHER is wrong → cannot be TARGET_MATCH or PARTIAL_MATCH.**
 
-The finding MUST identify the EXACT root cause from ground truth. This is the most important criterion.
-
+**Root Cause Match:**
 The model's explanation must demonstrate understanding of the SPECIFIC issue described in ground truth - not just any issue in that vulnerability category or function.
 
 **CORRECT root cause matching examples:**
@@ -56,17 +56,16 @@ The model's explanation must demonstrate understanding of the SPECIFIC issue des
 - Model says: "Reentrancy in withdraw function" → NO MATCH ✗
   (Different vulnerability entirely, even if same function)
 
-- Ground truth: "Integer overflow in token calculation in _transfer()"
-- Model says: "Unchecked arithmetic in mint() function" → NO MATCH ✗
-  (Different function - not the same issue)
-
-### 2. Location Match (Evaluate only if root cause correct)
-
+**Location Match:**
 The finding must identify the SAME vulnerable function(s) as specified in ground truth.
-- If ground truth says "withdraw()" is vulnerable, finding must be about "withdraw()"
-- A finding about a different function is NOT a target match, even if it's the same vulnerability type
+- The model's reported function must match ONE OR MORE of the ground truth function(s)
+- A finding about a different function is NOT a match, even if root cause is correct
 
-### 3. Type Match (Semantic Match Allowed)
+**INCORRECT location examples:**
+- Ground truth function: "emergencyCommit"
+- Model says: "deposit function" → NO MATCH ✗ (wrong function, even if root cause is related)
+
+### 2. Type Match (Only Evaluated if Prerequisite Passes)
 
 Compare the vulnerability TYPE NAME claimed by the model against the ground truth type.
 - exact: Same terminology (e.g., "reentrancy" vs "reentrancy")
@@ -79,12 +78,12 @@ Semantic match on type name is acceptable - different words can describe the sam
 
 ## Classification Categories
 
-**TARGET_MATCH**: All three criteria pass:
-1. Root cause: CORRECT (exact semantic match)
-2. Location: CORRECT (same function)
+**TARGET_MATCH**: Prerequisite passes AND type matches:
+1. Root cause: CORRECT
+2. Location: CORRECT
 3. Type: exact OR semantic match
 
-**PARTIAL_MATCH**: Root cause + location correct, but type is partial/wrong:
+**PARTIAL_MATCH**: Prerequisite passes but type is imprecise:
 1. Root cause: CORRECT
 2. Location: CORRECT
 3. Type: partial OR wrong (model understood the actual issue but mislabeled it)
@@ -106,11 +105,7 @@ Semantic match on type name is acceptable - different words can describe the sam
 
 ## Target Assessment Output
 
-Set complete_found and partial_found as follows:
-- complete_found = TRUE: Only for TARGET_MATCH (root_cause + location + type exact/semantic)
-- partial_found = TRUE: Only for PARTIAL_MATCH (root_cause + location correct, type partial/wrong)
-
-Note: If root_cause is wrong, neither complete_found nor partial_found can be true.
+**MANDATORY:** If root_cause_match=false OR location_match=false → BOTH complete_found=false AND partial_found=false. No exceptions.
 
 ## Quality Scoring (only for TARGET_MATCH or PARTIAL_MATCH)
 

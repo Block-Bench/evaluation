@@ -8,102 +8,194 @@
 
 ## Tables
 
-### Table 1: Main Detection Results (DS Benchmark)
-| Model | Tier 1 | Tier 2 | Tier 3 | Tier 4 | Avg TDR | Precision | F1 |
-|-------|--------|--------|--------|--------|---------|-----------|-----|
+### Table 1: Detection Results (DS + TC Benchmarks)
+| Model | DS-T1 | DS-T2 | DS-T3 | DS-T4 | DS-Avg | TC-San | TC-MinSan | TC-Shape | TC-Avg |
+|-------|-------|-------|-------|-------|--------|--------|-----------|----------|--------|
 
 - **Rows:** 7 LLM detectors + Slither + Mythril
-- **Purpose:** Shows difficulty scaling effect and LLM vs traditional tool comparison
-- **Key insight:** How detection degrades with contract complexity
+- **Purpose:** Shows detection across difficulty tiers (DS) and obfuscation variants (TC)
+- **Key insights:**
+  - DS: How detection degrades with contract complexity
+  - TC: Which models rely on memorization vs genuine understanding
+- **Note:** DS is pre-cutoff (before 2023), TC is post-cutoff with sanitization/obfuscation
 
-### Table 2: Temporal Contamination Results
-| Model | Sanitized | NoComments | MinimalSan | ShapeShifter | Trojan | FalseProphet |
-|-------|-----------|------------|------------|--------------|--------|--------------|
+### Table 2: Prompt Protocol Results (GS Benchmark)
+| Model | Direct | Context | CoT | CoT-Adversarial | CoT-Naturalistic |
+|-------|--------|---------|-----|-----------------|------------------|
 
-- **Purpose:** Shows how sanitization/obfuscation affects detection
-- **Key insight:** Which models rely on memorization vs genuine understanding
+- **Rows:** 7 LLM detectors
+- **Purpose:** Shows how prompt engineering affects detection on gold standard samples
+- **Key insight:** CoT helps weaker models, may hurt stronger ones (overthinking?)
+- **Note:** All use same 34 gold standard samples with different prompt strategies
 
-### Table 3: Judge Agreement Analysis
-| Detector | Codestral | Gemini-Flash | MIMO | GLM | Mistral-Large | Agreement % |
-|----------|-----------|--------------|------|-----|---------------|-------------|
+### Table 3: Quality Metrics (Overall)
+| Model | RCIR | AVA | FSV | Lucky Guess % | False Alarm Rate |
+|-------|------|-----|-----|---------------|------------------|
+
+- **Rows:** 7 LLM detectors
+- **Purpose:** Deeper quality analysis beyond just detection rate
+- **Key insight:** High TDR doesn't always mean high quality explanations
+- **Aggregation:** Combined across ALL datasets (DS + TC + GS) where model found target
+- **Metrics:**
+  - RCIR: Root Cause Identification Rate (0-1) - did model explain WHY correctly?
+  - AVA: Attack Vector Accuracy (0-1) - was the attack scenario valid?
+  - FSV: Fix Suggestion Validity (0-1) - would the suggested fix work?
+  - Lucky Guess %: Found target but wrong root cause (PARTIAL_MATCH / total found)
+  - False Alarm Rate: Invalid findings per sample (HALLUCINATED + MISCHARACTERIZED)
+
+### Table 4: Judge Agreement Analysis
+| Detector | Codestral | Gemini-Flash | MIMO | GLM | Mistral | Fleiss-κ |
+|----------|-----------|--------------|------|-----|---------|----------|
 
 - **Purpose:** Shows inter-judge reliability
 - **Key insight:** Evaluation variance and the need for multiple judges
-
-### Table 4: Gold Standard Protocol Results
-| Model | Direct | Context | CoT | CoT+Adversarial | CoT+Naturalistic |
-|-------|--------|---------|-----|-----------------|------------------|
-
-- **Purpose:** Shows prompt engineering effects on detection
-- **Key insight:** CoT helps weaker models, may hurt stronger ones
-
-### Table 5: Quality Metrics Beyond TDR
-| Model | RCIR | AVA | FSV | Lucky Guess % | False Alarm Density |
-|-------|------|-----|-----|---------------|---------------------|
-
-- **Purpose:** Deeper quality analysis beyond just detection rate
-- **Key insight:** High TDR doesn't always mean high quality explanations
+- **Note:** Fleiss-κ for overall inter-rater agreement
 
 ---
 
-## Figures
+## Figures (Main Paper - 5 Key Figures)
 
-### Figure 1: Radar/Spider Chart - Model Capabilities
-- **Axes:** TDR, Precision, RCIR, AVA, FSV
-- **Format:** One polygon per top model (top 4-5)
-- **Purpose:** Shows strengths/weaknesses at a glance
-- **Tool:** matplotlib radar chart or plotly
+### Figure 1: TC Obfuscation Resistance (Line Chart)
+- **X-axis:** TC variants ordered by obfuscation level (Sanitized → MinimalSan → NoComments → ShapeShifter → Trojan → FalseProphet)
+- **Y-axis:** TDR (0-100%)
+- **Format:** SWE-Bench style multi-line chart
+- **Purpose:** Shows which models degrade gracefully when memorization is blocked
+- **Key insight:** Steep drops indicate memorization reliance; flat lines indicate genuine understanding
+- **Visual Style:**
+  - One colored line per model with circular markers at each data point
+  - Distinct colors: Claude (purple), GPT (green), Gemini (blue), Llama (orange), DeepSeek (red), Grok (cyan), Qwen (pink)
+  - Light grid background for readability
+  - Legend on right side or bottom
+  - Clean, modern aesthetic (minimal clutter)
+  - Line thickness: 2px, marker size: 8px
+- **Tool:** matplotlib with seaborn styling
 
-### Figure 2: Heatmap - Detection by Vulnerability Type
-- **X-axis:** Vulnerability types (reentrancy, access_control, oracle_manipulation, arithmetic_error, etc.)
-- **Y-axis:** Models
-- **Color:** Detection rate intensity
-- **Purpose:** Reveals model specializations
-- **Tool:** seaborn heatmap
-
-### Figure 3: Bar Chart - LLMs vs Traditional Tools
-- **Format:** Grouped bars comparing LLM average vs Slither vs Mythril
-- **Grouping:** By tier or overall
-- **Purpose:** The "headline" comparison for abstract/intro
+### Figure 2: GS Protocol Effect (Grouped Bar Chart)
+- **X-axis:** Models (7 LLMs)
+- **Groups:** Direct, Context, CoT, CoT-Adversarial, CoT-Naturalistic
+- **Y-axis:** TDR (0-100%)
+- **Purpose:** Shows how prompt engineering affects detection
+- **Key insight:** CoT helps weaker models, may hurt stronger ones (overthinking?)
+- **Visual Style:**
+  - Vertical grouped bars, one color per protocol
+  - Protocol colors: Direct (gray), Context (light blue), CoT (blue), CoT-Adv (orange), CoT-Nat (green)
+  - Slight gap between model groups, bars within group touching
+  - Value labels on top of bars (optional)
+  - Legend at top or bottom
 - **Tool:** matplotlib grouped bar
 
-### Figure 4: Line Chart - Difficulty Scaling
+### Figure 3: CodeAct Paradox Plot (Scatter) - NOVEL CONTRIBUTION
+- **X-axis:** Location match rate (found the right code lines) 0-100%
+- **Y-axis:** Root cause match rate (explained it correctly) 0-100%
+- **Format:** Scatter with diagonal reference line (y=x)
+- **Purpose:** Visualizes "finds code but can't explain" phenomenon
+- **Key insight:** Points below diagonal = models that locate vulnerable code but fail to articulate why
+- **Visual Style:**
+  - Diagonal dashed line (gray) representing "perfect understanding" (y=x)
+  - Large circular markers, one per model
+  - Each point labeled with model name (offset to avoid overlap)
+  - Point size proportional to total samples OR uniform
+  - Color by model family or uniform with labels
+  - Shaded region below diagonal = "location > understanding" zone
+  - Grid lines for both axes
+- **Tool:** matplotlib scatter with annotations
+
+### Figure 4: Vulnerability Type Heatmap
+- **X-axis:** Vulnerability types (reentrancy, access_control, oracle_manipulation, arithmetic_error, price_oracle, etc.)
+- **Y-axis:** Models (7 LLMs + Slither + Mythril)
+- **Color:** TDR intensity (0-100%)
+- **Purpose:** Reveals model specializations and blind spots
+- **Key insight:** Some models excel at reentrancy, others at access control; ensemble may be beneficial
+- **Visual Style:**
+  - Sequential colormap: white (0%) → dark blue (100%) or viridis
+  - Annotate each cell with TDR value (e.g., "45%")
+  - Bold/highlight highest value per column (best model for that vuln type)
+  - Clear cell borders
+  - Rotated x-axis labels if needed
+- **Tool:** seaborn heatmap with annotations
+
+### Figure 5: Differential Detection Advantage (Bar Chart)
+- **X-axis:** Models (7 LLMs)
+- **Y-axis:** TDR (0-100%)
+- **Format:** Paired bars per model (Single-code TDR vs Differential TDR)
+- **Purpose:** Shows whether seeing the fix helps models understand the vulnerability
+- **Key insight:** Large gaps indicate models benefit from comparative context
+- **Visual Style:**
+  - Two bars per model: Single (gray/light) vs Differential (colored/dark)
+  - Delta annotation above bar pairs showing improvement (e.g., "+12%")
+  - Consistent model ordering (alphabetical or by performance)
+  - Legend: "Single Code" vs "Differential (with fix)"
+- **Tool:** matplotlib grouped bar
+
+---
+
+## Figures (Appendix/Supplementary)
+
+### Figure A1: DS Difficulty Scaling (Line Chart)
 - **X-axis:** Tier 1 → Tier 4
 - **Y-axis:** TDR
-- **Format:** One line per model with markers
-- **Purpose:** Shows which models degrade gracefully with complexity
+- **Format:** One line per model (LLMs + Slither + Mythril)
+- **Purpose:** Shows how detection degrades with contract complexity
 - **Tool:** matplotlib line plot
 
-### Figure 5: Heatmap - Judge Agreement Matrix
-- **Format:** Confusion matrix style showing judge pair agreements
+### Figure A2: Judge Agreement Heatmap
+- **Format:** Confusion matrix style showing judge pair agreement rates
 - **Purpose:** Quantifies inter-judge reliability
 - **Tool:** seaborn heatmap with annotations
 
-### Figure 6: Sankey/Flow Diagram - Detection Pipeline
-- **Flow:** Ground Truth → Detector Findings → Judge Evaluation → Final Verdict
-- **Purpose:** Shows information flow and loss at each stage
-- **Tool:** plotly sankey
+### Figure A3: Radar/Spider Chart - Top Model Comparison
+- **Axes:** TDR, RCIR, AVA, FSV, Precision
+- **Format:** One polygon per top 4-5 models
+- **Purpose:** Shows strengths/weaknesses at a glance
+- **Tool:** matplotlib radar chart
 
-### Figure 7: Box Plot - TDR Distribution by Model Family
-- **Groups:** OpenAI (GPT), Anthropic (Claude), Google (Gemini), Meta (Llama), etc.
-- **Purpose:** Shows variance within model families
-- **Tool:** seaborn boxplot
+---
 
-### Figure 8: The Paradox Plot (Novel Contribution!)
-- **X-axis:** ROOT_CAUSE Line Match Rate (CodeAct-based)
-- **Y-axis:** Judge TDR
-- **Format:** Scatter with diagonal reference line
-- **Points:** Each point = one model
-- **Purpose:** Visualizes "understands but can't explain" phenomenon
-- **Key insight:** Points below diagonal indicate models that find right code but explain poorly (e.g., Llama)
-- **Tool:** matplotlib scatter with annotations
+## Methodology Flowchart (TODO - Discuss Later)
+- Full pipeline visualization: Data Collection → Annotation → Transformations → Detection → Evaluation → Results
+- TikZ implementation, flow.io aesthetic
+- Too complex to finalize now - defer to later discussion
 
-### Figure 9: Temporal Contamination Delta Chart
-- **X-axis:** TC Variant (ordered by obfuscation level)
-- **Y-axis:** TDR drop from baseline
-- **Format:** Line chart showing degradation curves
-- **Purpose:** Quantifies memorization reliance
-- **Tool:** matplotlib line plot
+---
+
+## CodeAct Visualization (Main Paper - Small Figure)
+
+### Interpretability-Style Code Snippet
+Show a small vulnerable function with colored line-level annotations:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ function withdraw(uint amount) public {                     │
+│   require(balances[msg.sender] >= amount); ████ PREREQ      │ ← gray
+│                                                             │
+│   msg.sender.call{value: amount}("");      ████ ROOT_CAUSE  │ ← red
+│   require(success);                                         │
+│                                                             │
+│   balances[msg.sender] -= amount;          ████ SECONDARY   │ ← orange
+│                                                             │
+│   emit Withdrawal(msg.sender, amount);     ████ BENIGN      │ ← green
+│ }                                                           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Visual Style:**
+- Syntax-highlighted code snippet (small, ~10 lines max)
+- Colored sidebar/tags for each annotated line
+- Compact legend: 🔴 ROOT_CAUSE | 🟠 SECONDARY | ⚫ PREREQ | 🟢 BENIGN
+- Clean, minimal - fits in a column width
+- Purpose: Shows how we annotate code for fine-grained evaluation
+
+**Implementation:** LaTeX listings package with custom color rules, or TikZ overlay
+
+---
+
+## Tables Layout (Squeeze to 1 Page)
+
+Target: All 4 tables on single page using:
+- Smaller font (8pt)
+- Abbreviated headers (T1, T2, T3, T4 instead of Tier 1, etc.)
+- Two-column layout where possible
+- Minimal vertical spacing
 
 ---
 
