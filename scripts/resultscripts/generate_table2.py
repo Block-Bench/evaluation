@@ -2,11 +2,11 @@
 """
 Generate Table 2: Prompt Protocol Results (GS Benchmark)
 
-Reads from results/detection_evaluation/llm-judge/ folders and generates a table
+Reads from results/summaries/{judge}/gs/ folders and generates a table
 showing TDR across different prompt protocols for the Gold Standard dataset.
 
 Table 2 format:
-| Model | Direct | Context | CoT | CoT-Adversarial | CoT-Naturalistic |
+| Model | Direct | Context | CoT | CoT-Adversarial | CoT-Naturalistic | Avg |
 """
 
 import argparse
@@ -42,90 +42,50 @@ MODEL_NAMES = {
 # Default judges to average
 DEFAULT_JUDGES = ['codestral', 'gemini-3-flash', 'mimo-v2-flash']
 
+# Folders to exclude when finding judges
+EXCLUDED_FOLDERS = {'tables', 'figures', 'plan.md'}
 
-def find_available_judges(eval_dir: Path) -> list[str]:
-    """Find all judge folders in evaluation directory."""
+
+def find_available_judges(summaries_dir: Path) -> list[str]:
+    """Find all judge folders in summaries directory that have GS results."""
     judges = []
-    for p in eval_dir.iterdir():
-        if p.is_dir() and not p.name.startswith('.'):
-            judges.append(p.name)
-    return sorted(judges)
-
-
-def find_available_detectors(eval_dir: Path, judge: str) -> list[str]:
-    """Find all detector folders for a judge."""
-    judge_dir = eval_dir / judge
-    if not judge_dir.exists():
-        return []
-    detectors = []
-    for p in judge_dir.iterdir():
-        if p.is_dir() and not p.name.startswith('.') and p.name != 'all':
+    for p in summaries_dir.iterdir():
+        if p.is_dir() and not p.name.startswith('.') and p.name not in EXCLUDED_FOLDERS:
             # Check if has GS results
             gs_dir = p / 'gs'
             if gs_dir.exists():
-                detectors.append(p.name)
-    return sorted(detectors)
+                judges.append(p.name)
+    return sorted(judges)
 
 
-def load_gs_protocol_summary(eval_dir: Path, judge: str, detector: str, protocol: str) -> Optional[dict]:
-    """Load a GS protocol summary JSON file, or compute from individual files."""
-    path = eval_dir / judge / detector / 'gs' / protocol / '_prompt_summary.json'
+def load_gs_summary(summaries_dir: Path, judge: str, protocol: str) -> Optional[dict]:
+    """Load a GS protocol summary JSON file from summaries folder."""
+    path = summaries_dir / judge / 'gs' / f'{protocol}_summary.json'
     if path.exists():
         with open(path) as f:
             return json.load(f)
-
-    # Fallback: compute from individual judge files
-    protocol_dir = eval_dir / judge / detector / 'gs' / protocol
-    if not protocol_dir.exists():
-        return None
-
-    judge_files = list(protocol_dir.glob('j_*.json'))
-    if not judge_files:
-        return None
-
-    target_found = 0
-    total = len(judge_files)
-
-    for jf in judge_files:
-        try:
-            with open(jf) as f:
-                jdata = json.load(f)
-                ta = jdata.get('target_assessment', {})
-                if ta.get('complete_found') or ta.get('partial_found'):
-                    target_found += 1
-        except:
-            continue
-
-    if total == 0:
-        return None
-
-    return {
-        'detection_metrics': {
-            'target_detection_rate': target_found / total,
-            'target_found_count': target_found,
-        },
-        'sample_counts': {
-            'total': total
-        }
-    }
+    return None
 
 
-def get_all_detectors(eval_dir: Path, judges: list[str]) -> list[str]:
-    """Get all unique detector names across all judges."""
+def get_all_detectors(summaries_dir: Path, judges: list[str]) -> list[str]:
+    """Get all unique detector names across all judges from summaries."""
     detectors = set()
     for judge in judges:
-        for det in find_available_detectors(eval_dir, judge):
-            detectors.add(det)
+        for protocol in GS_PROTOCOLS:
+            summary = load_gs_summary(summaries_dir, judge, protocol)
+            if summary:
+                for model in summary.get('model_rankings', []):
+                    detectors.add(model['detector'])
     return sorted(detectors)
 
 
-def generate_table2(eval_dir: Path, judges: Optional[list[str]] = None,
+def generate_table2(summaries_dir: Path, judges: Optional[list[str]] = None,
                     average_judges: bool = True, output_format: str = 'markdown') -> str:
     """
     Generate Table 2 showing GS protocol detection results.
 
     Args:
-        eval_dir: Path to results/detection_evaluation/llm-judge/
+        summaries_dir: Path to results/summaries/
         judges: List of judges to use (None = use defaults)
         average_judges: If True, average TDR across judges; if False, use first judge
         output_format: 'markdown', 'latex', or 'csv'
@@ -134,9 +94,9 @@ def generate_table2(eval_dir: Path, judges: Optional[list[str]] = None,
         Formatted table string
     """
     # Find judges
-    available_judges = find_available_judges(eval_dir)
+    available_judges = find_available_judges(summaries_dir)
     if not available_judges:
-        return "Error: No judge folders found in evaluation directory"
+        return "Error: No judge folders found with GS summaries"
 
     if judges:
         judges = [j for j in judges if j in available_judges]
@@ -149,7 +109,7 @@ def generate_table2(eval_dir: Path, judges: Optional[list[str]] = None,
     print(f"Using judges: {judges}")
 
     # Get all detectors
-    all_detectors = get_all_detectors(eval_dir, judges)
+    all_detectors = get_all_detectors(summaries_dir, judges)
     print(f"Found detectors: {all_detectors}")
 
     # Collect TDR data: detector -> protocol -> value
@@ -157,22 +117,24 @@ def generate_table2(eval_dir: Path, judges: Optional[list[str]] = None,
 
     for protocol in GS_PROTOCOLS:
         col_name = PROTOCOL_DISPLAY.get(protocol, protocol)
-        protocol_tdrs = {det: [] for det in all_detectors}
 
-        for judge in judges:
-            for det in all_detectors:
-                summary = load_gs_protocol_summary(eval_dir, judge, det, protocol)
-                if summary:
-                    tdr = summary.get('detection_metrics', {}).get('target_detection_rate', 0)
-                    protocol_tdrs[det].append(tdr)
-
-        # Average or take first
         for det in all_detectors:
-            if protocol_tdrs[det]:
+            tdrs = []
+
+            for judge in judges:
+                summary = load_gs_summary(summaries_dir, judge, protocol)
+                if summary:
+                    for model in summary.get('model_rankings', []):
+                        if model['detector'] == det:
+                            tdrs.append(model['target_detection_rate'])
+                            break
+
+            # Average or take first
+            if tdrs:
                 if average_judges:
-                    data[det][col_name] = sum(protocol_tdrs[det]) / len(protocol_tdrs[det])
+                    data[det][col_name] = sum(tdrs) / len(tdrs)
                 else:
-                    data[det][col_name] = protocol_tdrs[det][0]
+                    data[det][col_name] = tdrs[0]
             else:
                 data[det][col_name] = None
 
@@ -277,9 +239,9 @@ def format_csv(data: dict, columns: list, detectors: list) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description='Generate Table 2: GS Protocol Results')
-    parser.add_argument('--eval-dir', '-d', type=Path,
-                        default=Path('results/detection_evaluation/llm-judge'),
-                        help='Path to llm-judge evaluation directory')
+    parser.add_argument('--summaries-dir', '-d', type=Path,
+                        default=Path('results/summaries'),
+                        help='Path to summaries directory')
     parser.add_argument('--judges', '-j', nargs='+',
                         help='Specific judges to use (default: codestral, gemini-3-flash, mimo-v2-flash)')
     parser.add_argument('--no-average', action='store_true',
@@ -292,13 +254,14 @@ def main():
     args = parser.parse_args()
 
     result = generate_table2(
-        eval_dir=args.eval_dir,
+        summaries_dir=args.summaries_dir,
         judges=args.judges,
         average_judges=not args.no_average,
         output_format=args.format
     )
 
     if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(result)
         print(f"Written to {args.output}")
     else:

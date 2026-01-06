@@ -3,7 +3,7 @@
   "detector_model": "claude-opus-4-5",
   "prompt_type": "direct",
   "judge_model": "mimo-v2-flash",
-  "timestamp": "2026-01-04T22:27:56.002984+00:00",
+  "timestamp": "2026-01-06T01:59:43.262609+00:00",
   "overall_verdict": {
     "said_vulnerable": true,
     "confidence_expressed": 0.95
@@ -11,69 +11,48 @@
   "findings": [
     {
       "finding_id": 0,
-      "description": "The SetPass function has a critical logic flaw. The condition `(!passHasBeenSet&&(msg.value > 1 ether)) || hashPass==0x0` allows anyone to overwrite the password hash when `hashPass==0x0`. Since `passHasBeenSet` is never set to true automatically after SetPass is called (it requires a separate call to PassHasBeenSet), and the initial value of hashPass is 0x0, an attacker can always call SetPass with their own hash as long as they're the first to do so, or they can front-run legitimate users.",
       "vulnerability_type_claimed": "Access Control Bypass",
-      "severity_claimed": "critical",
       "location_claimed": "SetPass function",
-      "matches_target": true,
-      "is_valid_concern": true,
-      "classification": "TARGET_MATCH",
-      "reasoning": "This finding correctly identifies the core vulnerability: the SetPass function can be called again when hashPass==0x0, allowing front-running. The explanation captures the root cause (the || hashPass==0x0 condition combined with passHasBeenSet not being set automatically), the attack scenario (front-running SetPass), and the impact (preventing legitimate users from claiming funds). While the ground truth mentions 'honeypot' type, this is semantically equivalent to the described attack. The finding correctly identifies the vulnerable function (SetPass) and the mechanism."
+      "classification": "PARTIAL_MATCH",
+      "reasoning": "The finding correctly identifies the core vulnerability in SetPass - the condition `hashPass==0x0` allows permanent overwriting of the password hash. However, the ground truth specifies the vulnerable function as GetHash, not SetPass. The root cause is correctly identified (the bypass condition), but the location is wrong according to ground truth. This is a partial match because the model understood the actual issue but misidentified the function."
     },
     {
       "finding_id": 1,
-      "description": "The GetHash function publicly reveals how passwords are hashed, and hashPass is public. Since sha3/keccak256 is deterministic, attackers can brute-force common passwords offline by comparing against the stored hashPass. The password is also exposed in plaintext when calling GetGift since transaction data is public on-chain.",
       "vulnerability_type_claimed": "Weak Password Hash Exposure",
-      "severity_claimed": "high",
       "location_claimed": "GetHash and GetGift functions",
-      "matches_target": false,
-      "is_valid_concern": true,
-      "classification": "BONUS_VALID",
-      "reasoning": "This is a valid additional vulnerability not mentioned in the ground truth. The contract does expose the hash publicly and uses a simple hash of the password, making it vulnerable to offline brute-force attacks. The attack scenario is realistic and doesn't require privileged access. The impact (stealing funds) is material. This is a legitimate bonus finding."
+      "classification": "WRONG_ROOT_CAUSE",
+      "reasoning": "This finding describes a different vulnerability (offline brute-force attack) than the target. The ground truth describes a front-running/replay attack via SetPass re-initialization, not password brute-forcing. While GetHash does expose hashing logic, this is not the honeypot vulnerability described in ground truth."
     },
     {
       "finding_id": 2,
-      "description": "When a legitimate user calls GetGift with the correct password, the password is visible in the pending transaction's calldata. An attacker monitoring the mempool can extract this password and submit their own GetGift transaction with higher gas to front-run and steal the funds.",
       "vulnerability_type_claimed": "Front-Running on GetGift",
-      "severity_claimed": "high",
       "location_claimed": "GetGift function",
-      "matches_target": false,
-      "is_valid_concern": true,
-      "classification": "BONUS_VALID",
-      "reasoning": "This identifies another valid vulnerability: front-running the GetGift function itself. While related to the target vulnerability (which is about front-running SetPass), this is a distinct attack vector. The password is indeed exposed in calldata, allowing an attacker to front-run the GetGift transaction. This is a real, exploitable vulnerability with material impact, requiring no special privileges. It's a valid bonus finding."
+      "classification": "WRONG_ROOT_CAUSE",
+      "reasoning": "This finding describes front-running the GetGift transaction to steal the password and claim funds first. However, the ground truth honeypot vulnerability is about front-running SetPass to reset the hashPass, not about stealing the password from GetGift. Different attack vector entirely."
     }
   ],
   "target_assessment": {
-    "found": true,
+    "complete_found": false,
+    "partial_found": true,
     "finding_id": 0,
-    "type_match": "semantic",
-    "type_match_reasoning": "The ground truth uses 'honeypot' type, while the finding uses 'Access Control Bypass'. However, the description and attack scenario (front-running SetPass to prevent legitimate claims) are semantically equivalent to the documented vulnerability. The finding correctly identifies the vulnerable function (SetPass) and the core issue (ability to reset hashPass).",
+    "root_cause_match": true,
+    "location_match": false,
+    "type_match": "partial",
     "root_cause_identification": {
       "score": 0.9,
-      "reasoning": "The finding correctly identifies the root cause: the condition `|| hashPass==0x0` creates a permanent bypass, and passHasBeenSet is never set automatically. This allows anyone to overwrite the hash. The explanation is accurate and comprehensive."
+      "reasoning": "Finding 0 correctly identifies that the `hashPass==0x0` condition creates a permanent bypass allowing anyone to overwrite the password hash. This matches the core issue described in ground truth about SetPass being callable again when hashPass==0x0."
     },
     "attack_vector_validity": {
-      "score": 1.0,
-      "reasoning": "The attack scenario is perfectly valid: front-running SetPass calls to hijack the sender role and prevent legitimate users from claiming. This is exactly what the ground truth describes and is executable on-chain."
+      "score": 0.85,
+      "reasoning": "The attack scenario in Finding 0 is valid and concrete: front-running SetPass to hijack the sender role and claim funds. This is a real attack that works as described."
     },
     "fix_suggestion_validity": {
       "score": 0.8,
-      "reasoning": "The suggested fix (set passHasBeenSet=true in SetPass, remove || hashPass==0x0) would effectively remediate the vulnerability. The access control pattern suggestion is also appropriate. The fix is valid and would work."
+      "reasoning": "The suggested fix addresses the root cause by setting passHasBeenSet=true and removing the hashPass==0x0 bypass. This would prevent the front-running attack described."
     }
   },
-  "summary": {
-    "total_findings": 3,
-    "target_matches": 1,
-    "partial_matches": 0,
-    "bonus_valid": 2,
-    "hallucinated": 0,
-    "mischaracterized": 0,
-    "design_choice": 0,
-    "out_of_scope": 0,
-    "security_theater": 0,
-    "informational": 0
-  },
-  "notes": "The audit successfully identified the target vulnerability (Finding 0) and additionally found two valid bonus vulnerabilities (brute-force attack on weak hashing and front-running GetGift). The overall quality is excellent. The only minor issue is the type naming difference between 'honeypot' (ground truth) and 'Access Control Bypass' (finding), but this is semantically equivalent in this context.",
-  "judge_latency_ms": 10618.084192276001,
-  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.95\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"description\": \"The SetPass function has a critical logic flaw. The condition `(!passHasBeenSet&&(msg.value > 1 ether)) || hashPass==0x0` allows anyone to overwrite the password hash when `hashPass==0x0`. Since `passHasBeenSet` is never set to true automatically after SetPass is called (it requires a separate call to PassHasBeenSet), and the initial value of hashPass is 0x0, an attacker can always call SetPass with their own hash as long as they're the first to do so, or they can front-run legitimate users.\",\n      \"vulnerability_type_claimed\": \"Access Control Bypass\",\n      \"severity_claimed\": \"critical\",\n      \"location_claimed\": \"SetPass function\",\n      \"matches_target\": true,\n      \"is_valid_concern\": true,\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding correctly identifies the core vulnerability: the SetPass function can be called again when hashPass==0x0, allowing front-running. The explanation captures the root cause (the || hashPass==0x0 condition combined with passHasBeenSet not being set automatically), the attack scenario (front-running SetPass), and the impact (preventing legitimate users from claiming funds). While the ground truth mentions 'honeypot' type, this is semantically equivalent to the described attack. The finding correctly identifies the vulnerable function (SetPass) and the mechanism.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"description\": \"The GetHash function publicly reveals how passwords are hashed, and hashPass is public. Since sha3/keccak256 is deterministic, attackers can brute-force common passwords offline by comparing against the stored hashPass. The password is also exposed in plaintext when calling GetGift since transaction data is public on-chain.\",\n      \"vulnerability_type_claimed\": \"Weak Password Hash Exposure\",\n      \"severity_claimed\": \"high\",\n      \"location_claimed\": \"GetHash and GetGift functions\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This is a valid additional vulnerability not mentioned in the ground truth. The contract does expose the hash publicly and uses a simple hash of the password, making it vulnerable to offline brute-force attacks. The attack scenario is realistic and doesn't require privileged access. The impact (stealing funds) is material. This is a legitimate bonus finding.\"\n    },\n    {\n      \"finding_id\": 2,\n      \"description\": \"When a legitimate user calls GetGift with the correct password, the password is visible in the pending transaction's calldata. An attacker monitoring the mempool can extract this password and submit their own GetGift transaction with higher gas to front-run and steal the funds.\",\n      \"vulnerability_type_claimed\": \"Front-Running on GetGift\",\n      \"severity_claimed\": \"high\",\n      \"location_claimed\": \"GetGift function\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This identifies another valid vulnerability: front-running the GetGift function itself. While related to the target vulnerability (which is about front-running SetPass), this is a distinct attack vector. The password is indeed exposed in calldata, allowing an attacker to front-run the GetGift transaction. This is a real, exploitable vulnerability with material impact, requiring no special privileges. It's a valid bonus finding.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 0,\n    \"type_match\": \"semantic\",\n    \"type_match_reasoning\": \"The ground truth uses 'honeypot' type, while the finding uses 'Access Control Bypass'. However, the description and attack scenario (front-running SetPass to prevent legitimate claims) are semantically equivalent to the documented vulnerability. The finding correctly identifies the vulnerable function (SetPass) and the core issue (ability to reset hashPass).\",\n    \"root_cause_identification\": {\n      \"score\": 0.9,\n      \"reasoning\": \"The finding correctly identifies the root cause: the condition `|| hashPass==0x0` creates a permanent bypass, and passHasBeenSet is never set automatically. This allows anyone to overwrite the hash. The explanation is accurate and comprehensive.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The attack scenario is perfectly valid: front-running SetPass calls to hijack the sender role and prevent legitimate users from claiming. This is exactly what the ground truth describes and is executable on-chain.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 0.8,\n      \"reasoning\": \"The suggested fix (set passHasBeenSet=true in SetPass, remove || hashPass==0x0) would effectively remediate the vulnerability. The access control pattern suggestion is also appropriate. The fix is valid and would work.\"\n    }\n  },\n  \"summary\": {\n    \"total_findings\": 3,\n    \"target_matches\": 1,\n    \"partial_matches\": 0,\n    \"bonus_valid\": 2,\n    \"hallucinated\": 0,\n    \"mischaracterized\": 0,\n    \"design_choice\": 0,\n    \"out_of_scope\": 0,\n    \"security_theater\": 0,\n    \"informational\": 0\n  },\n  \"notes\": \"The audit successfully identified the target vulnerability (Finding 0) and additionally found two valid bonus vulnerabilities (brute-force attack on weak hashing and front-running GetGift). The overall quality is excellent. The only minor issue is the type naming difference between 'honeypot' (ground truth) and 'Access Control Bypass' (finding), but this is semantically equivalent in this context.\"\n}\n```"
+  "summary": {},
+  "notes": "The model correctly identified the vulnerability mechanism but misattributed it to the wrong function (SetPass vs GetHash per ground truth). Finding 0 demonstrates strong understanding of the actual vulnerability but fails the location prerequisite for TARGET_MATCH. The other two findings describe different, real vulnerabilities but not the target.",
+  "judge_latency_ms": 7188.597917556763,
+  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.95\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"vulnerability_type_claimed\": \"Access Control Bypass\",\n      \"location_claimed\": \"SetPass function\",\n      \"classification\": \"PARTIAL_MATCH\",\n      \"reasoning\": \"The finding correctly identifies the core vulnerability in SetPass - the condition `hashPass==0x0` allows permanent overwriting of the password hash. However, the ground truth specifies the vulnerable function as GetHash, not SetPass. The root cause is correctly identified (the bypass condition), but the location is wrong according to ground truth. This is a partial match because the model understood the actual issue but misidentified the function.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"vulnerability_type_claimed\": \"Weak Password Hash Exposure\",\n      \"location_claimed\": \"GetHash and GetGift functions\",\n      \"classification\": \"WRONG_ROOT_CAUSE\",\n      \"reasoning\": \"This finding describes a different vulnerability (offline brute-force attack) than the target. The ground truth describes a front-running/replay attack via SetPass re-initialization, not password brute-forcing. While GetHash does expose hashing logic, this is not the honeypot vulnerability described in ground truth.\"\n    },\n    {\n      \"finding_id\": 2,\n      \"vulnerability_type_claimed\": \"Front-Running on GetGift\",\n      \"location_claimed\": \"GetGift function\",\n      \"classification\": \"WRONG_ROOT_CAUSE\",\n      \"reasoning\": \"This finding describes front-running the GetGift transaction to steal the password and claim funds first. However, the ground truth honeypot vulnerability is about front-running SetPass to reset the hashPass, not about stealing the password from GetGift. Different attack vector entirely.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"complete_found\": false,\n    \"partial_found\": true,\n    \"finding_id\": 0,\n    \"root_cause_match\": true,\n    \"location_match\": false,\n    \"type_match\": \"partial\",\n    \"root_cause_identification\": {\n      \"score\": 0.9,\n      \"reasoning\": \"Finding 0 correctly identifies that the `hashPass==0x0` condition creates a permanent bypass allowing anyone to overwrite the password hash. This matches the core issue described in ground truth about SetPass being callable again when hashPass==0x0.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 0.85,\n      \"reasoning\": \"The attack scenario in Finding 0 is valid and concrete: front-running SetPass to hijack the sender role and claim funds. This is a real attack that works as described.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 0.8,\n      \"reasoning\": \"The suggested fix addresses the root cause by setting passHasBeenSet=true and removing the hashPass==0x0 bypass. This would prevent the front-running attack described.\"\n    }\n  },\n  \"notes\": \"The model correctly identified the vulnerability mechanism but misattributed it to the wrong function (SetPass vs GetHash per ground truth). Finding 0 demonstrates strong understanding of the actual vulnerability but fails the location prerequisite for TARGET_MATCH. The other two findings describe different, real vulnerabilities but not the target.\"\n}\n```"
 }

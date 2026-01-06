@@ -3,7 +3,7 @@
   "detector_model": "claude-opus-4-5",
   "prompt_type": "direct",
   "judge_model": "mimo-v2-flash",
-  "timestamp": "2026-01-04T22:25:32.866198+00:00",
+  "timestamp": "2026-01-06T01:57:59.683244+00:00",
   "overall_verdict": {
     "said_vulnerable": true,
     "confidence_expressed": 0.85
@@ -11,69 +11,48 @@
   "findings": [
     {
       "finding_id": 0,
-      "description": "Both contracts lack any access control on critical state-modifying functions. Any address can add, modify, or delete any struct entry.",
       "vulnerability_type_claimed": "Missing Access Control",
-      "severity_claimed": "high",
       "location_claimed": "addStruct, deleteStruct functions in both contracts",
-      "matches_target": false,
-      "is_valid_concern": true,
-      "classification": "BONUS_VALID",
-      "reasoning": "This is a real, exploitable vulnerability that is not part of the ground truth target. The functions are public with no access control, allowing anyone to add or delete structs arbitrarily. This has material impact as it allows data corruption/deletion without authorization. No trusted role compromise is required - any external caller can exploit this."
+      "classification": "INFORMATIONAL",
+      "reasoning": "The finding correctly identifies that there is no access control, but this is an informational/design issue. The contract does not specify any access control requirements, and the functions are public by default. This is not a security vulnerability in the context of the TARGET issue, which is about incomplete data deletion."
     },
     {
       "finding_id": 1,
-      "description": "When deleting a struct containing a mapping, Solidity's `delete` keyword only resets the non-mapping members (like `id`). The nested `flags` mapping entries persist in storage.",
       "vulnerability_type_claimed": "Incomplete Data Deletion",
-      "severity_claimed": "medium",
       "location_claimed": "deleteStruct function in StructDeletion contract",
-      "matches_target": true,
-      "is_valid_concern": true,
       "classification": "TARGET_MATCH",
-      "reasoning": "This finding correctly identifies the exact target vulnerability: incomplete struct deletion where mappings inside structs are not cleared by `delete`. The explanation accurately describes the root cause (delete only resets non-mapping members) and the impact (stale data persists)."
+      "reasoning": "This finding correctly identifies the TARGET vulnerability. The root cause matches: 'When deleting a struct containing a mapping, Solidity's delete keyword only resets the non-mapping members (like id). The nested flags mapping entries persist in storage.' The location matches: deleteStruct in StructDeletion. The type 'Incomplete Data Deletion' is a semantic match to 'logic_error' - both describe the same underlying issue of improper data handling."
     },
     {
       "finding_id": 2,
-      "description": "StructDeletionB attempts to fix the deletion issue by iterating through indices 0-14, but this only works if flag keys are always in that range. If `addStruct` is called with flagKeys >= 15, those flags will persist after deletion.",
       "vulnerability_type_claimed": "Incomplete Data Deletion (Bounded Loop)",
-      "severity_claimed": "low",
       "location_claimed": "deleteStruct function in StructDeletionB contract",
-      "matches_target": false,
-      "is_valid_concern": true,
       "classification": "BONUS_VALID",
-      "reasoning": "This identifies a real vulnerability in the attempted fix: the bounded loop (0-14) is incomplete and creates a false sense of security. Any flag keys >= 15 will persist after deletion. This is a valid, exploitable issue where old permissions could unexpectedly persist. It's not the target vulnerability but is a legitimate security concern."
+      "reasoning": "This finding identifies a real, additional vulnerability in StructDeletionB. The contract attempts to fix the deletion issue but only deletes flags 0-14, leaving flags with keys >=15 intact. This is a concrete vulnerability with a clear attack scenario: if a flag is set with key >=15, it persists after deletion, potentially causing unexpected behavior or security issues if flags represent permissions. The fix suggested (tracking actual keys or using versioning) is valid."
     }
   ],
   "target_assessment": {
-    "found": true,
+    "complete_found": true,
+    "partial_found": false,
     "finding_id": 1,
-    "type_match": "exact",
-    "type_match_reasoning": "Finding 1 uses the same terminology and correctly identifies the incomplete data deletion issue with mappings inside structs. The description matches the ground truth exactly.",
+    "root_cause_match": true,
+    "location_match": true,
+    "type_match": "semantic",
     "root_cause_identification": {
-      "score": 1.0,
-      "reasoning": "The explanation correctly identifies that `delete` only resets non-mapping members and that nested mapping entries persist. This is the precise root cause described in the ground truth."
+      "score": 0.9,
+      "reasoning": "Finding 1's explanation semantically matches the ground truth: both describe how delete only resets non-mapping members while mapping entries persist. The model demonstrates clear understanding of the specific Solidity behavior causing the issue."
     },
     "attack_vector_validity": {
-      "score": 1.0,
-      "reasoning": "The attack scenario is realistic and executable: add struct with flag, delete struct, add struct again with same ID, old flag persists. This directly demonstrates the vulnerability impact."
+      "score": 0.85,
+      "reasoning": "The attack scenario in Finding 1 is concrete and valid: 1) Set a flag, 2) Delete struct, 3) Reuse structId, 4) Old flag persists causing unexpected behavior. This could bypass permission checks if flags represent access rights."
     },
     "fix_suggestion_validity": {
-      "score": 0.9,
-      "reasoning": "The suggested fix (explicitly delete known flag keys or redesign to avoid reusing structIds) is valid and would remediate the issue. The score is slightly less than perfect because it doesn't provide the most robust solution (tracking actual keys set), but it correctly identifies the necessary approach."
+      "score": 0.8,
+      "reasoning": "The fix suggestion correctly identifies the need to delete mapping entries before deleting the struct. It mentions two valid approaches: explicitly deleting known keys or tracking keys for iteration. This aligns with the ground truth fix of 'delete the mapping inside the struct before deleting the struct itself.'"
     }
   },
-  "summary": {
-    "total_findings": 3,
-    "target_matches": 1,
-    "partial_matches": 0,
-    "bonus_valid": 2,
-    "hallucinated": 0,
-    "mischaracterized": 0,
-    "design_choice": 0,
-    "out_of_scope": 0,
-    "security_theater": 0,
-    "informational": 0
-  },
-  "notes": "The audit found the target vulnerability (Finding 1) plus two additional valid vulnerabilities: missing access control (Finding 0) and incomplete fix in StructDeletionB (Finding 2). All findings are legitimate security concerns. The overall quality is excellent - the LLM correctly identified the target and found bonus valid issues.",
-  "judge_latency_ms": 8962.711095809937,
-  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.85\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"description\": \"Both contracts lack any access control on critical state-modifying functions. Any address can add, modify, or delete any struct entry.\",\n      \"vulnerability_type_claimed\": \"Missing Access Control\",\n      \"severity_claimed\": \"high\",\n      \"location_claimed\": \"addStruct, deleteStruct functions in both contracts\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This is a real, exploitable vulnerability that is not part of the ground truth target. The functions are public with no access control, allowing anyone to add or delete structs arbitrarily. This has material impact as it allows data corruption/deletion without authorization. No trusted role compromise is required - any external caller can exploit this.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"description\": \"When deleting a struct containing a mapping, Solidity's `delete` keyword only resets the non-mapping members (like `id`). The nested `flags` mapping entries persist in storage.\",\n      \"vulnerability_type_claimed\": \"Incomplete Data Deletion\",\n      \"severity_claimed\": \"medium\",\n      \"location_claimed\": \"deleteStruct function in StructDeletion contract\",\n      \"matches_target\": true,\n      \"is_valid_concern\": true,\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding correctly identifies the exact target vulnerability: incomplete struct deletion where mappings inside structs are not cleared by `delete`. The explanation accurately describes the root cause (delete only resets non-mapping members) and the impact (stale data persists).\"\n    },\n    {\n      \"finding_id\": 2,\n      \"description\": \"StructDeletionB attempts to fix the deletion issue by iterating through indices 0-14, but this only works if flag keys are always in that range. If `addStruct` is called with flagKeys >= 15, those flags will persist after deletion.\",\n      \"vulnerability_type_claimed\": \"Incomplete Data Deletion (Bounded Loop)\",\n      \"severity_claimed\": \"low\",\n      \"location_claimed\": \"deleteStruct function in StructDeletionB contract\",\n      \"matches_target\": false,\n      \"is_valid_concern\": true,\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This identifies a real vulnerability in the attempted fix: the bounded loop (0-14) is incomplete and creates a false sense of security. Any flag keys >= 15 will persist after deletion. This is a valid, exploitable issue where old permissions could unexpectedly persist. It's not the target vulnerability but is a legitimate security concern.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"found\": true,\n    \"finding_id\": 1,\n    \"type_match\": \"exact\",\n    \"type_match_reasoning\": \"Finding 1 uses the same terminology and correctly identifies the incomplete data deletion issue with mappings inside structs. The description matches the ground truth exactly.\",\n    \"root_cause_identification\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The explanation correctly identifies that `delete` only resets non-mapping members and that nested mapping entries persist. This is the precise root cause described in the ground truth.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 1.0,\n      \"reasoning\": \"The attack scenario is realistic and executable: add struct with flag, delete struct, add struct again with same ID, old flag persists. This directly demonstrates the vulnerability impact.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 0.9,\n      \"reasoning\": \"The suggested fix (explicitly delete known flag keys or redesign to avoid reusing structIds) is valid and would remediate the issue. The score is slightly less than perfect because it doesn't provide the most robust solution (tracking actual keys set), but it correctly identifies the necessary approach.\"\n    }\n  },\n  \"summary\": {\n    \"total_findings\": 3,\n    \"target_matches\": 1,\n    \"partial_matches\": 0,\n    \"bonus_valid\": 2,\n    \"hallucinated\": 0,\n    \"mischaracterized\": 0,\n    \"design_choice\": 0,\n    \"out_of_scope\": 0,\n    \"security_theater\": 0,\n    \"informational\": 0\n  },\n  \"notes\": \"The audit found the target vulnerability (Finding 1) plus two additional valid vulnerabilities: missing access control (Finding 0) and incomplete fix in StructDeletionB (Finding 2). All findings are legitimate security concerns. The overall quality is excellent - the LLM correctly identified the target and found bonus valid issues.\"\n}\n```"
+  "summary": {},
+  "notes": "The evaluation found that Finding 1 correctly identifies the TARGET vulnerability with high accuracy. Finding 2 identifies a separate, real vulnerability in StructDeletionB (BONUS_VALID). Finding 0 is informational about access control, which is not relevant to the TARGET issue. The model demonstrated strong understanding of the Solidity storage behavior with mappings in structs.",
+  "judge_latency_ms": 6998.50606918335,
+  "raw_response": "```json\n{\n  \"overall_verdict\": {\n    \"said_vulnerable\": true,\n    \"confidence_expressed\": 0.85\n  },\n  \"findings\": [\n    {\n      \"finding_id\": 0,\n      \"vulnerability_type_claimed\": \"Missing Access Control\",\n      \"location_claimed\": \"addStruct, deleteStruct functions in both contracts\",\n      \"classification\": \"INFORMATIONAL\",\n      \"reasoning\": \"The finding correctly identifies that there is no access control, but this is an informational/design issue. The contract does not specify any access control requirements, and the functions are public by default. This is not a security vulnerability in the context of the TARGET issue, which is about incomplete data deletion.\"\n    },\n    {\n      \"finding_id\": 1,\n      \"vulnerability_type_claimed\": \"Incomplete Data Deletion\",\n      \"location_claimed\": \"deleteStruct function in StructDeletion contract\",\n      \"classification\": \"TARGET_MATCH\",\n      \"reasoning\": \"This finding correctly identifies the TARGET vulnerability. The root cause matches: 'When deleting a struct containing a mapping, Solidity's delete keyword only resets the non-mapping members (like id). The nested flags mapping entries persist in storage.' The location matches: deleteStruct in StructDeletion. The type 'Incomplete Data Deletion' is a semantic match to 'logic_error' - both describe the same underlying issue of improper data handling.\"\n    },\n    {\n      \"finding_id\": 2,\n      \"vulnerability_type_claimed\": \"Incomplete Data Deletion (Bounded Loop)\",\n      \"location_claimed\": \"deleteStruct function in StructDeletionB contract\",\n      \"classification\": \"BONUS_VALID\",\n      \"reasoning\": \"This finding identifies a real, additional vulnerability in StructDeletionB. The contract attempts to fix the deletion issue but only deletes flags 0-14, leaving flags with keys >=15 intact. This is a concrete vulnerability with a clear attack scenario: if a flag is set with key >=15, it persists after deletion, potentially causing unexpected behavior or security issues if flags represent permissions. The fix suggested (tracking actual keys or using versioning) is valid.\"\n    }\n  ],\n  \"target_assessment\": {\n    \"complete_found\": true,\n    \"partial_found\": false,\n    \"finding_id\": 1,\n    \"root_cause_match\": true,\n    \"location_match\": true,\n    \"type_match\": \"semantic\",\n    \"root_cause_identification\": {\n      \"score\": 0.9,\n      \"reasoning\": \"Finding 1's explanation semantically matches the ground truth: both describe how delete only resets non-mapping members while mapping entries persist. The model demonstrates clear understanding of the specific Solidity behavior causing the issue.\"\n    },\n    \"attack_vector_validity\": {\n      \"score\": 0.85,\n      \"reasoning\": \"The attack scenario in Finding 1 is concrete and valid: 1) Set a flag, 2) Delete struct, 3) Reuse structId, 4) Old flag persists causing unexpected behavior. This could bypass permission checks if flags represent access rights.\"\n    },\n    \"fix_suggestion_validity\": {\n      \"score\": 0.8,\n      \"reasoning\": \"The fix suggestion correctly identifies the need to delete mapping entries before deleting the struct. It mentions two valid approaches: explicitly deleting known keys or tracking keys for iteration. This aligns with the ground truth fix of 'delete the mapping inside the struct before deleting the struct itself.'\"\n    }\n  },\n  \"notes\": \"The evaluation found that Finding 1 correctly identifies the TARGET vulnerability with high accuracy. Finding 2 identifies a separate, real vulnerability in StructDeletionB (BONUS_VALID). Finding 0 is informational about access control, which is not relevant to the TARGET issue. The model demonstrated strong understanding of the Solidity storage behavior with mappings in structs.\"\n}\n```"
 }

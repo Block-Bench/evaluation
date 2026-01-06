@@ -120,7 +120,10 @@ def aggregate_results(judge_dir: Path, ground_truths: dict) -> dict:
 
         # Target assessment
         target_assessment = result.get("target_assessment", {})
-        target_found = target_assessment.get("found", False)
+        # Support both old "found" key and new "complete_found"/"partial_found" keys
+        target_found = target_assessment.get("found", False) or \
+                       target_assessment.get("complete_found", False) or \
+                       target_assessment.get("partial_found", False)
         type_match = target_assessment.get("type_match", "not_mentioned")
 
         if target_found:
@@ -152,7 +155,7 @@ def aggregate_results(judge_dir: Path, ground_truths: dict) -> dict:
             by_vuln_type[vuln_type]["verdict_correct_count"] += 1
 
         # Type match - normalize to standard categories
-        type_match_normalized = type_match.lower().replace(" ", "_")
+        type_match_normalized = (type_match or "not_mentioned").lower().replace(" ", "_")
         if type_match_normalized in TYPE_MATCH_CATEGORIES:
             type_matches[type_match_normalized] += 1
             by_vuln_type[vuln_type]["type_matches"][type_match_normalized] += 1

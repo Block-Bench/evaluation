@@ -671,7 +671,7 @@ def run_judge_on_sample(
 def main():
     parser = argparse.ArgumentParser(description="Run LLM Judge on detection outputs")
     parser.add_argument("--detector", "-d", required=True, help="Detector model (e.g., deepseek-v3-2)")
-    parser.add_argument("--judge", "-j", default="codestral", choices=["codestral", "gemini-3-flash", "glm-4.7", "mimo-v2-flash"], help="Judge model")
+    parser.add_argument("--judge", "-j", default="codestral", choices=["codestral", "gemini-3-flash", "glm-4.7", "mimo-v2-flash", "mistral-large"], help="Judge model")
     parser.add_argument("--tier", "-t", type=int, default=1, help="Tier (1-4)")
     parser.add_argument("--sample", "-s", help="Single sample ID")
     parser.add_argument("--limit", "-l", type=int, help="Limit samples")
