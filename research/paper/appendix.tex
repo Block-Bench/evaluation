@@ -30,7 +30,7 @@ BlockBench contains 290 contracts (DS=210, TC=46, GS=34). For evaluation, we use
 \begin{figure}[h]
 \centering
 \includegraphics[width=\columnwidth]{figures/figure_a3_radar.png}
-\caption{Multi-dimensional performance comparison for top 5 models across five evaluation dimensions: Target Detection Rate (TDR), Finding Precision, Root Cause Identification (RCIR), Attack Vector Accuracy (AVA), and Fix Suggestion Validity (FSV). Claude and Gemini show balanced profiles; GPT-5.2 excels in precision and reasoning quality despite lower TDR.}
+\caption{Multi-dimensional performance comparison across five evaluation dimensions: Target Detection Rate (TDR), Finding Precision, Root Cause Identification (RCIR), Attack Vector Accuracy (AVA), and Fix Suggestion Validity (FSV). Claude shows balanced profile with highest TDR; GPT-5.2 excels in precision (89.6\%) and reasoning quality.}
 \label{fig:radar}
 \end{figure}
 
@@ -149,7 +149,11 @@ Distinguishing memorization from reasoning remains a critical challenge. Models 
 \section{Transformation Specifications}
 \label{app:transformations}
 
-We apply four adversarial transformations to probe whether models rely on surface cues or genuine semantic understanding. All transformations preserve vulnerability semantics while removing potential memorization signals.
+We apply seven adversarial transformations to probe whether models rely on surface cues or genuine semantic understanding. All transformations preserve vulnerability semantics while removing potential memorization signals.
+
+\subsection{Minimal Sanitization (ms)}
+
+Light identifier neutralization preserving some semantic hints. Variable names with security implications (\texttt{owner}, \texttt{balance}) are renamed to neutral alternatives (\texttt{addr1}, \texttt{val1}) while preserving function structure. This serves as the baseline transformed variant.
 
 \subsection{Sanitization (sn)}
 
@@ -210,7 +214,20 @@ if (check) {
 }
 \end{lstlisting}
 
-These transformations generate 1,343 variants from 263 base samples, enabling systematic robustness evaluation across transformation trajectories.
+\subsection{Trojan (tr)}
+
+Injects \colorbox{violet!25}{\textsc{Decoy}} code segments that appear suspicious but are actually safe. Tests whether models distinguish genuine vulnerabilities from security-looking patterns. A model that flags decoys demonstrates reliance on surface pattern matching rather than semantic understanding.
+
+\subsection{Differential (df)}
+
+Provides paired vulnerable and fixed contract versions. The fix applies minimal changes to remediate the vulnerability. Tests whether models correctly identify the original as vulnerable and the fixed version as safe, revealing understanding of specific vulnerability mechanics.
+
+\subsection{False Prophet (fp)}
+
+Adds misleading security attestations as comments (e.g., ``Audited by Trail of Bits'', ``Reentrancy protected''). Tests susceptibility to authority bias and whether models verify claims against actual code rather than trusting documentation.
+
+\vspace{0.5em}
+These seven transformations generate 322 variants from 46 TC base samples, enabling systematic robustness evaluation across transformation trajectories.
 
 \section{Prompt Templates}
 \label{app:prompts}
@@ -226,11 +243,11 @@ We employ different prompting strategies across datasets, calibrated to their ev
 \midrule
 DS/TC & Direct & -- & -- & -- & Expert \\
 \midrule
-GS & Zero-shot & \checkmark & -- & -- & Expert \\
-GS & Context-enhanced & \checkmark & \checkmark & -- & Expert \\
-GS & Chain-of-thought & \checkmark & \checkmark & \checkmark & Expert \\
-GS & Naturalistic & \checkmark & \checkmark & \checkmark & Casual \\
-GS & Adversarial & \checkmark & \checkmark & \checkmark & Biased \\
+GS & Direct & -- & -- & -- & Expert \\
+GS & Context (Ctx) & \checkmark & \checkmark & -- & Expert \\
+GS & Chain-of-thought (CoT) & \checkmark & \checkmark & \checkmark & Expert \\
+GS & Naturalistic (Nat) & \checkmark & \checkmark & \checkmark & Casual \\
+GS & Adversarial (Adv) & \checkmark & \checkmark & \checkmark & Biased \\
 \bottomrule
 \end{tabular}
 \caption{Prompting strategy matrix. Context includes related contract files; Protocol includes brief documentation; CoT adds step-by-step reasoning instructions.}
@@ -323,7 +340,7 @@ Models exhibiting large performance drops under adversarial framing demonstrate 
 
 \subsection{Judge Architecture}
 
-We employ Mistral Medium 3 as an automated judge to evaluate model responses against ground truth. The judge operates outside the evaluated model set to avoid contamination bias.
+We employ three LLM judges (\textbf{GLM-4.7}, \textbf{MIMO-v2-Flash}, \textbf{Mistral-Large}) with majority voting to evaluate model responses against ground truth. A finding is marked as found only if $\geq$2 judges agree. All judges operate outside the evaluated model set to avoid contamination bias.
 
 \subsection{Classification Protocol}
 
@@ -404,7 +421,7 @@ Detection-Heavy & 0.50 & 0.25 & 0.25 & Critical infra \\
 \label{tab:sui_configs}
 \end{table}
 
-Table~\ref{tab:sui_sensitivity} shows complete SUI scores and rankings under each configuration. Rankings exhibit perfect stability: Spearman's $\rho = 1.000$ across all configuration pairs. GPT-5.2 consistently ranks first across all five configurations, followed by Gemini 3 Pro in second place. The top-3 positions remain unchanged (GPT-5.2, Gemini 3 Pro, Claude Opus 4.5) under all weight configurations.
+Table~\ref{tab:sui_sensitivity} shows complete SUI scores and rankings under each configuration. Rankings exhibit high stability: Spearman's $\rho = 0.93$--$1.00$ across all configuration pairs. Claude Opus 4.5 and GPT-5.2 consistently rank in the top 2 across all five configurations. The top-3 positions remain stable (Claude, GPT-5.2, Gemini) under all weight configurations.
 
 \begin{table*}[t]
 \centering
@@ -413,19 +430,20 @@ Table~\ref{tab:sui_sensitivity} shows complete SUI scores and rankings under eac
 \toprule
 \textbf{Model} & \textbf{Balanced} & \textbf{Default} & \textbf{Quality-First} & \textbf{Precision-First} & \textbf{Detection-Heavy} \\
 \midrule
-GPT-5.2 & 0.766 (1) & 0.746 (1) & 0.787 (1) & 0.766 (1) & 0.714 (1) \\
-Gemini 3 Pro & 0.751 (2) & 0.734 (2) & 0.772 (2) & 0.747 (2) & 0.707 (2) \\
-Claude Opus 4.5 & 0.722 (3) & 0.703 (3) & 0.748 (3) & 0.716 (3) & 0.674 (3) \\
-Grok 4 & 0.703 (4) & 0.677 (4) & 0.731 (4) & 0.701 (4) & 0.638 (4) \\
-DeepSeek v3.2 & 0.622 (5) & 0.599 (5) & 0.650 (5) & 0.619 (5) & 0.563 (5) \\
-Llama 3.1 405B & 0.415 (6) & 0.393 (6) & 0.462 (6) & 0.396 (6) & 0.357 (6) \\
+Claude Opus 4.5 & 0.77 (1) & 0.76 (1) & 0.78 (1) & 0.76 (1) & 0.75 (1) \\
+GPT-5.2 & 0.75 (2) & 0.74 (2) & 0.77 (2) & 0.76 (2) & 0.72 (2) \\
+Gemini 3 Pro & 0.74 (3) & 0.74 (3) & 0.76 (3) & 0.75 (3) & 0.72 (3) \\
+Grok 4 Fast & 0.63 (4) & 0.62 (4) & 0.65 (4) & 0.64 (4) & 0.60 (4) \\
+DeepSeek v3.2 & 0.59 (5) & 0.58 (5) & 0.61 (5) & 0.59 (5) & 0.56 (5) \\
+Qwen3 Coder Plus & 0.56 (6) & 0.55 (6) & 0.58 (6) & 0.56 (6) & 0.53 (6) \\
+Llama 4 Maverick & 0.49 (7) & 0.48 (7) & 0.51 (7) & 0.48 (7) & 0.46 (7) \\
 \bottomrule
 \end{tabular}
-\caption{Model SUI scores and rankings (in parentheses) under different weight configurations.}
+\caption{Model SUI scores and rankings (in parentheses) under different weight configurations. Rankings remain stable across all configurations (Spearman's $\rho$=0.93--1.00).}
 \label{tab:sui_sensitivity}
 \end{table*}
 
-This perfect correlation ($\rho = 1.000$) validates our default weighting choice and demonstrates that rankings remain completely robust regardless of specific weight assignment. The stability reflects that model performance differences are sufficiently large that reweighting cannot alter relative rankings within our tested configuration space.
+This high correlation ($\rho = 0.93$--$1.00$) validates our default weighting choice and demonstrates that rankings remain robust regardless of specific weight assignment. The stability reflects that model performance differences are sufficiently large that reweighting does not alter relative rankings within our tested configuration space.
 
 \section{Metric Definitions and Mathematical Framework}
 \label{app:metrics}
@@ -537,3 +555,32 @@ Correlation between human and LLM judge scores measured using Pearson's $\rho$:
 \begin{equation}
 \rho = \frac{\sum (x_i - \bar{x})(y_i - \bar{y})}{\sqrt{\sum (x_i - \bar{x})^2 \sum (y_i - \bar{y})^2}}
 \end{equation}
+
+\section{Knowledge Assessment for TC Samples}
+\label{app:knowledge_assessment}
+
+To measure potential temporal contamination, we probe each model's prior knowledge of TC exploits before code analysis. Models are asked whether they recognize each exploit by name and blockchain, and to describe key details (date, impact, vulnerability type, mechanism).
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Model} & \textbf{Familiar} & \textbf{Rate (\%)} \\
+\midrule
+Llama 4 Maverick & 46/46 & 100.0 \\
+Claude Opus 4.5 & 44/46 & 95.7 \\
+Gemini 3 Pro & 44/46 & 95.7 \\
+GPT-5.2 & 23/46 & 50.0 \\
+Qwen3 Coder Plus & 19/46 & 41.3 \\
+DeepSeek v3.2 & 17/46 & 37.0 \\
+Grok 4 Fast & 0/11$^{*}$ & 0.0 \\
+\bottomrule
+\end{tabular}
+\caption{Prior knowledge of TC exploits. ``Familiar'' indicates model recognized the exploit and provided accurate details. $^{*}$Partial assessment (11/46 samples).}
+\label{tab:knowledge_assessment}
+\end{table}
+
+Table~\ref{tab:knowledge_assessment} reveals substantial variation in prior knowledge. Llama and Claude/Gemini show near-complete familiarity (96--100\%), while DeepSeek and Qwen show lower rates (37--41\%). This differential explains some performance patterns: models with high familiarity may rely on memorized exploit signatures rather than code analysis.
+
+\paragraph{Example Responses.} When familiar, models provide detailed, accurate descriptions. Claude on Nomad Bridge (ms\_tc\_001): ``\textit{August 2022...approximately \$190 million...a trusted root was incorrectly initialized to 0x00 (zero)...the bridge would approve any withdrawal request without proper verification.}'' When unfamiliar, models appropriately decline: ``\textit{I am not familiar with this specific security incident.}''
